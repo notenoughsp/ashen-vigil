@@ -205,6 +205,8 @@ pub struct Settings {
     pub ui_scale: u8,
     /// Weapons aim at the nearest enemy instead of where you walk.
     pub auto_aim: bool,
+    /// The soft variant: pink instead of blood, hearts instead of bullets, blushing foes.
+    pub cute: bool,
 }
 
 pub const RESOLUTIONS: [(u32, u32); 6] = [(1280, 720), (1366, 768), (1600, 900), (1920, 1080), (2560, 1440), (3840, 2160)];
@@ -239,6 +241,7 @@ impl Default for Settings {
             shake: true,
             ui_scale: 0,
             auto_aim: false,
+            cute: false,
         }
     }
 }
@@ -259,6 +262,8 @@ pub struct Save {
     pub cats: u32,
     /// Seven clicks on the title turn the menu's embers blue.
     pub blue_embers: bool,
+    /// "cute" was typed in the main menu once; the option shows from then on.
+    pub cute_found: bool,
     pub achievements: u32,
     /// Best ten vigils, best first.
     pub runs: Vec<RunRecord>,
@@ -283,6 +288,7 @@ impl Default for Save {
             vigils: 0,
             cats: 0,
             blue_embers: false,
+            cute_found: false,
             achievements: 0,
             runs: Vec::new(),
             best_kills: 0,
@@ -429,6 +435,8 @@ impl Save {
                     }
                 }
                 "auto_aim" => st.auto_aim = flag(v),
+                "cute" => st.cute = flag(v),
+                "cute_found" => s.cute_found = flag(v),
                 "remnant" => {
                     let p: Vec<&str> = v.split(',').collect();
                     if let [x, y, n] = p[..] {
@@ -508,6 +516,7 @@ impl Save {
             out += &format!("remnant={:.0},{:.0},{}\n", p.x, p.y, n);
         }
         out += &format!("name={}\nlast_ip={}\nui_scale={}\n", st.name, st.last_ip, st.ui_scale);
+        out += &format!("cute={}\ncute_found={}\n", b(st.cute), b(self.cute_found));
         for (a, k) in ACTIONS.iter().zip(st.binds) {
             out += &format!("bind_{}={}\n", a.key(), key_name(k));
         }

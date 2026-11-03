@@ -25,6 +25,10 @@ pub const VICTORY_TIME: f32 = 30.0 * 60.0;
 /// Most foes alive at once. Hordes and swarms grow with time, so without a ceiling an
 /// endless night would pile up thousands.
 pub const MAX_ENEMIES: usize = 1600;
+/// Boss health grows by this factor every minute past 5:00.
+pub const BOSS_GROWTH: f32 = 1.17;
+/// Seconds a boss fight can last before its fog ring lifts.
+pub const BOSS_FOG_TIME: f32 = 180.0;
 /// A lone grave in the far south-west corner of the field, for those who wander.
 pub const LOST_GRAVE: Vec2 = Vec2::new(-WORLD_HALF + 260.0, WORLD_HALF - 240.0);
 /// Seconds of standing still, with no foe near, before a hero sits down by a fire.
@@ -568,6 +572,8 @@ pub struct World {
     qbuf: Vec<usize>,
     pub show_numbers: bool,
     pub gore: bool,
+    /// Cute mode: soft colours for blood and fire, hearts for bullets, blushing foes.
+    pub cute: bool,
     /// Draw the full models; off draws cheaper ones for big hordes on slow machines.
     pub detail_high: bool,
     /// Particle budget multiplier (0.35 low, 0.65 medium, 1 high).
@@ -575,6 +581,8 @@ pub struct World {
     pub fog: bool,
     pub shake_mult: f32,
     pub boss_bar_lag: f32,
+    /// When the current boss arrived, for the quick-kill achievement.
+    pub boss_started: f32,
     pub screen: Vec2,
     pub dead: bool,
     pub won: bool,
@@ -674,11 +682,13 @@ impl World {
             qbuf: Vec::new(),
             show_numbers: true,
             gore: true,
+            cute: false,
             detail_high: true,
             particle_mult: 1.0,
             fog: true,
             shake_mult: 1.0,
             boss_bar_lag: 1.0,
+            boss_started: 0.0,
             screen: vec2(1280.0, 720.0),
             dead: false,
             won: false,
@@ -803,11 +813,12 @@ impl World {
             // Players who left can't choose; don't let them hold everyone up.
             hero.picked = !hero.connected;
             // Nothing left to choose: take the souls without asking.
-            if hero.connected && !hero.downed && hero.maxed() {
+            if hero.connected && hero.maxed() {
                 hero.choices = vec![Choice::Souls];
                 hero.apply_choice(Choice::Souls);
                 hero.picked = true;
                 auto.push(h);
+                crate::log!("level {}: {} has everything maxed and takes 150 souls", self.level, hero.name);
             }
         }
         if self.heroes.iter().all(|h| h.picked) {
@@ -1001,6 +1012,8 @@ impl World {
             }
             if rolled && self.me().rolls == 100 {
                 self.toast("100 rolls. Your knees file a formal complaint.");
+            } else if rolled && self.me().rolls == 1000 {
+                self.toast("1,000 rolls. The floor knows you by name now.");
             }
         }
         self.update_fx(dt);

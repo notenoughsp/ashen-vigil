@@ -69,6 +69,11 @@ impl World {
     }
 
     pub(crate) fn update_boss(&mut self, dt: f32) {
+        // A fight that drags on lifts the fog, so nobody is trapped with a lord they can't fell.
+        if self.arena.is_some() && self.boss.is_some() && self.time - self.boss_started > BOSS_FOG_TIME {
+            self.arena = None;
+            self.toast("The fog thins. The lord still stands, but you can walk away.");
+        }
         let Some(mut ai) = self.boss.take() else { return };
         let Some(bi) = self.enemies.iter().position(|e| e.id == ai.id && !e.dead) else {
             return;

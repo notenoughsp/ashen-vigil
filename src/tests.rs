@@ -520,7 +520,13 @@ fn a_player_who_left_can_take_their_hero_back() {
 #[test]
 fn endless_night_goes_on_past_dawn() {
     let mut w = world_with(1, PRESETS[1].1);
-    simulate(&mut w, VICTORY_TIME + 200.0, true, |_, _| {});
+    simulate(&mut w, VICTORY_TIME + 60.0, true, |_, _| {});
+    // The test heroes walk in circles and can't fell the finale; it falls here instead.
+    w.enemies.retain(|e| !e.boss);
+    w.boss = None;
+    w.boss_kind = None;
+    w.arena = None;
+    simulate(&mut w, 30.0, true, |_, _| {});
     assert!(w.won, "the vigil should be kept at dawn");
     let bosses = w.bosses_killed;
     w.won = false;
@@ -865,4 +871,87 @@ fn the_countdown_shrinks_every_five_levels() {
     assert!((w.resume_delay() - RESUME_DELAY * 0.95 * 0.95).abs() < 1e-5);
     w.level = 400;
     assert_eq!(w.resume_delay(), MIN_RESUME_DELAY);
+}
+
+#[test]
+fn bosses_grow_with_time_and_take_turns_past_dawn() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.time = 300.0;
+    w.next_boss = 300.0;
+    w.update_spawns(0.0);
+    let first = w.enemies.iter().find(|e| e.boss).map(|e| e.max_hp).unwrap();
+    w.enemies.retain(|e| !e.boss);
+    w.boss = None;
+    w.time = 25.0 * 60.0;
+    w.next_boss = w.time;
+    w.update_spawns(0.0);
+    let late = w.enemies.iter().find(|e| e.boss).map(|e| (e.max_hp, e.kind)).unwrap();
+    assert!(late.0 > first * 20.0, "a boss at 25:00 should be far tougher: {} vs {}", late.0, first);
+    // Past dawn the lords take turns instead of the Sovereign every time.
+    w.enemies.retain(|e| !e.boss);
+    w.boss = None;
+    w.endless = true;
+    let mut kinds = Vec::new();
+    for k in 0..4 {
+        w.time = VICTORY_TIME + 60.0 + k as f32 * 300.0;
+        w.next_boss = w.time;
+        w.update_spawns(0.0);
+        kinds.push(w.boss_kind);
+        w.enemies.retain(|e| !e.boss);
+        w.boss = None;
+    }
+    kinds.sort_by_key(|k| k.map(|k| k as u8));
+    kinds.dedup();
+    assert_eq!(kinds.len(), 4, "every lord should come past dawn: {:?}", kinds);
+}
+
+#[test]
+fn the_permanent_shop_feeds_the_stats() {
+    let mut profile = Profile { unlocks: u64::MAX, ..Profile::default() };
+    let base = Hero::new(0, "A", Class::Wanderer, profile).stats;
+    for (i, m) in META.iter().enumerate() {
+        profile.meta[i] = m.max;
+    }
+    for (i, r) in RELICS.iter().enumerate() {
+        profile.relics[i] = r.max;
+    }
+    let full = Hero::new(0, "A", Class::Wanderer, profile).stats;
+    assert!(full.armor >= base.armor + 7.0);
+    assert!(full.regen > base.regen + 0.7);
+    assert_eq!(full.amount, base.amount + 2);
+    assert!(full.area > base.area && full.crit > base.crit && full.growth > base.growth && full.elite_dmg > base.elite_dmg);
+    assert!(full.cooldown >= 0.4);
+    // Prices climb: the last level of every upgrade costs more than the first.
+    for (i, m) in META.iter().enumerate() {
+        assert!(meta_cost(i, m.max - 1) >= meta_cost(i, 0));
+    }
+    assert_eq!(ALL_ACHIEVEMENTS.len(), 30);
+    let mut bits: Vec<u32> = ALL_ACHIEVEMENTS.iter().map(|a| a.bit()).collect();
+    bits.dedup();
+    assert_eq!(bits.len(), 30);
+}
+
+#[test]
+fn level_up_cards_point_out_fusions_and_evolutions() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.heroes[0].weapons = vec![Weapon::new(WeaponKind::Blade)];
+    w.heroes[0].items.clear();
+    let h = &w.heroes[0];
+    assert!(h.choice_hint(Choice::NewWeapon(WeaponKind::Axe)).is_some_and(|(t, _)| t.contains("Rusted Blade")));
+    assert!(h.choice_hint(Choice::NewWeapon(WeaponKind::Scythe)).is_some(), "the new second partner counts too");
+    assert!(h.choice_hint(Choice::NewWeapon(WeaponKind::Orb)).is_none());
+    let evo = WeaponKind::Blade.evo_item();
+    assert!(h.choice_hint(Choice::NewItem(evo)).is_some_and(|(t, _)| t.starts_with("Evolves")));
+}
+
+#[test]
+fn cute_mode_softens_the_red() {
+    let mut w = world_with(1, PRESETS[1].1);
+    let blood = Color::new(0.6, 0.05, 0.05, 1.0);
+    assert_eq!(w.soften(blood), blood);
+    w.cute = true;
+    let soft = w.soften(blood);
+    assert!(soft.b > 0.5 && soft.r > 0.9, "{:?}", soft);
+    let teal = Color::new(0.2, 0.9, 0.8, 1.0);
+    assert_eq!(w.soften(teal), teal);
 }

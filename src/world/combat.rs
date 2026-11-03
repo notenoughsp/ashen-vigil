@@ -202,10 +202,12 @@ impl World {
         if self.dead {
             return;
         }
+        let now = self.time;
         let hero = &mut self.heroes[h];
         if hero.downed || hero.p.iframes > 0.0 || hero.p.roll_t > 0.0 || hero.buff(Buff::Aegis) > 0.0 {
             return;
         }
+        hero.first_hurt = hero.first_hurt.min(now);
         let d = (dmg - hero.stats.armor).max(1.0);
         hero.p.hp -= d;
         hero.p.iframes = 0.45;

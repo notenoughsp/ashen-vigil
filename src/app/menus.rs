@@ -10,7 +10,6 @@ const MENU_ITEMS: [&str; 7] = ["Start", "Online Lobby", "Reliquary", "Records", 
 const HUB_CHALLENGE_ROW: usize = 1;
 const HUB_META_ROW: usize = HUB_CHALLENGE_ROW + ALL_CHALLENGES.len();
 const HUB_ROWS: usize = HUB_META_ROW + META_COUNT + 1;
-const VOLUMES: [f32; 11] = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
 
 /// One row on the options screen.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -23,6 +22,7 @@ enum Opt {
     Overlay,
     Shake,
     UiScale,
+    Cute,
     Bind(u8),
     ResetBinds,
     AutoAim,
@@ -58,6 +58,7 @@ impl Opt {
             Opt::Overlay => "FPS and network overlay",
             Opt::Shake => "Screen shake",
             Opt::UiScale => "Interface size",
+            Opt::Cute => "Cute mode",
             Opt::Bind(i) => ACTIONS[i as usize].label(),
             Opt::ResetBinds => "Reset to defaults",
             Opt::AutoAim => "Auto-aim (F)",
@@ -89,6 +90,7 @@ impl Opt {
             Opt::AutoAim => "Weapons aim at the nearest enemy instead of where you walk. F toggles it in a vigil.",
             Opt::Vsync => "Syncs to the monitor refresh. Takes effect after a restart.",
             Opt::Bind(_) => "Enter, then press the new key. Arrow keys, Shift and Esc always work too.",
+            Opt::Cute => "Pink instead of blood, hearts instead of bullets, and everyone blushes.",
             Opt::UiScale => "Size of menus and HUD. Auto grows with the window above 1080p.",
             Opt::FpsCap => "Caps the frame rate. With VSync on, the lower of both wins.",
             Opt::Msaa => "Smooths edges of all shapes. Takes effect after a restart.",
@@ -120,7 +122,7 @@ const PAGES: [(&str, &[Opt]); 4] = [
             Opt::Back,
         ],
     ),
-    ("General", &[Opt::Name, Opt::Music, Opt::Sfx, Opt::AutoAim, Opt::Numbers, Opt::Meter, Opt::Overlay, Opt::Shake, Opt::UiScale, Opt::Back]),
+    ("General", &[Opt::Name, Opt::Music, Opt::Sfx, Opt::AutoAim, Opt::Numbers, Opt::Meter, Opt::Overlay, Opt::Shake, Opt::UiScale, Opt::Cute, Opt::Back]),
     (
         "Graphics",
         &[
@@ -141,6 +143,11 @@ const PAGES: [(&str, &[Opt]); 4] = [
     ),
     ("Difficulty", &[Opt::Preset, Opt::Count, Opt::Hp, Opt::Dmg, Opt::Speed, Opt::BossHp, Opt::Back]),
 ];
+
+/// A volume one percent up or down.
+fn percent_step(v: f32, dir: i32) -> f32 {
+    ((v * 100.0).round() + dir as f32).clamp(0.0, 100.0) / 100.0
+}
 
 /// Where the main menu rows sit, for drawing and for the mouse.
 fn menu_rows() -> Vec<Rect> {
@@ -174,6 +181,7 @@ impl App {
             } else {
                 self.save.bucket_unlocked = true;
                 self.save.store();
+                self.unlock(Achievement::Clang);
                 self.set_note("A bucket clangs somewhere in the dark... The Bucket Knight joins the vigil.", 6.0);
             }
         }
@@ -189,12 +197,35 @@ impl App {
                 self.title_clicks = 0;
                 self.save.blue_embers = !self.save.blue_embers;
                 self.save.store();
+                self.unlock(Achievement::ColdEmbers);
                 self.audio.play("bell", 0.8);
                 let msg = if self.save.blue_embers { "The embers burn cold and blue. Something old remembers you." } else { "The embers warm again." };
                 self.set_note(msg, 5.0);
             }
         }
-        drain_chars();
+        // Secret words typed in the menu.
+        while let Some(c) = get_char_pressed() {
+            self.typed.push(c.to_ascii_lowercase());
+            if self.typed.len() > 12 {
+                self.typed.remove(0);
+            }
+            if self.typed.ends_with("cute") {
+                self.typed.clear();
+                let st = &mut self.save.settings;
+                st.cute = !st.cute;
+                self.save.cute_found = true;
+                self.save.store();
+                self.unlock(Achievement::SoftHeart);
+                self.audio.play("meow", 0.8);
+                let msg = if self.save.settings.cute { "Everything is soft now. (Options > General: Cute mode)" } else { "The dark returns, a little reluctantly." };
+                self.set_note(msg, 5.0);
+            } else if self.typed.ends_with("meow") {
+                self.typed.clear();
+                self.menu_cat = 6.0;
+                self.audio.play("meow", 0.9);
+            }
+        }
+        self.menu_cat = (self.menu_cat - get_frame_time()).max(0.0);
         if back() {
             self.menu_sel = MENU_ITEMS.len() - 1;
         }
@@ -243,7 +274,24 @@ impl App {
     pub(super) fn draw_menu(&self, ui: &Ui) {
         let (sw, sh) = (ui_w(), ui_h());
         ui.spaced_c("ASHEN VIGIL", sw * 0.5, sh * 0.27, 72.0, 14.0, PALE);
-        ui.text_c("hold the dark at bay until dawn", sw * 0.5, sh * 0.27 + 44.0, 20.0, DIM);
+        let motto = if self.save.settings.cute { "hold hands until dawn" } else { "hold the dark at bay until dawn" };
+        ui.text_c(motto, sw * 0.5, sh * 0.27 + 44.0, 20.0, DIM);
+        if self.menu_cat > 0.0 {
+            // A black cat strolls along the bottom of the menu and is gone.
+            let k = 1.0 - self.menu_cat / 6.0;
+            let (cx, cy) = (-40.0 + k * (sw + 80.0), sh - 96.0);
+            let step = (self.t * 10.0).sin() * 2.0;
+            let black = Color::new(0.05, 0.04, 0.05, 1.0);
+            draw_ellipse(cx, cy, 18.0, 9.0, 0.0, black);
+            draw_circle(cx + 17.0, cy - 8.0, 8.0, black);
+            draw_triangle(vec2(cx + 12.0, cy - 13.0), vec2(cx + 16.0, cy - 22.0), vec2(cx + 19.0, cy - 13.0), black);
+            draw_triangle(vec2(cx + 18.0, cy - 13.0), vec2(cx + 23.0, cy - 21.0), vec2(cx + 25.0, cy - 11.0), black);
+            draw_line(cx - 16.0, cy - 2.0, cx - 26.0, cy - 16.0 + step, 3.0, black);
+            for (dx, ph) in [(-10.0, 0.0), (-4.0, 1.0), (6.0, 0.5), (12.0, 1.5)] {
+                draw_line(cx + dx, cy + 5.0, cx + dx + (self.t * 10.0 + ph).sin() * 3.0, cy + 14.0, 2.5, black);
+            }
+            draw_circle(cx + 20.0, cy - 9.0, 1.4, Color::new(0.9, 0.8, 0.3, 1.0));
+        }
         for (i, (item, r)) in MENU_ITEMS.iter().zip(menu_rows()).enumerate() {
             let on = self.menu_sel == i;
             ui.row(r.x, r.y, r.w, r.h, on);
@@ -330,8 +378,9 @@ impl App {
 
     // ---------------------------------------------------------------- options
 
-    fn option_rows(&self) -> &'static [Opt] {
-        PAGES[self.opt_page.min(PAGES.len() - 1)].1
+    /// The rows of the current page; the cute option only once it has been found.
+    fn option_rows(&self) -> Vec<Opt> {
+        PAGES[self.opt_page.min(PAGES.len() - 1)].1.iter().copied().filter(|o| *o != Opt::Cute || self.save.cute_found).collect()
     }
 
     pub(super) fn update_options(&mut self) {
@@ -396,6 +445,22 @@ impl App {
         } else {
             0
         };
+        if matches!(opt, Opt::Music | Opt::Sfx) {
+            let held = if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) || pad_stick().x < -0.5 {
+                -1
+            } else if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) || pad_stick().x > 0.5 {
+                1
+            } else {
+                0
+            };
+            self.opt_hold = if held != 0 { self.opt_hold + get_frame_time() } else { 0.0 };
+            let wheel = mouse_wheel().1;
+            if dir == 0 && self.opt_hold > 0.35 {
+                self.change_option(opt, held);
+            } else if dir == 0 && wheel != 0.0 && hovered(&crate::ui::rows_drawn()).is_some() {
+                self.change_option(opt, wheel.signum() as i32);
+            }
+        }
         if let Opt::Bind(i) = opt {
             if confirm() || mouse.left {
                 self.binding = Some(i as usize);
@@ -419,11 +484,11 @@ impl App {
         let cycle_u8 = |v: u8, n: u8| ((v as i32 + dir).rem_euclid(n as i32)) as u8;
         match opt {
             Opt::Music => {
-                st.music = step(&VOLUMES, st.music, dir);
+                st.music = percent_step(st.music, dir);
                 self.audio.set_music_volume(st.music);
             }
             Opt::Sfx => {
-                st.sfx = step(&VOLUMES, st.sfx, dir);
+                st.sfx = percent_step(st.sfx, dir);
                 self.audio.sfx_vol = st.sfx;
             }
             Opt::Numbers => st.numbers = !st.numbers,
@@ -434,6 +499,7 @@ impl App {
             Opt::Bind(_) => {}
             Opt::UiScale => st.ui_scale = (st.ui_scale as i32 + dir).rem_euclid(UI_SCALES.len() as i32) as u8,
             Opt::AutoAim => st.auto_aim = !st.auto_aim,
+            Opt::Cute => st.cute = !st.cute,
             Opt::Resolution => {
                 let i = RESOLUTIONS.iter().position(|r| *r == st.resolution).map(|i| i as i32).unwrap_or(0);
                 st.resolution = RESOLUTIONS[(i + dir).clamp(0, RESOLUTIONS.len() as i32 - 1) as usize];
@@ -514,6 +580,7 @@ impl App {
                 s => format!("{:.0}%", s * 100.0),
             },
             Opt::AutoAim => onoff(st.auto_aim),
+            Opt::Cute => onoff(st.cute),
             Opt::Resolution => {
                 let r = format!("{} x {}", st.resolution.0, st.resolution.1);
                 if st.fullscreen {
@@ -605,7 +672,7 @@ impl App {
 
     pub(super) fn update_hub(&mut self) {
         drain_chars();
-        if nav(&mut self.hub_sel, HUB_ROWS, false) {
+        if grid_nav(&mut self.hub_sel, HUB_META_ROW, META_COUNT, 2) || nav(&mut self.hub_sel, HUB_ROWS, false) {
             self.audio.play("select", 0.4);
         }
         if self.hub_sel == 0 {
@@ -666,7 +733,7 @@ impl App {
         if let Some((_, n)) = self.save.remnant {
             ui.text_c(&format!("Your remnant of {} souls waits where you last fell.", n), cx, 130.0, 16.0, TEAL);
         }
-        let w = 660.0f32.min(sw - 40.0);
+        let w = 1100.0f32.min(sw - 40.0);
         let x = cx - w * 0.5;
         let mut y = 146.0;
         let class = self.class();
@@ -688,21 +755,23 @@ impl App {
             y += 31.0;
         }
         y += 6.0;
+        // Two columns, drawn in order so the mouse and the cursor agree.
+        let cw = (w - 8.0) * 0.5;
         for (i, m) in META.iter().enumerate() {
-            ui.row(x, y, w, 30.0, self.hub_sel == HUB_META_ROW + i);
+            let (rx, ry) = (x + (i % 2) as f32 * (cw + 8.0), y + (i / 2) as f32 * 33.0);
+            ui.row(rx, ry, cw, 30.0, self.hub_sel == HUB_META_ROW + i);
             let lvl = self.save.profile.meta[i];
-            ui.text(m.name, x + 14.0, y + 21.0, 19.0, PALE);
+            ui.text(m.name, rx + 10.0, ry + 21.0, 17.0, PALE);
             for k in 0..m.max {
                 let c = if k < lvl { GOLD } else { Color::new(0.25, 0.22, 0.2, 1.0) };
-                draw_rectangle(x + 160.0 + k as f32 * 14.0, y + 10.0, 10.0, 10.0, c);
+                draw_rectangle(rx + 132.0 + k as f32 * 9.0, ry + 11.0, 6.0, 6.0, c);
             }
-            ui.text(m.desc, x + 245.0, y + 21.0, 16.0, DIM);
+            ui.text(m.desc, rx + 212.0, ry + 20.0, 13.0, DIM);
             let cost = if lvl >= m.max { "MAX".to_string() } else { format!("{}", meta_cost(i, lvl)) };
             let afford = lvl < m.max && self.save.souls >= meta_cost(i, lvl);
-            ui.text_r(&cost, x + w - 14.0, y + 21.0, 18.0, if afford { GOLD } else { DIM });
-            y += 33.0;
+            ui.text_r(&cost, rx + cw - 10.0, ry + 21.0, 16.0, if afford { GOLD } else { DIM });
         }
-        y += 6.0;
+        y += META_COUNT.div_ceil(2) as f32 * 33.0 + 6.0;
         ui.row(x, y, w, 34.0, self.hub_sel == HUB_ROWS - 1);
         ui.text_c(&format!("Begin the Vigil  ({})", self.save.settings.diff.preset_name()), cx, y + 24.0, 22.0, EMBER);
         ui.text_c(hint("W/S select    A/D change class    Enter buy / begin    Esc back", "Stick select, left / right class    A buy / begin    B back"), cx, sh - 24.0, 16.0, DIM);
@@ -713,7 +782,7 @@ impl App {
     pub(super) fn update_reliquary(&mut self) {
         drain_chars();
         let rows = UNLOCKS.len() + RELIC_COUNT + 1;
-        if nav(&mut self.relic_sel, rows, false) {
+        if grid_nav(&mut self.relic_sel, 0, UNLOCKS.len(), 2) || grid_nav(&mut self.relic_sel, UNLOCKS.len(), RELIC_COUNT, 2) || nav(&mut self.relic_sel, rows, false) {
             self.audio.play("select", 0.4);
         }
         let click = mouse_rows(&mut self.relic_sel).left;
@@ -755,16 +824,17 @@ impl App {
         let cx = sw * 0.5;
         ui.spaced_c("THE RELIQUARY", cx, 56.0, 40.0, 8.0, PALE);
         ui.text_c(&format!("Ashen Marks  {}", self.save.marks), cx, 88.0, 22.0, EMBER);
-        let w = 820.0f32.min(sw - 40.0);
+        let w = 1100.0f32.min(sw - 40.0);
         let x = cx - w * 0.5;
         let mut y = 104.0;
         let row_h = 30.0;
+        let cw = (w - 8.0) * 0.5;
+        let cell = |i: usize, y0: f32| (x + (i % 2) as f32 * (cw + 8.0), y0 + (i / 2) as f32 * row_h);
         for (i, (u, cost)) in UNLOCKS.iter().enumerate() {
-            let on = self.relic_sel == i;
+            let (rx, ry) = cell(i, y);
             let owned = self.save.profile.has(*u);
-            ui.row(x, y, w, row_h - 3.0, on);
-            ui.text(&u.label(), x + 12.0, y + 19.0, 17.0, if owned { DIM } else { PALE });
-            ui.text(u.desc(), x + 300.0, y + 19.0, 14.0, DIM);
+            ui.row(rx, ry, cw, row_h - 3.0, self.relic_sel == i);
+            ui.text(&u.label(), rx + 10.0, ry + 19.0, 16.0, if owned { DIM } else { PALE });
             let price = if owned { "OWNED".to_string() } else { format!("{}", cost) };
             let col = if owned {
                 TEAL
@@ -773,20 +843,20 @@ impl App {
             } else {
                 DIM
             };
-            ui.text_r(&price, x + w - 12.0, y + 19.0, 16.0, col);
-            y += row_h;
+            ui.text_r(&price, rx + cw - 10.0, ry + 19.0, 15.0, col);
         }
-        y += 8.0;
+        y += UNLOCKS.len().div_ceil(2) as f32 * row_h + 8.0;
         for (i, r) in RELICS.iter().enumerate() {
+            let (rx, ry) = cell(i, y);
             let row = UNLOCKS.len() + i;
             let lvl = self.save.profile.relics[i];
-            ui.row(x, y, w, row_h - 3.0, self.relic_sel == row);
-            ui.text(r.name, x + 12.0, y + 19.0, 17.0, PALE);
+            ui.row(rx, ry, cw, row_h - 3.0, self.relic_sel == row);
+            ui.text(r.name, rx + 10.0, ry + 19.0, 16.0, PALE);
             for k in 0..r.max {
                 let c = if k < lvl { EMBER } else { Color::new(0.25, 0.22, 0.2, 1.0) };
-                draw_rectangle(x + 170.0 + k as f32 * 13.0, y + 9.0, 9.0, 9.0, c);
+                draw_rectangle(rx + 150.0 + k as f32 * 11.0, ry + 10.0, 8.0, 8.0, c);
             }
-            ui.text(r.desc, x + 300.0, y + 19.0, 14.0, DIM);
+            ui.text(r.desc, rx + 220.0, ry + 18.0, 12.0, DIM);
             let maxed = lvl >= r.max;
             let price = if maxed { "MAX".to_string() } else { format!("{}", relic_cost(i, lvl)) };
             let col = if maxed {
@@ -796,12 +866,15 @@ impl App {
             } else {
                 DIM
             };
-            ui.text_r(&price, x + w - 12.0, y + 19.0, 16.0, col);
-            y += row_h;
+            ui.text_r(&price, rx + cw - 10.0, ry + 19.0, 15.0, col);
         }
-        y += 6.0;
+        y += RELIC_COUNT.div_ceil(2) as f32 * row_h + 6.0;
         ui.row(x, y, w, row_h - 3.0, self.relic_sel == UNLOCKS.len() + RELIC_COUNT);
         ui.text_c("Back", cx, y + 20.0, 18.0, DIM);
+        // What the selected unlock gives; relic rows say it themselves.
+        if let Some((u, _)) = UNLOCKS.get(self.relic_sel) {
+            ui.text_c(u.desc(), cx, y + 58.0, 17.0, PALE);
+        }
         ui.text_c("Ashen Marks are earned at the end of every vigil: time, bosses, level and kills count.", cx, sh - 44.0, 15.0, DIM);
         ui.text_c(hint("W/S select    Enter buy    Esc back", "Stick select    A buy    B back"), cx, sh - 20.0, 15.0, DIM);
     }

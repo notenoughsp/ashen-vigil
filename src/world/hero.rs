@@ -179,6 +179,8 @@ pub struct Hero {
     pub leech: f32,
     /// Seconds without moving, and whether this hero already rested by a fire this vigil.
     pub idle: f32,
+    /// Vigil time of the first hit taken; MAX while untouched.
+    pub first_hurt: f32,
     pub rested: bool,
     /// Challenge bits (single player).
     pub challenges: u8,
@@ -206,7 +208,7 @@ impl Hero {
                 roll_dir: vec2(1.0, 0.0),
                 iframes: 0.0,
                 souls: 0,
-                revives: profile.meta[7],
+                revives: profile.meta[7] + profile.relics[5],
                 walk: 0.0,
             },
             stats: Stats::from_array([1.0; 17]),
@@ -232,6 +234,7 @@ impl Hero {
             purchases: 0,
             leech: LEECH_RATE,
             idle: 0.0,
+            first_hurt: f32::MAX,
             rested: false,
             challenges: 0,
             auto_aim: false,
@@ -294,23 +297,24 @@ impl Hero {
         let m = self.profile.meta;
         let r = self.profile.relics;
         let ml = |i: usize| m[i] as f32;
-        let mut might = 1.0 + 0.06 * ml(2) + 0.05 * r[0] as f32;
-        let mut cooldown = 1.0 - 0.04 * ml(4);
-        let mut area = 1.0;
-        let mut amount = 0;
-        let mut speed_mul = 1.0 + 0.04 * ml(3);
-        let mut magnet_mul = 1.0 + 0.2 * r[4] as f32;
-        let mut luck = 1.0 + 0.1 * ml(5);
-        let mut armor = 0.0;
-        let mut regen = 0.0;
-        let mut max_hp = 100.0 * (1.0 + 0.1 * ml(0)) + 15.0 * r[1] as f32;
+        let rl = |i: usize| r[i] as f32;
+        let mut might = 1.0 + 0.06 * ml(2) + 0.05 * rl(0);
+        let mut cooldown = 1.0 - 0.04 * ml(4) - 0.03 * rl(7);
+        let mut area = 1.0 + 0.06 * ml(11);
+        let mut amount = m[16];
+        let mut speed_mul = 1.0 + 0.04 * ml(3) + 0.05 * rl(10);
+        let mut magnet_mul = 1.0 + 0.2 * rl(4) + 0.12 * ml(13);
+        let mut luck = 1.0 + 0.1 * ml(5) + 0.15 * rl(11);
+        let mut armor = ml(9) + rl(8);
+        let mut regen = 0.15 * ml(10);
+        let mut max_hp = 100.0 * (1.0 + 0.1 * ml(0)) + 15.0 * rl(1);
         let mut stamina_max = 100.0 + 15.0 * ml(1);
         let mut stamina_regen_mul = 1.0 + 0.1 * ml(1);
-        let greed = 1.0 + 0.12 * ml(6);
-        let mut crit = 0.05;
+        let greed = 1.0 + 0.12 * ml(6) + 0.05 * rl(6);
+        let mut crit = 0.05 + 0.02 * ml(12);
         let mut lifesteal = 0.0;
-        let mut growth = 1.0;
-        let mut elite_dmg = 1.0;
+        let mut growth = 1.0 + 0.05 * ml(14) + 0.05 * rl(9);
+        let mut elite_dmg = 1.0 + 0.08 * ml(15);
         match self.class {
             Class::Wanderer => max_hp += 10.0,
             Class::GraveHunter => {
@@ -583,11 +587,32 @@ impl Hero {
         }
     }
 
+    /// Whether a card fuses with or evolves something this hero already carries.
+    pub fn choice_hint(&self, c: Choice) -> Option<(String, Color)> {
+        let fuse = Color::from_rgba(255, 130, 100, 255);
+        let evolve = Color::from_rgba(240, 200, 110, 255);
+        let weapon = match c {
+            Choice::NewWeapon(k) => Some(k),
+            Choice::UpWeapon(i) => self.weapons.get(i).filter(|w| !w.is_fused()).map(|w| w.kind),
+            _ => None,
+        };
+        if let Some(k) = weapon {
+            let partner = self.weapons.iter().find(|w| !w.is_fused() && w.kind != k && k.fusion_partners().contains(&w.kind));
+            return partner.map(|w| (format!("Fuses with {}", w.kind.name(false)), fuse));
+        }
+        let item = match c {
+            Choice::NewItem(k) => Some(k),
+            Choice::UpItem(i) => self.items.get(i).map(|it| it.kind),
+            _ => None,
+        }?;
+        let w = self.weapons.iter().find(|w| !w.is_fused() && !w.evolved && w.kind.evo_item() == item)?;
+        Some((format!("Evolves {}", w.kind.name(false)), evolve))
+    }
+
     pub fn evolvable(&self) -> Option<usize> {
         self.weapons.iter().position(|w| !w.is_fused() && !w.evolved && w.level >= WEAPON_MAX_LEVEL && self.items.iter().any(|it| it.kind == w.kind.evo_item()))
     }
 
-    /// Two max-level fusion partners, if this hero has them.
     /// Two slots that merge now: partner weapons at max level into a fusion, or two fusions
     /// of the same tier into the next (two fusions into a mega fusion, two megas into an ultra).
     fn fusable(&self) -> Option<(usize, usize)> {
@@ -637,6 +662,7 @@ impl World {
             2 => ("MEGA FUSION", Color::from_rgba(220, 140, 255, 255)),
             _ => ("ULTRA FUSION", Color::from_rgba(255, 245, 200, 255)),
         };
+        crate::log!("{}: {} and {} became {} ({})", self.heroes[h].name, a_name, b_name, name, title.to_lowercase());
         self.banner(title, &format!("{}{} and {} become {}", prefix, a_name, b_name, name), color, 4.5);
         self.sfx("evolve", 1.0);
         self.sfx("roar", 0.5);
@@ -674,6 +700,8 @@ impl World {
                 self.sfx(if bucket { "clang" } else { "roll" }, if bucket { 0.4 } else { 0.5 });
                 if rolls == 100 {
                     self.toast("100 rolls. Your knees file a formal complaint.");
+                } else if rolls == 1000 {
+                    self.toast("1,000 rolls. The floor knows you by name now.");
                 }
             }
             if rolling && chance(0.6) {

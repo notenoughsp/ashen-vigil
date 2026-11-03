@@ -244,6 +244,15 @@ impl World {
         let pulse = 0.85 + 0.15 * (self.time * 12.0).sin();
         for b in self.ebullets.iter().filter(|b| self.on_screen(b.pos, b.r * 2.0)) {
             let p = b.pos;
+            if self.cute {
+                // A pink heart instead of a blood-red orb.
+                let (r, pink) = (b.r * pulse, Color::new(1.0, 0.45, 0.7, 1.0));
+                draw_circle(p.x, p.y, b.r * 2.0, with_alpha(pink, 0.12));
+                draw_circle(p.x - r * 0.45, p.y - r * 0.2, r * 0.6, pink);
+                draw_circle(p.x + r * 0.45, p.y - r * 0.2, r * 0.6, pink);
+                draw_triangle(vec2(p.x - r, p.y), vec2(p.x + r, p.y), vec2(p.x, p.y + r * 1.1), pink);
+                continue;
+            }
             draw_circle(p.x, p.y, b.r * 2.0, with_alpha(BULLET_RED, 0.12));
             draw_circle(p.x, p.y, b.r * pulse, BULLET_RED);
             draw_circle(p.x, p.y, b.r * 0.55, rgba(40, 0, 0, 255));
@@ -433,6 +442,13 @@ impl World {
         let crowded = order.len() > LOD_ENEMIES;
         for e in order {
             self.draw_enemy(e, crowded);
+            if self.cute {
+                // Rosy cheeks for everyone.
+                let (p, r) = (e.pos, e.r);
+                let blush = Color::new(1.0, 0.45, 0.6, 0.55 * e.alpha);
+                draw_circle(p.x - r * 0.45, p.y - r * 0.55, r * 0.22, blush);
+                draw_circle(p.x + r * 0.45, p.y - r * 0.55, r * 0.22, blush);
+            }
         }
         for e in self.enemies.iter().filter(|e| e.boss) {
             self.draw_enemy(e, false);

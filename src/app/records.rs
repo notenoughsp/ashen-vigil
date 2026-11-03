@@ -71,6 +71,18 @@ impl App {
         check(w.moons_survived >= 1, Achievement::MoonWatcher);
         check(w.trials_won >= 1, Achievement::TrialEndured);
         check(w.heroes.len() >= 2 && w.time >= 600.0, Achievement::Fellowship);
+        check(me.weapons.iter().any(|wp| wp.tier() >= 2), Achievement::GrandFusion);
+        check(me.weapons.iter().any(|wp| wp.tier() >= 3), Achievement::Singularity);
+        check(w.endless && w.time >= VICTORY_TIME + 600.0, Achievement::LongNight);
+        check(w.level >= 100, Achievement::Centurion);
+        check(w.kills >= 100_000, Achievement::AshAndBone);
+        check(w.time >= 180.0 && me.first_hurt > 180.0, Achievement::Untouched);
+        check(w.grave_found, Achievement::LastKeeper);
+        check(me.rested, Achievement::Fireside);
+        check(me.p.souls >= 100_000, Achievement::Hoarder);
+        check(w.heroes.len() >= 4 && w.time >= 60.0, Achievement::FullHouse);
+        check(me.rolls >= 1000, Achievement::RollModel);
+        check(me.banked >= 50_000, Achievement::Banker);
         for a in earned {
             self.unlock(a);
         }
@@ -164,6 +176,9 @@ impl App {
         draw_rectangle(0.0, 0.0, sw, sh, tint);
         draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.72 * k));
         let (title, col) = match (s.won, w.heroes.len() > 1) {
+            (true, _) if self.save.settings.cute => ("WHAT A LOVELY NIGHT", GOLD),
+            (false, true) if self.save.settings.cute => ("NAP TIME FOR EVERYONE", BLOOD),
+            (false, false) if self.save.settings.cute => ("YOU NEED A NAP", BLOOD),
             (true, _) => ("THE VIGIL IS KEPT", GOLD),
             (false, true) => ("ALL HAVE FALLEN", BLOOD),
             (false, false) => ("YOU HAVE FALLEN", BLOOD),
@@ -370,16 +385,18 @@ impl App {
         } else {
             let done = ALL_ACHIEVEMENTS.iter().filter(|a| self.save.achievements & a.bit() != 0).count();
             ui.text_c(&format!("{} of {} earned", done, ALL_ACHIEVEMENTS.len()), cx, 128.0, 16.0, DIM);
-            let col_w = w * 0.5;
+            let wide = (sw - 40.0).min(1180.0);
+            let x = cx - wide * 0.5;
+            let col_w = wide / 3.0;
             for (i, ach) in ALL_ACHIEVEMENTS.iter().enumerate() {
                 let have = self.save.achievements & ach.bit() != 0;
-                let cx0 = x + (i % 2) as f32 * col_w;
-                let y = 150.0 + (i / 2) as f32 * 60.0;
-                ui.row(cx0, y, col_w - 10.0, 54.0, false);
-                draw_poly(cx0 + 24.0, y + 27.0, 6, 14.0, 0.0, if have { GOLD } else { Color::new(0.2, 0.18, 0.16, 1.0) });
-                ui.text(ach.name(), cx0 + 48.0, y + 22.0, 19.0, if have { GOLD } else { DIM });
-                ui.text(ach.desc(), cx0 + 48.0, y + 44.0, 14.0, if have { PALE } else { DIM });
-                ui.text_r(&format!("+{}", ach.reward()), cx0 + col_w - 22.0, y + 22.0, 15.0, if have { TEAL } else { EMBER });
+                let cx0 = x + (i % 3) as f32 * col_w;
+                let y = 144.0 + (i / 3) as f32 * 44.0;
+                ui.row(cx0, y, col_w - 8.0, 40.0, false);
+                draw_poly(cx0 + 18.0, y + 20.0, 6, 10.0, 0.0, if have { GOLD } else { Color::new(0.2, 0.18, 0.16, 1.0) });
+                ui.text(ach.name(), cx0 + 36.0, y + 17.0, 16.0, if have { GOLD } else { DIM });
+                ui.text(ach.desc(), cx0 + 36.0, y + 34.0, 12.0, if have { PALE } else { DIM });
+                ui.text_r(&format!("+{}", ach.reward()), cx0 + col_w - 18.0, y + 17.0, 13.0, if have { TEAL } else { EMBER });
             }
         }
         // A back button, the third clickable tab.

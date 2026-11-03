@@ -32,6 +32,28 @@ pub fn right(text_row: bool) -> bool {
     is_key_pressed(KeyCode::Right) || (!text_row && is_key_pressed(KeyCode::D)) || pad_pressed(Pad::Right)
 }
 
+/// Moves a cursor through a block of `count` rows laid out `cols` to a line, starting at row
+/// `start`; returns true when it took the key. Up from the top line leaves to the row before
+/// the block, down from the bottom line to the row after it.
+pub fn grid_nav(sel: &mut usize, start: usize, count: usize, cols: usize) -> bool {
+    if *sel < start || *sel >= start + count {
+        return false;
+    }
+    let i = *sel - start;
+    if left(false) && !i.is_multiple_of(cols) {
+        *sel -= 1;
+    } else if right(false) && i % cols + 1 < cols && i + 1 < count {
+        *sel += 1;
+    } else if up(false) {
+        *sel = if i >= cols { *sel - cols } else { start.saturating_sub(1) };
+    } else if down(false) {
+        *sel = if i + cols < count { *sel + cols } else { start + count };
+    } else {
+        return false;
+    }
+    true
+}
+
 /// Moves a menu cursor; returns true when it moved.
 pub fn nav(sel: &mut usize, rows: usize, text_row: bool) -> bool {
     if rows == 0 {

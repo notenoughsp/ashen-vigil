@@ -514,7 +514,7 @@ pub fn class_to_u8(c: Class) -> u8 {
 
 // ---------------------------------------------------------------- soul upgrades (shrine)
 
-pub const META_COUNT: usize = 9;
+pub const META_COUNT: usize = 17;
 
 pub struct MetaDef {
     pub key: &'static str,
@@ -525,19 +525,27 @@ pub struct MetaDef {
 }
 
 pub const META: [MetaDef; META_COUNT] = [
-    MetaDef { key: "vigor", name: "Vigor", desc: "+10% max health", max: 5, base_cost: 150 },
-    MetaDef { key: "endurance", name: "Endurance", desc: "+15 stamina, +10% stamina regen", max: 5, base_cost: 150 },
-    MetaDef { key: "strength", name: "Strength", desc: "+6% might", max: 5, base_cost: 200 },
-    MetaDef { key: "swiftness", name: "Swiftness", desc: "+4% move speed", max: 3, base_cost: 180 },
-    MetaDef { key: "haste", name: "Haste", desc: "-4% weapon cooldown", max: 4, base_cost: 250 },
-    MetaDef { key: "fortune", name: "Fortune", desc: "+10% luck", max: 4, base_cost: 160 },
-    MetaDef { key: "greed", name: "Greed", desc: "+12% souls gained", max: 5, base_cost: 200 },
-    MetaDef { key: "ember", name: "Ember", desc: "+1 revival per vigil", max: 2, base_cost: 800 },
-    MetaDef { key: "insight", name: "Insight", desc: "+1 reroll per vigil", max: 3, base_cost: 300 },
+    MetaDef { key: "vigor", name: "Vigor", desc: "+10% max health", max: 8, base_cost: 300 },
+    MetaDef { key: "endurance", name: "Endurance", desc: "+15 stamina, +10% regen", max: 5, base_cost: 300 },
+    MetaDef { key: "strength", name: "Strength", desc: "+6% might", max: 8, base_cost: 400 },
+    MetaDef { key: "swiftness", name: "Swiftness", desc: "+4% move speed", max: 5, base_cost: 360 },
+    MetaDef { key: "haste", name: "Haste", desc: "-4% weapon cooldown", max: 5, base_cost: 500 },
+    MetaDef { key: "fortune", name: "Fortune", desc: "+10% luck", max: 5, base_cost: 320 },
+    MetaDef { key: "greed", name: "Greed", desc: "+12% souls gained", max: 6, base_cost: 400 },
+    MetaDef { key: "ember", name: "Ember", desc: "+1 revival per vigil", max: 3, base_cost: 2000 },
+    MetaDef { key: "insight", name: "Insight", desc: "+1 reroll per vigil", max: 4, base_cost: 600 },
+    MetaDef { key: "toughness", name: "Toughness", desc: "+1 armor", max: 5, base_cost: 800 },
+    MetaDef { key: "renewal", name: "Renewal", desc: "+0.15 health per second", max: 5, base_cost: 600 },
+    MetaDef { key: "reach", name: "Reach", desc: "+6% weapon area", max: 5, base_cost: 700 },
+    MetaDef { key: "precision", name: "Precision", desc: "+2% critical chance", max: 5, base_cost: 600 },
+    MetaDef { key: "magnetism", name: "Magnetism", desc: "+12% pickup range", max: 5, base_cost: 400 },
+    MetaDef { key: "scholar", name: "Scholar", desc: "+5% experience", max: 5, base_cost: 700 },
+    MetaDef { key: "slayer", name: "Slayer", desc: "+8% damage to elites and bosses", max: 5, base_cost: 800 },
+    MetaDef { key: "volley", name: "Volley", desc: "+1 projectile for every weapon", max: 2, base_cost: 25000 },
 ];
 
 pub fn meta_cost(i: usize, level: u32) -> u64 {
-    (META[i].base_cost as f64 * 1.8f64.powi(level as i32)).round() as u64
+    (META[i].base_cost as f64 * 1.75f64.powi(level as i32)).round() as u64
 }
 
 // ---------------------------------------------------------------- reliquary (ashen marks)
@@ -551,17 +559,17 @@ pub enum Unlock {
 }
 
 pub const UNLOCKS: [(Unlock, u64); 11] = [
-    (Unlock::Class(Class::Reaper), 30),
-    (Unlock::Class(Class::Hexblade), 30),
-    (Unlock::Class(Class::BloodKnight), 40),
-    (Unlock::Class(Class::Arbalist), 40),
-    (Unlock::Weapon(WeaponKind::Scythe), 15),
-    (Unlock::Weapon(WeaponKind::Hex), 15),
-    (Unlock::Weapon(WeaponKind::Lance), 20),
-    (Unlock::Weapon(WeaponKind::Crossbow), 20),
-    (Unlock::Item(ItemKind::LeechFang), 10),
-    (Unlock::Item(ItemKind::CrackedCrown), 10),
-    (Unlock::Item(ItemKind::GraveCandle), 12),
+    (Unlock::Class(Class::Reaper), 45),
+    (Unlock::Class(Class::Hexblade), 45),
+    (Unlock::Class(Class::BloodKnight), 60),
+    (Unlock::Class(Class::Arbalist), 60),
+    (Unlock::Weapon(WeaponKind::Scythe), 22),
+    (Unlock::Weapon(WeaponKind::Hex), 22),
+    (Unlock::Weapon(WeaponKind::Lance), 30),
+    (Unlock::Weapon(WeaponKind::Crossbow), 30),
+    (Unlock::Item(ItemKind::LeechFang), 15),
+    (Unlock::Item(ItemKind::CrackedCrown), 15),
+    (Unlock::Item(ItemKind::GraveCandle), 18),
 ];
 
 impl Unlock {
@@ -606,7 +614,7 @@ pub fn default_unlocks() -> u64 {
     m
 }
 
-pub const RELIC_COUNT: usize = 5;
+pub const RELIC_COUNT: usize = 12;
 
 pub struct RelicDef {
     pub key: &'static str,
@@ -617,11 +625,18 @@ pub struct RelicDef {
 }
 
 pub const RELICS: [RelicDef; RELIC_COUNT] = [
-    RelicDef { key: "relic_blessing", name: "Ashen Blessing", desc: "+5% might", max: 4, base_cost: 15 },
-    RelicDef { key: "relic_fortified", name: "Fortified Soul", desc: "+15 max health", max: 4, base_cost: 12 },
-    RelicDef { key: "relic_pockets", name: "Deep Pockets", desc: "+1 reroll per vigil", max: 2, base_cost: 25 },
-    RelicDef { key: "relic_headstart", name: "Head Start", desc: "Begin each vigil with a level-up", max: 2, base_cost: 30 },
-    RelicDef { key: "relic_lantern", name: "Soul Lantern", desc: "+20% soul pickup range", max: 3, base_cost: 10 },
+    RelicDef { key: "relic_blessing", name: "Ashen Blessing", desc: "+5% might", max: 4, base_cost: 22 },
+    RelicDef { key: "relic_fortified", name: "Fortified Soul", desc: "+15 max health", max: 4, base_cost: 18 },
+    RelicDef { key: "relic_pockets", name: "Deep Pockets", desc: "+1 reroll per vigil", max: 2, base_cost: 38 },
+    RelicDef { key: "relic_headstart", name: "Head Start", desc: "Begin each vigil with a level-up", max: 2, base_cost: 45 },
+    RelicDef { key: "relic_lantern", name: "Soul Lantern", desc: "+20% soul pickup range", max: 3, base_cost: 15 },
+    RelicDef { key: "relic_vial", name: "Ember Vial", desc: "+1 revival per vigil", max: 1, base_cost: 90 },
+    RelicDef { key: "relic_crown", name: "Ashen Crown", desc: "+5% souls gained", max: 3, base_cost: 25 },
+    RelicDef { key: "relic_hands", name: "Quick Hands", desc: "-3% weapon cooldown", max: 3, base_cost: 35 },
+    RelicDef { key: "relic_iron", name: "Iron Will", desc: "+1 armor", max: 2, base_cost: 40 },
+    RelicDef { key: "relic_tome", name: "Scholar's Tome", desc: "+5% experience", max: 3, base_cost: 25 },
+    RelicDef { key: "relic_stride", name: "Pilgrim's Stride", desc: "+5% move speed", max: 2, base_cost: 25 },
+    RelicDef { key: "relic_deck", name: "Fate's Deck", desc: "+15% luck", max: 2, base_cost: 35 },
 ];
 
 pub fn relic_cost(i: usize, level: u32) -> u64 {
@@ -888,9 +903,25 @@ pub enum Achievement {
     TrialEndured,
     Purist,
     Fellowship,
+    GrandFusion,
+    Singularity,
+    LongNight,
+    Centurion,
+    AshAndBone,
+    Executioner,
+    Untouched,
+    LastKeeper,
+    Fireside,
+    ColdEmbers,
+    SoftHeart,
+    Clang,
+    Hoarder,
+    FullHouse,
+    RollModel,
+    Banker,
 }
 
-pub const ALL_ACHIEVEMENTS: [Achievement; 14] = [
+pub const ALL_ACHIEVEMENTS: [Achievement; 30] = [
     Achievement::FirstLight,
     Achievement::Gravebreaker,
     Achievement::Dawnbringer,
@@ -905,6 +936,22 @@ pub const ALL_ACHIEVEMENTS: [Achievement; 14] = [
     Achievement::TrialEndured,
     Achievement::Purist,
     Achievement::Fellowship,
+    Achievement::GrandFusion,
+    Achievement::Singularity,
+    Achievement::LongNight,
+    Achievement::Centurion,
+    Achievement::AshAndBone,
+    Achievement::Executioner,
+    Achievement::Untouched,
+    Achievement::LastKeeper,
+    Achievement::Fireside,
+    Achievement::ColdEmbers,
+    Achievement::SoftHeart,
+    Achievement::Clang,
+    Achievement::Hoarder,
+    Achievement::FullHouse,
+    Achievement::RollModel,
+    Achievement::Banker,
 ];
 
 impl Achievement {
@@ -929,6 +976,22 @@ impl Achievement {
             TrialEndured => "Trial by Curse",
             Purist => "Purist",
             Fellowship => "Fellowship",
+            GrandFusion => "Grand Fusion",
+            Singularity => "Singularity",
+            LongNight => "The Long Night",
+            Centurion => "Centurion",
+            AshAndBone => "Ash and Bone",
+            Executioner => "Executioner",
+            Untouched => "Untouched",
+            LastKeeper => "The Last Keeper",
+            Fireside => "Fireside",
+            ColdEmbers => "Cold Embers",
+            SoftHeart => "Soft Heart",
+            Clang => "Clang",
+            Hoarder => "Hoarder",
+            FullHouse => "Full House",
+            RollModel => "Roll Model",
+            Banker => "Banker",
         }
     }
 
@@ -949,6 +1012,22 @@ impl Achievement {
             TrialEndured => "Endure a cursed shrine's trial.",
             Purist => "Keep a vigil until dawn with One Blade.",
             Fellowship => "Survive ten minutes online with a companion.",
+            GrandFusion => "Make a mega fusion of four weapons.",
+            Singularity => "Make an ultra fusion of eight weapons.",
+            LongNight => "Fight on ten minutes past dawn.",
+            Centurion => "Reach level 100 in one vigil.",
+            AshAndBone => "Fell 100,000 foes in one vigil.",
+            Executioner => "Slay a boss within ten seconds of its arrival.",
+            Untouched => "Take no damage in the first three minutes.",
+            LastKeeper => "Find the lost grave.",
+            Fireside => "Rest a while by a small fire.",
+            ColdEmbers => "Stir the embers in the main menu.",
+            SoftHeart => "Find out what is cute.",
+            Clang => "Find the Bucket Knight.",
+            Hoarder => "Carry 100,000 souls at once.",
+            FullHouse => "Keep a vigil with four players.",
+            RollModel => "Roll 1,000 times in one vigil.",
+            Banker => "Bank 50,000 souls in one vigil.",
         }
     }
 
@@ -964,6 +1043,13 @@ impl Achievement {
             Dawnbringer => 30,
             Purist => 50,
             AbyssWalker => 60,
+            Fireside | ColdEmbers | SoftHeart => 10,
+            LastKeeper | Clang => 15,
+            Untouched | Hoarder | FullHouse | RollModel | Banker => 20,
+            GrandFusion | Executioner => 25,
+            Centurion => 30,
+            LongNight | AshAndBone => 40,
+            Singularity => 60,
         }
     }
 }

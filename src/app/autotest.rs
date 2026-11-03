@@ -240,6 +240,9 @@ impl App {
                 self.unlock(Achievement::MoonWatcher);
             }
             345 => want.push("events"),
+            350 => self.save.settings.cute = true,
+            380 => want.push("cute"),
+            381 => self.save.settings.cute = false,
             420 => want.push("run"),
             430 => {
                 let w = self.world.as_mut().unwrap();

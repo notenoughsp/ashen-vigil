@@ -3,6 +3,7 @@ mod audio;
 mod data;
 mod draw;
 mod embedded;
+mod icons;
 mod log;
 mod net;
 mod save;

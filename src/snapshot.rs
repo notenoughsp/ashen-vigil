@@ -282,7 +282,7 @@ fn write_hero_fast(w: &mut Writer, h: &Hero, viewer: bool) {
     for v in [h.p.hp, h.p.stamina, h.p.roll_t, h.p.roll_dir.x, h.p.roll_dir.y, h.p.iframes, h.revive, h.p.walk] {
         w.f32(v);
     }
-    w.u8(h.p.moving as u8 | (h.downed as u8) << 1 | (h.connected as u8) << 2 | (h.picked as u8) << 3);
+    w.u8(h.p.moving as u8 | (h.downed as u8) << 1 | (h.connected as u8) << 2 | (h.picked as u8) << 3 | (h.rested as u8) << 4 | ((h.first_hurt < f32::MAX) as u8) << 5);
     w.u64(h.p.souls);
     for b in h.buffs {
         w.f32(b);
@@ -325,6 +325,11 @@ fn read_hero_fast(r: &mut Reader, h: &mut Hero, predicted: bool) {
     h.downed = bits & 2 != 0;
     h.connected = bits & 4 != 0;
     h.picked = bits & 8 != 0;
+    h.rested = bits & 16 != 0;
+    // Only whether the hero has been hit matters to clients, not when.
+    if bits & 32 != 0 {
+        h.first_hurt = h.first_hurt.min(0.0);
+    }
     h.p.hp = hp;
     h.p.souls = r.u64();
     for b in h.buffs.iter_mut() {
@@ -440,7 +445,7 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
     e.w.u8(pause);
     e.w.f32(countdown);
     e.w.u16(w.level_round);
-    e.w.u8(w.dead as u8 | (w.won as u8) << 1 | (w.endless as u8) << 2);
+    e.w.u8(w.dead as u8 | (w.won as u8) << 1 | (w.endless as u8) << 2 | (w.grave_found as u8) << 3);
     e.w.u16(w.bosses_killed as u16);
 
     e.w.u8(w.heroes.len() as u8);
@@ -786,6 +791,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.dead = flags & 1 != 0;
     w.won = flags & 2 != 0;
     w.endless = flags & 4 != 0;
+    w.grave_found = flags & 8 != 0;
     w.bosses_killed = d.r.u16() as u32;
 
     let n = d.r.u8() as usize;

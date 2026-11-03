@@ -226,8 +226,8 @@ impl World {
     fn spawn_boss(&mut self) {
         let order = [BossKind::Gravewarden, BossKind::Matriarch, BossKind::Hermit, BossKind::Sovereign];
         let n = self.bosses_spawned;
-        // The last hour always belongs to the Sovereign.
-        let finale = self.time >= VICTORY_TIME - 1.0;
+        // The last hour always belongs to the Sovereign; past dawn the lords take turns again.
+        let finale = self.time >= VICTORY_TIME - 1.0 && !self.endless;
         let kind = if finale { BossKind::Sovereign } else { order[(n % 4) as usize] };
         let lap = if finale { 1.5 } else { (n / 4) as f32 };
         self.bosses_spawned += 1;
@@ -243,13 +243,17 @@ impl World {
         let coop = 1.0 + 0.6 * (self.heroes.len().max(1) - 1) as f32;
         let mut e = self.make_enemy(EnemyKind::Boss(kind), center + rand_dir() * 360.0);
         e.boss = true;
-        e.hp = hp * (1.0 + lap * 1.4) * self.diff.boss_hp * coop;
+        // Heroes grow far faster than foes, so a boss gains 17% health for every minute past
+        // the first one at 5:00; the finale gets a little extra on top.
+        let minutes = (self.time / 60.0 - 5.0).max(0.0);
+        e.hp = hp * BOSS_GROWTH.powf(minutes) * if finale { 1.25 } else { 1.0 } * self.diff.boss_hp * coop;
         e.max_hp = e.hp;
         e.r = r;
         e.speed = speed * self.diff.at(self.time).speed;
         e.dmg = dmg * (1.0 + lap * 0.4) * self.diff.at(self.time).dmg;
         let id = e.id;
         self.enemies.push(e);
+        self.boss_started = self.time;
         self.boss = Some(BossAi { id, kind, state: 0, t: 2.0, aim: vec2(1.0, 0.0), spin: 0.0, count: 0, shot: 0.0, phase2: false });
         self.boss_kind = Some(kind);
         self.boss_bar_lag = 1.0;

@@ -224,7 +224,11 @@ impl App {
                     self.audio.music(Music::Boss(boss_index));
                 }
                 Event::BossDefeated => {
-                    crate::log!("boss defeated");
+                    let fight = self.world.as_ref().map(|w| w.time - w.boss_started).unwrap_or(f32::MAX);
+                    crate::log!("boss defeated after {:.1}s", fight);
+                    if fight <= 10.0 {
+                        self.unlock(Achievement::Executioner);
+                    }
                     self.audio.music(Music::Ambient);
                 }
                 Event::RemnantClaimed => {

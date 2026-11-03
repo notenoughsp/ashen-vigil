@@ -7,13 +7,24 @@ impl World {
         (3000.0 * self.particle_mult) as usize
     }
 
+    /// In cute mode anything red turns pink.
+    pub(crate) fn soften(&self, c: Color) -> Color {
+        if self.cute && c.r > c.g * 1.4 && c.r > c.b * 1.4 {
+            Color::new(1.0, 0.55 + c.g * 0.2, 0.75, c.a)
+        } else {
+            c
+        }
+    }
+
     pub fn particle(&mut self, pos: Vec2, vel: Vec2, life: f32, size: f32, color: Color, glow: bool) {
+        let color = self.soften(color);
         if self.particles.len() < self.particle_cap() {
             self.particles.push(Particle { pos, vel, life, max_life: life, size, color, glow, stain: false });
         }
     }
 
     pub fn add_decal(&mut self, pos: Vec2, r: f32, color: Color, kind: DecalKind, life: f32) {
+        let color = self.soften(color);
         if self.decals.len() >= MAX_DECALS {
             self.decals.pop_front();
         }

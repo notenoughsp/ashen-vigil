@@ -58,8 +58,8 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 
 - **Souls** are both experience and currency. Carried souls are lost on death and left as a **remnant** where you fell; reach it in the next vigil to reclaim them. Die again first and they are gone.
 - **Ash Shrines** appear at 2:30, 7:30, 12:30 ... Stand in one for 1.5 s to heal, bank your carried souls and repel nearby foes.
-- **The Ash Shrine** (Start) spends banked souls on upgrades and lets you pick a class.
-- **Ashen Marks** are earned at the end of every vigil, win or lose (time survived, bosses, level, kills, difficulty). **The Reliquary** in the main menu spends them on new classes, weapons and items for the level-up pool, and on relics (might, health, rerolls, a free level-up at the start, pickup range).
+- **The Ash Shrine** (Start) spends banked souls on 17 upgrades (health, might, armor, regeneration, area, crit, pickup range, experience, damage to elites and bosses, an extra projectile and more) and lets you pick a class.
+- **Ashen Marks** are earned at the end of every vigil, win or lose (time survived, bosses, level, kills, difficulty). **The Reliquary** in the main menu spends them on new classes, weapons and items for the level-up pool, and on twelve relics (might, health, rerolls, a free level-up at the start, pickup range, a revival, souls, cooldown, armor, experience, speed, luck).
 - **The field** is a walled square of 7200 x 7200 with the abyss beyond; torches on the wall light the edges.
 - **Lighting**: the world is dark; heroes, torches, candles, shrines, fire, lightning and spells cast light. It can be switched off in the options.
 - **Difficulty ramp**: settings harder than Knight start at a third of their extra strength and reach all of it after three minutes.
@@ -68,8 +68,12 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Aiming**: daggers, lances, axes and soulbolts are fired at the nearest foes (several shots spread over several foes); only the soulbolt keeps seeking after it is fired. The crossbow fires in every direction; melee weapons follow the auto-aim toggle.
 - **Sound** comes from where it happens: full volume near your hero, silent about a screen away. Announcements are heard everywhere.
 - **Mouse**: hover and click work in every menu and on the level-up cards; right click turns a value or class back.
+- **Level-up cards** show weapon and item icons and point out a card that fuses with or evolves something you carry. The HUD shows the same icons for weapons and items.
+- **Volume** moves in 1% steps; hold the key or use the mouse wheel to go faster.
+- **Achievements**: 30, each paying Ashen Marks once. There are secrets to find, too.
 - **Logs**: every start writes a log to `%APPDATA%\AshenVigil\logs\` (the newest ten are kept), including crashes with their cause. A player who joined someone's vigil sends their log to the host at the end of each vigil and on a crash; the host keeps the last twenty under `logs\players\`. The log holds the game's own events and settings, not the Windows user name.
 - **First vigil**: a few tips appear during your first vigil.
+- **Boss strength** grows 17% per minute past 5:00, so later lords still take a while; a fight that lasts over three minutes lifts the fog ring. Past dawn the four lords take turns.
 - **Bosses** every 5 minutes inside a fog ring you cannot leave: The Gravewarden, Pale Matriarch, The Tolling Hermit, Ashen Sovereign. All attacks are telegraphed. Each boss enters a second phase at half health. The finale at 30:00 is always the Sovereign.
 - **Enemy projectiles** are large and red. Your weapons destroy them: blades and sweeps cut them, projectiles and explosions shoot them down.
 - **Relics on the map** appear every 30-45 s near a player and vanish after a minute (marked on the screen edge): Bloodstone (+50% might), Quicksilver (weapons 40% faster), Aegis Ash (untouchable), a free item upgrade, a pyre bomb that burns everything around it, and grave bread (+60 health).
@@ -83,7 +87,7 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Cursed shrines** at 4:00, 13:00 and 22:00: stand in one to accept its trial, 40 s of tougher, denser foes, then a relic and a soul hoard.
 - **The merchant** at 6:00, 16:00 and 26:00 stays 75 s and sells a draught, a relic and a coffer for souls; prices rise with time.
 - **Challenges** (single player, toggled at the Ash Shrine): Rooted (no rolling), Glass Cannon (half health, +60% might), One Blade (no new weapons). Each adds 25% Ashen Marks.
-- **Achievements** (14) pay Ashen Marks once. **Records** in the main menu shows the top-ten leaderboard, personal bests and achievements.
+- **Achievements** pay Ashen Marks once. **Records** in the main menu shows the top-ten leaderboard, personal bests and achievements.
 - **End of vigil**: a summary of time, kills, damage per weapon, a graph of the fight, marks, leaderboard rank and new bests.
 - **Music**: an ambient loop that adds a combat layer as the fight heats up, and a theme of its own for each boss.
 

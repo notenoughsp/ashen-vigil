@@ -91,6 +91,12 @@ pub struct App {
     konami: Vec<KeyCode>,
     /// Clicks on the title, for the blue embers.
     title_clicks: u32,
+    /// Letters typed in the main menu, for the secret words.
+    typed: String,
+    /// Seconds left of the cat walking across the main menu.
+    menu_cat: f32,
+    /// How long a volume key has been held, for quick repeats.
+    opt_hold: f32,
     note: Option<(String, f32)>,
     vignette: Texture2D,
     grain: Texture2D,
@@ -186,6 +192,9 @@ impl App {
             class_idx: 0,
             konami: Vec::new(),
             title_clicks: 0,
+            typed: String::new(),
+            menu_cat: 0.0,
+            opt_hold: 0.0,
             note: None,
             vignette: make_vignette(),
             grain: make_grain(),
@@ -282,6 +291,9 @@ impl App {
 
     pub fn update(&mut self, dt: f32) {
         poll_gamepad();
+        if let Some(w) = self.world.as_mut() {
+            w.cute = self.save.settings.cute;
+        }
         set_binds(self.save.settings.binds);
         self.t += dt;
         let typing = matches!(self.screen, Screen::Options | Screen::Lobby);
@@ -339,7 +351,9 @@ impl App {
             e.pos.x += (self.t * 0.8 + e.life).sin() * 0.3;
             e.life -= dt;
             let k = (e.life / 3.0).min(1.0);
-            let (glow, core) = if self.save.blue_embers {
+            let (glow, core) = if self.save.settings.cute {
+                (Color::new(1.0, 0.5, 0.75, 0.08 * k), Color::new(1.0, 0.7, 0.85, 0.9 * k))
+            } else if self.save.blue_embers {
                 (Color::new(0.3, 0.6, 1.0, 0.08 * k), Color::new(0.5, 0.8, 1.0, 0.9 * k))
             } else {
                 (Color::new(1.0, 0.5, 0.15, 0.08 * k), Color::new(1.0, 0.6, 0.25, 0.9 * k))
