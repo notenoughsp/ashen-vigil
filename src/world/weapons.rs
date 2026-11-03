@@ -1,0 +1,396 @@
+//! What each weapon does when it fires, and the projectiles they leave behind.
+
+use super::*;
+use std::f32::consts::PI;
+
+/// How far auto-aim looks for a target.
+const AIM_RANGE: f32 = 650.0;
+
+impl World {
+    pub(crate) fn update_weapons(&mut self, dt: f32) {
+        for h in 0..self.heroes.len() {
+            if self.heroes[h].downed {
+                continue;
+            }
+            self.update_aim(h);
+            for wi in 0..self.heroes[h].weapons.len() {
+                for part in self.heroes[h].weapons[wi].parts() {
+                    self.update_part(h, wi, part, dt);
+                }
+            }
+        }
+    }
+
+    /// With auto-aim, point at the nearest enemy in reach; otherwise where the hero walks.
+    fn update_aim(&mut self, h: usize) {
+        let (pos, facing, auto) = (self.heroes[h].p.pos, self.heroes[h].p.facing, self.heroes[h].auto_aim);
+        let target = if auto { self.nearest_enemies(pos, AIM_RANGE, 1).first().map(|&i| self.enemies[i].pos) } else { None };
+        self.heroes[h].aim = target.map(|t| (t - pos).normalize_or_zero()).filter(|d| *d != Vec2::ZERO).unwrap_or(facing);
+    }
+
+    /// Runs one part of a weapon slot; a fused weapon has two.
+    fn update_part(&mut self, h: usize, wi: usize, part: Part, dt: f32) {
+        let kind = part.kind;
+        let evo = part.evo;
+        let hero = &self.heroes[h];
+        let level = hero.weapons[wi].level;
+        let s = kind.stats(level, evo);
+        let dmg = s.dmg * hero.might() * part.mult;
+        let cd = (s.cd * hero.cooldown()).max(0.05);
+        let amount = s.amount + hero.stats.amount;
+        let area = s.area * hero.stats.area;
+        let p = hero.p.pos;
+        let face = hero.aim;
+        let src = Src { hero: h, weapon: kind };
+
+        let (mut timer, mut spin) = {
+            let w = &self.heroes[h].weapons[wi];
+            if part.second {
+                (w.timer2, w.spin2)
+            } else {
+                (w.timer, w.spin)
+            }
+        };
+        match kind {
+            WeaponKind::Lanterns => {
+                spin += s.speed * dt;
+                self.store_part(h, wi, part.second, timer, spin);
+                for (lp, r) in self.heroes[h].lantern_positions() {
+                    self.hit_circle(lp, r, dmg, 120.0, src, Some(cd));
+                }
+                return;
+            }
+            WeaponKind::Chime => {
+                timer -= dt;
+                let fire = timer <= 0.0;
+                if fire {
+                    timer = cd;
+                }
+                self.store_part(h, wi, part.second, timer, spin);
+                if fire {
+                    let r = 75.0 * area;
+                    let n = self.hit_circle(p, r, dmg, 60.0, src, None);
+                    for e in self.enemies.iter_mut() {
+                        if e.pos.distance(p) < r + e.r {
+                            e.slow = if evo { 0.5 } else { 0.25 };
+                        }
+                    }
+                    if n > 0 {
+                        self.sfx_gap("chime", 0.12, 0.5);
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+        timer -= dt;
+        if timer > 0.0 {
+            self.store_part(h, wi, part.second, timer, spin);
+            return;
+        }
+        timer = cd;
+        if kind == WeaponKind::Crossbow {
+            // Each volley turns a little so the gaps between quarrels move.
+            spin += PI / amount as f32 * 0.5;
+        }
+        self.store_part(h, wi, part.second, timer, spin);
+        let base = face.to_angle();
+        let proj = |pos: Vec2, dir: Vec2, speed: f32, r: f32, pierce: i32, life: f32, kind: PKind| Proj {
+            pos,
+            vel: dir * speed,
+            dir,
+            r,
+            dmg,
+            pierce,
+            life,
+            age: 0.0,
+            kind,
+            evo,
+            area,
+            src,
+            hits: Vec::new(),
+            dead: false,
+        };
+        match kind {
+            WeaponKind::Blade => {
+                let mut angles = vec![base];
+                if amount >= 2 || evo {
+                    angles.push(base + PI);
+                }
+                if amount >= 3 {
+                    angles.push(base + PI * 0.5);
+                }
+                if amount >= 4 {
+                    angles.push(base - PI * 0.5);
+                }
+                let radius = 110.0 * area;
+                for a in angles {
+                    self.sector_hit(p, a, 1.05, radius, dmg, 160.0, src, evo);
+                    self.fx.push(Fx { pos: p, life: 0.22, max_life: 0.22, kind: FxKind::Slash { ang: a, radius, evo, owner: h as u8 } });
+                }
+                self.sfx("slash", 0.5);
+            }
+            WeaponKind::Scythe => {
+                let radius = 125.0 * area;
+                for k in 0..amount {
+                    let r = radius * (1.0 - k as f32 * 0.25);
+                    let killed_before = self.kills;
+                    let hits = self.hit_circle(p, r, dmg, 260.0, src, None);
+                    if evo {
+                        let reaped = hits as f32 * 0.3 + (self.kills - killed_before) as f32 * 0.5;
+                        self.heroes[h].heal(reaped.min(8.0));
+                    }
+                    self.fx.push(Fx { pos: p, life: 0.35, max_life: 0.35, kind: FxKind::Sweep { radius: r, evo, owner: h as u8 } });
+                }
+                self.sfx("slash", 0.6);
+            }
+            WeaponKind::Daggers => {
+                for k in 0..amount {
+                    let off = (k as f32 - (amount - 1) as f32 * 0.5) * 0.14;
+                    let jitter = if evo { gen_range(-0.18, 0.18) } else { 0.0 };
+                    let dir = Vec2::from_angle(base + off + jitter);
+                    self.projs.push(proj(p + dir * 10.0, dir, s.speed, 6.0, s.pierce, 1.1, PKind::Dagger));
+                }
+                self.sfx_gap("knife", 0.3, 0.07);
+            }
+            WeaponKind::Crossbow => {
+                let turn = spin;
+                for k in 0..amount {
+                    let dir = Vec2::from_angle(turn + k as f32 / amount as f32 * TAU);
+                    self.projs.push(proj(p + dir * 12.0, dir, s.speed, 5.0, s.pierce, 1.2, PKind::Quarrel));
+                }
+                self.sfx_gap("arrow", 0.35, 0.08);
+            }
+            WeaponKind::Lance => {
+                for k in 0..amount {
+                    let side = vec2(-face.y, face.x) * (k as f32 - (amount - 1) as f32 * 0.5) * 22.0;
+                    let r = 9.0 * area;
+                    self.projs.push(proj(p + side + face * 16.0, face, s.speed, r, s.pierce, 0.9, PKind::Lance));
+                }
+                self.sfx_gap("knife", 0.5, 0.1);
+            }
+            WeaponKind::Hex => {
+                let r = 28.0 * area;
+                let life = s.speed;
+                self.pools.push(FirePool { pos: p + rand_dir() * 4.0, r, life, max_life: life, dps: dmg, tick: 0.1, src, hex: true });
+            }
+            WeaponKind::Orb => {
+                let targets = self.nearest_enemies(p, 700.0, amount as usize);
+                for k in 0..amount as usize {
+                    let dir = match targets.get(k).or(targets.first()) {
+                        Some(&i) => (self.enemies[i].pos - p).normalize_or_zero(),
+                        None => Vec2::from_angle(base + k as f32 * 0.4),
+                    };
+                    let r = if evo { 18.0 } else { 9.0 } * area.sqrt();
+                    self.projs.push(proj(p, dir, s.speed * if evo { 0.6 } else { 1.0 }, r, 0, 2.0, PKind::Orb));
+                }
+                self.sfx_gap("fire", 0.4, 0.1);
+            }
+            WeaponKind::Spear => {
+                let candidates = self.nearest_enemies(p, 600.0, 40);
+                if candidates.is_empty() {
+                    self.store_part(h, wi, part.second, 0.2, spin);
+                    return;
+                }
+                for _ in 0..amount {
+                    let i = candidates[gen_range(0, candidates.len())];
+                    let mut at = self.enemies[i].pos;
+                    self.hit_circle(at, 45.0 * area, dmg, 80.0, src, None);
+                    self.fx.push(Fx { pos: at, life: 0.25, max_life: 0.25, kind: FxKind::Lightning { from: at + vec2(gen_range(-40.0, 40.0), -500.0) } });
+                    self.add_decal(at, 18.0 * area, Color::from_rgba(15, 15, 22, 150), DecalKind::Scorch, 12.0);
+                    if evo {
+                        let mut visited = vec![self.enemies[i].id];
+                        for _ in 0..5 {
+                            let next = self.nearest_enemies(at, 180.0, 8).into_iter().find(|&j| !visited.contains(&self.enemies[j].id));
+                            let Some(j) = next else { break };
+                            visited.push(self.enemies[j].id);
+                            let to = self.enemies[j].pos;
+                            self.hit(j, dmg * 0.7, Vec2::ZERO, src, false);
+                            self.fx.push(Fx { pos: to, life: 0.25, max_life: 0.25, kind: FxKind::Lightning { from: at } });
+                            at = to;
+                        }
+                    }
+                }
+                self.shake = self.shake.max(2.0);
+                self.sfx_gap("zap", 0.45, 0.1);
+            }
+            WeaponKind::Axe => {
+                for k in 0..amount {
+                    let off = (k as f32 - (amount - 1) as f32 * 0.5) * 0.6;
+                    let dir = Vec2::from_angle(base + off);
+                    self.projs.push(proj(p, dir, s.speed, 15.0 * area, 999, 3.0, PKind::Axe));
+                }
+                self.sfx_gap("slash", 0.3, 0.1);
+            }
+            WeaponKind::Bolt => {
+                for k in 0..amount {
+                    let dir = Vec2::from_angle(base + (k as f32 - amount as f32 * 0.5) * 0.5 + gen_range(-0.3, 0.3));
+                    self.projs.push(proj(p, dir, s.speed, 6.0, 0, 3.0, PKind::Bolt));
+                }
+                self.sfx_gap("knife", 0.2, 0.1);
+            }
+            WeaponKind::Lanterns | WeaponKind::Chime => {}
+        }
+    }
+
+    fn store_part(&mut self, h: usize, wi: usize, second: bool, timer: f32, spin: f32) {
+        let w = &mut self.heroes[h].weapons[wi];
+        if second {
+            w.timer2 = timer;
+            w.spin2 = spin;
+        } else {
+            w.timer = timer;
+            w.spin = spin;
+        }
+    }
+
+    /// Hits enemies (and bullets) in a cone in front of `p`.
+    #[allow(clippy::too_many_arguments)]
+    fn sector_hit(&mut self, p: Vec2, a: f32, half: f32, radius: f32, dmg: f32, knock: f32, src: Src, burn: bool) {
+        let in_cone = |q: Vec2, pad: f32| {
+            let d = q - p;
+            let dist = d.length();
+            if dist > radius + pad {
+                return false;
+            }
+            let mut diff = (d.to_angle() - a).rem_euclid(TAU);
+            if diff > PI {
+                diff -= TAU;
+            }
+            diff.abs() < half + pad / dist.max(1.0)
+        };
+        let mut q = std::mem::take(&mut self.qbuf);
+        self.grid.query(p, radius, &mut q);
+        for &i in &q {
+            let e = &self.enemies[i];
+            if e.dead || !in_cone(e.pos, e.r) {
+                continue;
+            }
+            let k = (e.pos - p).normalize_or_zero() * knock;
+            self.hit(i, dmg, k, src, false);
+            if burn {
+                let e = &mut self.enemies[i];
+                e.burn = 3.0;
+                e.burn_dps = dmg * 0.4;
+                e.burn_src = src;
+            }
+        }
+        self.qbuf = q;
+        let before = self.ebullets.len();
+        let cut: Vec<Vec2> = self.ebullets.iter().filter(|b| in_cone(b.pos, b.r)).map(|b| b.pos).collect();
+        self.ebullets.retain(|b| !in_cone(b.pos, b.r));
+        for c in cut {
+            self.particle(c, rand_dir() * 90.0, 0.3, 2.0, Color::from_rgba(255, 60, 40, 255), true);
+        }
+        if self.ebullets.len() != before {
+            self.sfx_gap("hit", 0.2, 0.08);
+        }
+    }
+
+    pub(crate) fn update_projs(&mut self, dt: f32) {
+        for pi in 0..self.projs.len() {
+            let (kind, evo, src) = (self.projs[pi].kind, self.projs[pi].evo, self.projs[pi].src);
+            let home = self.heroes.get(src.hero).map(|h| h.p.pos).unwrap_or(self.projs[pi].pos);
+            {
+                let pr = &mut self.projs[pi];
+                pr.age += dt;
+                pr.life -= dt;
+            }
+            match kind {
+                PKind::Axe => {
+                    let pr = &mut self.projs[pi];
+                    if pr.age < 0.55 {
+                        let decel = pr.dir * 520.0 * 1.6 * dt;
+                        pr.vel -= decel;
+                    } else {
+                        let to = (home - pr.pos).normalize_or_zero();
+                        pr.vel = pr.vel.lerp(to * 650.0, (6.0 * dt).min(1.0));
+                        if pr.pos.distance(home) < 20.0 {
+                            pr.dead = true;
+                        }
+                    }
+                }
+                PKind::Bolt => {
+                    let p = self.projs[pi].pos;
+                    let target = self.nearest_enemies(p, 450.0, 1).first().map(|&i| self.enemies[i].pos);
+                    let pr = &mut self.projs[pi];
+                    if let Some(t) = target {
+                        let speed = pr.vel.length();
+                        let desired = (t - pr.pos).normalize_or_zero() * speed;
+                        pr.vel = pr.vel.lerp(desired, (5.0 * dt).min(1.0)).normalize_or_zero() * speed;
+                    }
+                }
+                _ => {}
+            }
+            let pr = &mut self.projs[pi];
+            pr.pos += pr.vel * dt;
+            if !inside_world(pr.pos, -300.0) {
+                pr.life = 0.0;
+            }
+            if pr.life <= 0.0 {
+                pr.dead = true;
+                if kind == PKind::Orb {
+                    let (c, a, d) = (pr.pos, pr.area, pr.dmg);
+                    self.explode(c, 55.0 * a, d, evo, src);
+                }
+                continue;
+            }
+            if pr.dead {
+                continue;
+            }
+            let (pos, r) = (pr.pos, pr.r);
+            match kind {
+                PKind::Bolt if chance(0.5) => self.particle(pos, Vec2::ZERO, 0.25, 2.5, Color::from_rgba(150, 230, 255, 255), true),
+                PKind::Orb if chance(0.7) => self.particle(pos + rand_dir() * 4.0, rand_dir() * 20.0, 0.35, 3.0, Color::from_rgba(255, 140, 40, 255), true),
+                PKind::Lance if chance(0.6) => self.particle(pos, rand_dir() * 15.0, 0.4, 2.5, Color::from_rgba(150, 10, 15, 255), false),
+                _ => {}
+            }
+            // Any of our projectiles cuts through enemy bullets.
+            if self.ebullets.iter().any(|b| b.pos.distance(pos) < r + b.r) {
+                self.clear_bullets(pos, r);
+            }
+            let mut q = std::mem::take(&mut self.qbuf);
+            self.grid.query(pos, r, &mut q);
+            for &i in &q {
+                let e = &self.enemies[i];
+                if e.dead || e.pos.distance(pos) > r + e.r {
+                    continue;
+                }
+                let id = e.id;
+                if kind == PKind::Axe {
+                    if self.time - e.last_hit[WeaponKind::Axe.idx()] < 0.3 {
+                        continue;
+                    }
+                } else if self.projs[pi].hits.contains(&id) {
+                    continue;
+                }
+                self.projs[pi].hits.push(id);
+                let pr = &self.projs[pi];
+                let knock = pr.vel.normalize_or_zero() * 140.0;
+                let dmg = pr.dmg;
+                if kind == PKind::Orb {
+                    let a = pr.area;
+                    self.projs[pi].dead = true;
+                    self.explode(pos, 55.0 * a, dmg, evo, src);
+                    break;
+                }
+                self.hit(i, dmg, knock, src, kind == PKind::Axe);
+                if kind == PKind::Lance {
+                    // The blood lance feeds its wielder.
+                    let gain = if evo { 1.0 } else { 0.3 };
+                    if let Some(hero) = self.heroes.get_mut(src.hero) {
+                        hero.heal(gain);
+                    }
+                }
+                let pr = &mut self.projs[pi];
+                pr.pierce -= 1;
+                if pr.pierce < 0 {
+                    pr.dead = true;
+                    break;
+                }
+            }
+            self.qbuf = q;
+        }
+        self.projs.retain(|p| !p.dead);
+    }
+}
