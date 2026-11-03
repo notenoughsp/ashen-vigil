@@ -188,14 +188,48 @@ thread_local! {
     })));
 }
 
-/// Reads all gamepad events; call once at the start of every frame.
+// ---------------------------------------------------------------- mouse
+
+thread_local! {
+    /// Mouse position last frame, and whether it moved since.
+    static MOUSE: std::cell::Cell<(Vec2, bool)> = const { std::cell::Cell::new((Vec2::ZERO, false)) };
+}
+
+/// The mouse in UI space.
+pub fn mouse_ui() -> Vec2 {
+    Vec2::from(mouse_position()) / crate::ui::ui_scale()
+}
+
+/// The mouse moved this frame; only then does hovering change a selection, so a resting
+/// mouse never fights the keyboard.
+pub fn mouse_moved() -> bool {
+    MOUSE.with(|m| m.get().1)
+}
+
+pub fn clicked() -> bool {
+    is_mouse_button_pressed(MouseButton::Left)
+}
+
+/// The row under the mouse.
+pub fn hovered(rows: &[Rect]) -> Option<usize> {
+    let m = mouse_ui();
+    rows.iter().position(|r| r.contains(m))
+}
+
+/// Reads all gamepad events and the mouse; call once at the start of every frame.
 pub fn poll_gamepad() {
+    let mouse_used = MOUSE.with(|m| {
+        let now = Vec2::from(mouse_position());
+        let moved = now.distance(m.get().0) > 0.5;
+        m.set((now, moved));
+        moved || clicked()
+    });
     PAD.with(|p| {
         let mut p = p.borrow_mut();
         let state = &mut *p;
         state.pressed.clear();
         state.flick = [false; 4];
-        if get_last_key_pressed().is_some() {
+        if get_last_key_pressed().is_some() || mouse_used {
             state.active = false;
         }
         let Some(g) = state.gilrs.as_mut() else { return };

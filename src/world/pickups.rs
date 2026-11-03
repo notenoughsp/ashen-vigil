@@ -42,16 +42,18 @@ impl World {
 
         let soul_mult = self.diff.soul_mult() * if self.blood_moon > 0.0 { 2.0 } else { 1.0 };
         let mut gained_xp = 0.0;
+        let mut picked_at = None;
         for (kind, h, pos) in got {
             match kind {
                 PickKind::Soul(v) => {
+                    picked_at = Some(pos);
                     let hero = &mut self.heroes[h];
                     hero.p.souls += (v * 3.0 * hero.stats.greed * soul_mult).round() as u64;
                     gained_xp += v * hero.stats.growth;
                 }
                 PickKind::Draught => {
                     self.heroes[h].heal(40.0);
-                    self.sfx("kindle", 0.4);
+                    self.sfx_at("kindle", 0.4, self.heroes[h].p.pos);
                     self.toast("Ashen Draught: +40 health");
                 }
                 PickKind::Bread => {
@@ -65,14 +67,14 @@ impl World {
                             p.pulled = Some(h);
                         }
                     }
-                    self.sfx("chest", 0.4);
+                    self.sfx_at("chest", 0.4, self.heroes[h].p.pos);
                 }
                 PickKind::Coffer(boss) => self.open_coffer(h, boss),
                 PickKind::Buff(b) => {
                     self.heroes[h].buffs[b as usize] = b.duration();
                     let who = if self.multiplayer() { format!("{}: ", self.heroes[h].name) } else { String::new() };
                     self.toast(&format!("{}{} ({} for {:.0}s)", who, b.name(), b.desc(), b.duration()));
-                    self.sfx("evolve", 0.5);
+                    self.sfx_at("evolve", 0.5, self.heroes[h].p.pos);
                     self.fx.push(Fx { pos, life: 0.6, max_life: 0.6, kind: FxKind::Ring { r: 120.0, color: b.color() } });
                 }
                 PickKind::Relic => self.grant_relic(h),
@@ -81,7 +83,10 @@ impl World {
         }
         if gained_xp > 0.0 {
             self.xp += gained_xp;
-            self.sfx_gap("pickup", 0.18, 0.04);
+            match picked_at {
+                Some(at) => self.sfx_gap_at("pickup", 0.18, 0.04, at),
+                None => self.sfx_gap("pickup", 0.18, 0.04),
+            }
         }
         while self.xp >= self.xp_next {
             self.xp -= self.xp_next;
@@ -104,7 +109,7 @@ impl World {
             self.heroes[h].apply_choice(c);
             self.toast(&format!("{}a relic: {} {}", who, title, tag));
         }
-        self.sfx("chest", 0.8);
+        self.sfx_at("chest", 0.8, self.heroes[h].p.pos);
     }
 
     /// Pyre bomb: burns everything around it.
@@ -126,7 +131,7 @@ impl World {
         }
         self.add_decal(c, 140.0, Color::from_rgba(14, 10, 8, 190), DecalKind::Scorch, 40.0);
         self.shake = self.shake.max(14.0);
-        self.sfx("explode", 1.0);
+        self.sfx_at("explode", 1.0, c);
         self.toast("A pyre bursts into flame!");
     }
 
@@ -140,7 +145,7 @@ impl World {
             self.heroes[h].recompute_stats();
             self.banner("EVOLUTION", &format!("{}{} becomes {}", prefix, k.name(false), k.name(true)), Color::from_rgba(255, 200, 110, 255), 4.0);
             self.toast(k.evo_desc());
-            self.sfx("evolve", 1.0);
+            self.sfx_at("evolve", 1.0, self.heroes[h].p.pos);
             return;
         }
         let mut n = if boss { 3 } else { 1 };
@@ -161,7 +166,7 @@ impl World {
             got.push(format!("{} {}", title, tag));
         }
         self.toast(&format!("{}Coffer: {}", prefix, got.join(", ")));
-        self.sfx("chest", 0.9);
+        self.sfx_at("chest", 0.9, self.heroes[h].p.pos);
         self.check_fusion(h);
     }
 
@@ -184,13 +189,13 @@ impl World {
                 let slot = self.heroes[h].slot;
                 let who = if self.multiplayer() { format!("{}: ", self.heroes[h].name) } else { String::new() };
                 self.banner("A GRAVE CAT", &format!("{}it has decided you are its human. +13% luck", who), Color::from_rgba(230, 200, 90, 255), 4.0);
-                self.sfx("meow", 0.9);
+                self.sfx_at("meow", 0.9, cat.pos);
                 self.events.push(Event::CatFound(slot));
             } else if cat.meow <= 0.0 {
                 cat.meow = gen_range(10.0, 25.0);
                 // Only heard nearby, as a hint.
                 if self.heroes.iter().any(|h| h.p.pos.distance(cat.pos) < 700.0) {
-                    self.sfx("meow", 0.35);
+                    self.sfx_at("meow", 0.35, cat.pos);
                 }
             }
             return;
@@ -212,7 +217,7 @@ impl World {
         }
         if cat.meow <= 0.0 {
             cat.meow = gen_range(20.0, 45.0);
-            self.sfx("meow", 0.3);
+            self.sfx_at("meow", 0.3, cat.pos);
         }
     }
 
@@ -259,7 +264,7 @@ impl World {
             self.heroes[0].p.souls += n;
             self.remnant = None;
             self.banner("SOULS RECLAIMED", &format!("+{} souls", n), Color::from_rgba(140, 220, 200, 255), 3.0);
-            self.sfx("chest", 0.8);
+            self.sfx_at("chest", 0.8, self.heroes[0].p.pos);
             self.events.push(Event::RemnantClaimed);
         }
     }

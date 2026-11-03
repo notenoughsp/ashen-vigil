@@ -41,7 +41,7 @@ impl World {
         let killed = e.hp <= 0.0;
         if blocked {
             self.particle(pos - knock.normalize_or_zero() * r, rand_dir() * 120.0, 0.2, 2.0, Color::from_rgba(255, 220, 150, 255), true);
-            self.sfx_gap("clang", 0.15, 0.12);
+            self.sfx_gap_at("clang", 0.15, 0.12, pos);
         }
         if let Some(h) = self.heroes.get_mut(src.hero) {
             h.record_damage(src.weapon, dealt, self.time);
@@ -56,7 +56,7 @@ impl World {
         if chance(0.55) {
             self.blood_spray(pos, knock.normalize_or_zero(), kind.blood(), r, if crit { 5 } else { 2 });
         }
-        self.sfx_gap("hit", 0.25, 0.06);
+        self.sfx_gap_at("hit", 0.25, 0.06, pos);
         if killed {
             self.enemies[i].dead = true;
             self.on_kill(i, src);
@@ -79,7 +79,7 @@ impl World {
         if self.record_net && self.net_deaths.len() < 80 {
             self.net_deaths.push((pos, kind, elite));
         }
-        self.sfx_gap("die", 0.3, 0.05);
+        self.sfx_gap_at("die", 0.3, 0.05, pos);
         if kind == EnemyKind::Bloat {
             for k in 0..8 {
                 let a = k as f32 / 8.0 * TAU;
@@ -164,7 +164,7 @@ impl World {
         if h == self.local {
             self.shake = self.shake.max(6.0);
         }
-        self.sfx("hurt", 0.7);
+        self.sfx_at("hurt", 0.7, p);
         self.blood_spray(p, rand_dir(), Color::from_rgba(150, 10, 12, 255), 10.0, 8);
         if self.heroes[h].p.hp > 0.0 {
             return;
@@ -177,7 +177,7 @@ impl World {
             let name = hero.name.clone();
             self.ward_burst(p, 400.0);
             self.banner("EMBER REKINDLED", &format!("Death refuses {}, this once.", name), Color::from_rgba(255, 150, 60, 255), 3.0);
-            self.sfx("kindle", 1.0);
+            self.sfx_at("kindle", 1.0, p);
             return;
         }
         hero.p.hp = 0.0;
@@ -209,7 +209,7 @@ impl World {
         self.hurt_area(pos, 80.0, dmg * 3.0);
         self.fx.push(Fx { pos, life: 0.45, max_life: 0.45, kind: FxKind::Explosion { r: 80.0, color: Color::from_rgba(255, 110, 40, 255) } });
         self.add_decal(pos, 40.0, Color::from_rgba(16, 10, 8, 180), DecalKind::Scorch, 25.0);
-        self.sfx_gap("explode", 0.6, 0.05);
+        self.sfx_gap_at("explode", 0.6, 0.05, pos);
         self.shake = self.shake.max(5.0);
         let e = &mut self.enemies[i];
         e.dead = true;
@@ -236,7 +236,7 @@ impl World {
             }
         }
         self.fx.push(Fx { pos: at, life: 0.6, max_life: 0.6, kind: FxKind::Ring { r: 140.0, color: Color::from_rgba(120, 255, 140, 255) } });
-        self.sfx_gap("roar", 0.25, 1.0);
+        self.sfx_gap_at("roar", 0.25, 1.0, at);
     }
 
     /// Hurts every living hero within `r` of `c`.
@@ -280,8 +280,8 @@ impl World {
                 self.particle(*p, rand_dir() * gen_range(40.0, 140.0), 0.3, 2.0, Color::from_rgba(255, 60, 40, 255), true);
             }
         }
-        if !gone.is_empty() {
-            self.sfx_gap("hit", 0.2, 0.08);
+        if let Some(at) = gone.first().copied() {
+            self.sfx_gap_at("hit", 0.2, 0.08, at);
         }
         gone.len()
     }
@@ -334,7 +334,7 @@ impl World {
             self.particle(c, rand_dir() * gen_range(50.0, 200.0), gen_range(0.3, 0.7), gen_range(2.0, 4.0), Color::from_rgba(255, 160, 60, 255), true);
         }
         self.add_decal(c, r * 0.6, Color::from_rgba(20, 14, 10, 160), DecalKind::Scorch, 25.0);
-        self.sfx_gap("explode", 0.35, 0.08);
+        self.sfx_gap_at("explode", 0.35, 0.08, c);
         if evo {
             self.pools.push(FirePool { pos: c, r: r * 0.8, life: 3.0, max_life: 3.0, dps: dmg * 0.6, tick: 0.0, src, hex: false });
         }
@@ -417,7 +417,7 @@ impl World {
                 self.particle(c + rand_dir() * gen_range(0.0, r), vec2(gen_range(-20.0, 20.0), gen_range(-260.0, -120.0)), 0.6, 3.5, Color::from_rgba(255, 120, 50, 255), true);
             }
             self.add_decal(c, r * 0.8, Color::from_rgba(18, 12, 10, 170), DecalKind::Scorch, 20.0);
-            self.sfx_gap("explode", 0.3, 0.06);
+            self.sfx_gap_at("explode", 0.3, 0.06, c);
         }
         self.pillars.retain(|p| p.delay > 0.0 || p.after > 0.0);
         for (h, d) in hurts {
@@ -537,7 +537,7 @@ impl World {
         for (pos, dir) in arrows {
             let dmg = 8.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
             self.enemy_bullet(pos, dir * 260.0, 5.0, dmg, 0.0, 3.0);
-            self.sfx_gap("arrow", 0.25, 0.1);
+            self.sfx_gap_at("arrow", 0.25, 0.1, pos);
         }
         for (i, d, src) in burns {
             self.hit(i, d, Vec2::ZERO, src, false);

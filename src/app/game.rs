@@ -31,6 +31,15 @@ impl App {
         self.endless_paid = 0;
         self.endless_record = None;
         self.tips = if self.save.vigils == 0 { first_vigil_tips() } else { Vec::new() };
+        let mode = match &self.net {
+            NetMode::Host(_) => "hosted",
+            NetMode::Client(_) => "joined",
+            _ => "single player",
+        };
+        let names: Vec<String> = w.heroes.iter().map(|h| format!("{} ({})", h.name, h.class.name())).collect();
+        // A client learns the heroes from the first snapshot; its own pick is what it knows.
+        let heroes = if names.is_empty() { format!("me as {}", self.class().name()) } else { names.join(", ") };
+        crate::log!("vigil started, {}, difficulty {}, heroes: {}, challenges {:03b}", mode, w.diff.preset_name(), heroes, self.save.challenges);
         self.world = Some(w);
         self.screen = Screen::Playing;
         self.audio.music(Music::Ambient);
@@ -79,7 +88,18 @@ impl App {
         self.begin(w);
     }
 
+    /// Leaves the end screen: online back to the lobby, alone back to the Ash Shrine.
+    pub(super) fn end_vigil(&mut self) {
+        if self.online() {
+            self.return_to_lobby();
+        } else {
+            self.back_to_menu();
+        }
+    }
+
     pub(super) fn back_to_menu(&mut self) {
+        self.tips.clear();
+        self.note = None;
         let was_online = self.online();
         self.leave_online();
         self.world = None;
@@ -122,6 +142,7 @@ impl App {
     /// Goes on past dawn: the clock keeps running, bosses keep coming, and the vigil ends
     /// only when the hero falls. What was paid at dawn stays paid.
     pub(super) fn continue_endless(&mut self) {
+        crate::log!("endless night continues");
         let Some(w) = self.world.as_mut() else { return };
         w.won = false;
         w.endless = true;
@@ -144,6 +165,7 @@ impl App {
     }
 
     fn on_death(&mut self) {
+        crate::log!("vigil lost: {}", self.log_status());
         let online = self.online();
         let marks = self.award_marks(false);
         let w = self.world.as_mut().unwrap();
@@ -159,6 +181,7 @@ impl App {
     }
 
     fn on_victory(&mut self) {
+        crate::log!("vigil kept until dawn: {}", self.log_status());
         self.sync_bank();
         let marks = self.award_marks(true);
         self.finish_run(true, marks);
@@ -169,8 +192,12 @@ impl App {
 
     fn handle_events(&mut self) {
         let Some(w) = self.world.as_mut() else { return };
-        for (name, vol, gap) in w.sounds.drain(..) {
-            self.audio.play_gap(name, vol, gap);
+        let sounds = std::mem::take(&mut w.sounds);
+        for (name, vol, gap, pos) in sounds {
+            let k = w.hearing(pos);
+            if k > 0.02 {
+                self.audio.play_gap(name, vol * k, gap);
+            }
         }
         let events: Vec<Event> = std::mem::take(&mut w.events);
         let (client, dead, won, boss, empty) = (w.is_client, w.dead, w.won, w.boss_kind.is_some(), w.heroes.is_empty());
@@ -186,8 +213,14 @@ impl App {
         self.audio.set_intensity(self.intensity);
         for ev in events {
             match ev {
-                Event::BossStart => self.audio.music(Music::Boss(boss_index)),
-                Event::BossDefeated => self.audio.music(Music::Ambient),
+                Event::BossStart => {
+                    crate::log!("boss {} appears at {:.0}s", boss_index, self.world.as_ref().map(|w| w.time).unwrap_or(0.0));
+                    self.audio.music(Music::Boss(boss_index));
+                }
+                Event::BossDefeated => {
+                    crate::log!("boss defeated");
+                    self.audio.music(Music::Ambient);
+                }
                 Event::RemnantClaimed => {
                     self.save.remnant = None;
                     self.save.store();
@@ -210,6 +243,7 @@ impl App {
     }
 
     fn cat_found(&mut self, slot: u8) {
+        crate::log!("the Grave Cat chose slot {}", slot);
         let mine = self.world.as_ref().map(|w| !w.heroes.is_empty() && w.me().slot == slot).unwrap_or(false);
         if mine {
             self.save.cats += 1;
@@ -291,6 +325,13 @@ impl App {
         if nav(&mut self.level_sel, n, false) {
             self.audio.play("select", 0.4);
         }
+        let under = hovered(&crate::ui::level_up_cards(n));
+        if let Some(i) = under.filter(|_| mouse_moved()) {
+            if i != self.level_sel {
+                self.level_sel = i;
+                self.audio.play("select", 0.3);
+            }
+        }
         if self.level_round_seen != w.level_round {
             self.level_round_seen = w.level_round;
             self.level_shown_at = get_time();
@@ -303,12 +344,23 @@ impl App {
         if pressed_any(&[KeyCode::Enter, KeyCode::KpEnter]) || pad_pressed(Pad::Confirm) {
             pick = Some(self.level_sel);
         }
+        if clicked() {
+            if let Some(i) = under {
+                self.level_sel = i;
+                pick = Some(i);
+            }
+        }
         if let Some(auto) = &self.auto {
             if auto.should_pick() {
                 pick = Some(0);
             }
         }
         let reroll = (act_pressed(Action::Reroll) || pad_pressed(Pad::Reroll)) && w.me().rerolls > 0;
+        if let Some(i) = pick {
+            if let Some(c) = w.me().choices.get(i) {
+                crate::log!("level {}: picked {}", w.level, w.me().choice_text(*c).0);
+            }
+        }
         if let NetMode::Client(_) = self.net {
             if reroll {
                 self.reroll_seq = self.reroll_seq.wrapping_add(1);
@@ -352,12 +404,14 @@ impl App {
                 for ev in host.poll(now) {
                     match ev {
                         HostEvent::Left(name, slot) => {
+                            crate::log!("{} (slot {}) left the vigil", name, slot);
                             if let Some(h) = w.heroes.iter().position(|h| h.remote && h.connected && h.slot == slot) {
                                 w.disconnect(h);
                             }
                             w.toast(&format!("{} has left the vigil. They can rejoin from the lobby.", name));
                         }
                         HostEvent::Rejoined(name, slot) => {
+                            crate::log!("{} (slot {}) rejoined the vigil", name, slot);
                             if w.reconnect(slot) {
                                 w.toast(&format!("{} has returned to the vigil.", name));
                             }
@@ -389,7 +443,14 @@ impl App {
                             }
                             self.since_snap = 0.0;
                         }
+                        // The host went back to the lobby; follow it from the end screen.
+                        ClientEvent::Lobby { started: false, players, diff } if w.dead || w.won => {
+                            self.lobby.players = players;
+                            self.lobby.diff = diff;
+                            self.follow_host = true;
+                        }
                         ClientEvent::HostLeft => {
+                            crate::log!("host left or timed out during the vigil");
                             self.note = Some(("The host has left. The vigil is over.".into(), 5.0));
                             w.dead = true;
                         }
@@ -431,6 +492,10 @@ impl App {
             }
         }
         self.handle_events();
+        if std::mem::take(&mut self.follow_host) && matches!(self.screen, Screen::Dead { .. } | Screen::Victory { .. }) {
+            self.return_to_lobby();
+            return;
+        }
         if matches!(self.screen, Screen::Playing | Screen::Paused) {
             self.track_run();
         }

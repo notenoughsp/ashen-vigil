@@ -463,7 +463,9 @@ impl Save {
         if self.readonly {
             return;
         }
-        let _ = self.store_at(&path());
+        if let Err(e) = self.store_at(&path()) {
+            crate::log!("saving failed: {}", e);
+        }
     }
 
     /// Writes the save so that a crash at any moment leaves a readable save or backup behind:

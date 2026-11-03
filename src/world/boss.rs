@@ -53,7 +53,7 @@ impl World {
             );
         }
         self.shake = self.shake.max(14.0);
-        self.sfx("slam", 0.9);
+        self.sfx_at("slam", 0.9, pos);
     }
 
     fn summon(&mut self, kind: EnemyKind, around: Vec2, n: u32, r: f32) {
@@ -111,7 +111,7 @@ impl World {
                     if ai.t <= 0.0 {
                         ai.state = 2;
                         ai.t = 0.5;
-                        self.sfx("roll", 1.0);
+                        self.sfx_at("roll", 1.0, pos);
                     }
                 }
                 2 => {
@@ -185,7 +185,7 @@ impl World {
                     if ai.t <= 0.0 {
                         ai.state = 4;
                         ai.t = 0.45;
-                        self.sfx("roll", 1.0);
+                        self.sfx_at("roll", 1.0, pos);
                     }
                 }
                 4 => {
@@ -219,7 +219,7 @@ impl World {
                         let gap = to.y.atan2(to.x) + gen_range(-1.2, 1.2);
                         let off = gen_range(0.0, TAU);
                         self.ring(pos, 30, 150.0, 16.0 * lap, off, Some((gap, 0.75)));
-                        self.sfx("bell", 0.6);
+                        self.sfx_at("bell", 0.6, pos);
                         self.fx.push(Fx { pos, life: 0.5, max_life: 0.5, kind: FxKind::Ring { r: 90.0, color: Color::from_rgba(240, 210, 120, 255) } });
                         ai.count += 1;
                         ai.t = 0.5;
@@ -235,7 +235,7 @@ impl World {
                             let a = to.y.atan2(to.x) + (k as f32 - 2.0) * 0.5;
                             self.enemy_bullet(pos, Vec2::from_angle(a) * 140.0, 9.0, 16.0 * lap, 1.4, 5.0);
                         }
-                        self.sfx("zap", 0.5);
+                        self.sfx_at("zap", 0.5, pos);
                         ai.state = 4;
                         ai.t = 1.4;
                     }
@@ -268,7 +268,7 @@ impl World {
                     if ai.t <= 0.0 {
                         ai.state = 2;
                         ai.t = 0.4;
-                        self.sfx("roll", 1.0);
+                        self.sfx_at("roll", 1.0, pos);
                     }
                 }
                 2 => {
@@ -324,7 +324,7 @@ impl World {
                         ai.state = 6;
                         ai.t = 2.4;
                         self.summon(EnemyKind::Knight, pos, if p2 { 6 } else { 4 }, 120.0);
-                        self.sfx("roar", 0.7);
+                        self.sfx_at("roar", 0.7, pos);
                     }
                 }
                 6 => {

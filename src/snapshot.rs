@@ -55,7 +55,7 @@ pub struct Decoder {
 pub struct Events {
     nums: Vec<DmgNum>,
     deaths: Vec<(Vec2, EnemyKind, bool)>,
-    sounds: Vec<(&'static str, f32)>,
+    sounds: Vec<(&'static str, f32, Option<Vec2>)>,
 }
 
 /// Starts a snapshot round: tags new pickups and takes the one-shot events.
@@ -83,6 +83,10 @@ impl View {
             _ => w.heroes.iter().map(|h| h.p.pos).collect(),
         };
         View { slot, eyes, half: screen * 0.5 + Vec2::splat(VIEW_MARGIN) }
+    }
+
+    fn hears(&self, p: Vec2) -> bool {
+        self.eyes.iter().any(|e| e.distance(p) < HEAR_MAX)
     }
 
     fn sees(&self, p: Vec2, r: f32) -> bool {
@@ -739,10 +743,16 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         e.w.u8(k.to_u8());
         e.w.bool(*elite);
     }
-    e.w.u8(ev.sounds.len().min(255) as u8);
-    for (name, vol) in ev.sounds.iter().take(255) {
-        e.w.u8(SFX_NAMES.iter().position(|n| n == name).unwrap_or(0) as u8);
+    // Sounds this client could not hear anyway stay home; the rest carry their place.
+    let audible: Vec<&(&'static str, f32, Option<Vec2>)> = ev.sounds.iter().filter(|s| s.2.is_none_or(|p| view.hears(p))).take(255).collect();
+    e.w.u8(audible.len() as u8);
+    for (name, vol, pos) in audible {
+        let idx = SFX_NAMES.iter().position(|n| n == name).unwrap_or(0) as u8;
+        e.w.u8(idx | if pos.is_some() { 0x80 } else { 0 });
         e.w.u8(frac(*vol, 255.0));
+        if let Some(p) = pos {
+            e.pos(*p);
+        }
     }
     (e.w.0, next)
 }
@@ -1061,10 +1071,11 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         w.death_burst(pos, kind, elite, r);
     }
     for _ in 0..d.r.u8() {
-        let idx = d.r.u8() as usize;
+        let code = d.r.u8();
         let vol = d.r.u8() as f32 / 255.0;
-        if let Some(name) = SFX_NAMES.get(idx) {
-            w.sounds.push((name, vol, 0.03));
+        let pos = (code & 0x80 != 0).then(|| d.pos());
+        if let Some(name) = SFX_NAMES.get((code & 0x7f) as usize) {
+            w.sounds.push((name, vol, 0.03, pos));
         }
     }
     d.r.ok.then_some(next)

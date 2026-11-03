@@ -21,7 +21,7 @@ use std::thread::JoinHandle;
 
 pub use autotest::AutoTest;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Screen {
     Menu,
     Options,
@@ -79,6 +79,8 @@ pub struct App {
     menu_sel: usize,
     opt_sel: usize,
     opt_page: usize,
+    /// A client on the end screen saw the host go back to the lobby.
+    follow_host: bool,
     /// The binding row waiting for a key press.
     binding: Option<usize>,
     hub_sel: usize,
@@ -174,6 +176,7 @@ impl App {
             opt_sel: 0,
             opt_page: 0,
             binding: None,
+            follow_host: false,
             hub_sel: 0,
             relic_sel: 0,
             credits_scroll: 0.0,
@@ -247,6 +250,29 @@ impl App {
         }
     }
 
+    /// One line on what is going on, for the log.
+    pub fn log_status(&self) -> String {
+        let mode = match &self.net {
+            NetMode::Host(h) => format!("host of {} players", h.peers.len() + 1),
+            NetMode::Client(_) => "client".to_string(),
+            _ => "offline".to_string(),
+        };
+        match &self.world {
+            Some(w) if !w.heroes.is_empty() => format!(
+                "{:?}, {}, vigil {:02}:{:02}, level {}, {} foes, {} kills{}",
+                self.screen,
+                mode,
+                w.time as u32 / 60,
+                w.time as u32 % 60,
+                w.level,
+                w.enemies.len(),
+                w.kills,
+                if w.endless { ", endless" } else { "" }
+            ),
+            _ => format!("{:?}, {}", self.screen, mode),
+        }
+    }
+
     fn set_note(&mut self, text: &str, secs: f32) {
         self.note = Some((text.to_string(), secs));
     }
@@ -285,7 +311,7 @@ impl App {
                 self.screen = Screen::Dead { t: t + dt, lost, marks };
                 self.step_game(dt, Input::default(), false);
                 if t > 2.5 && confirm() {
-                    self.back_to_menu();
+                    self.end_vigil();
                 }
             }
             Screen::Victory { t, marks } => {
@@ -294,7 +320,7 @@ impl App {
                 if t > 2.5 && !self.online() && (is_key_pressed(KeyCode::C) || pad_pressed(Pad::Reroll)) {
                     self.continue_endless();
                 } else if t > 2.5 && confirm() {
-                    self.back_to_menu();
+                    self.end_vigil();
                 }
             }
         }

@@ -637,9 +637,9 @@ impl World {
                 hero.revive = 0.0;
                 hero.p.hp = hero.stats.max_hp * 0.4;
                 hero.p.iframes = 2.0;
-                let name = hero.name.clone();
+                let (name, hero_pos) = (hero.name.clone(), hero.p.pos);
                 self.toast(&format!("{} rises again.", name));
-                self.sfx("kindle", 0.7);
+                self.sfx_at("kindle", 0.7, hero_pos);
             }
         }
     }

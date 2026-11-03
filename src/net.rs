@@ -11,7 +11,7 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs, UdpSocket};
 
 pub const DEFAULT_PORT: u16 = 7777;
 // The last byte is the protocol version; different builds refuse to talk to each other.
-const MAGIC: [u8; 3] = [0xA5, 0x1C, 7];
+const MAGIC: [u8; 3] = [0xA5, 0x1C, 8];
 /// Shown in menus, so players can tell whether they run the same build.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const FRAG_PAYLOAD: usize = 1100;
@@ -800,12 +800,14 @@ pub struct ClientNet {
     assembler: Assembler,
     hello_acc: f32,
     ping_acc: f32,
+    /// HostLeft was reported already; it is said once, not every frame after.
+    gone: bool,
 }
 
 impl ClientNet {
     pub fn connect(host: SocketAddr, now: f64) -> Result<ClientNet, String> {
         let sock = Sock::bind(0).map_err(|e| format!("Cannot open a socket: {}", e))?;
-        Ok(ClientNet { sock, host, slot: None, last_seen: now, assembler: Assembler::default(), hello_acc: 10.0, ping_acc: 0.0 })
+        Ok(ClientNet { sock, host, slot: None, last_seen: now, assembler: Assembler::default(), hello_acc: 10.0, ping_acc: 0.0, gone: false })
     }
 
     /// Re-sends the join request until the host answers.
@@ -880,6 +882,13 @@ impl ClientNet {
         }
         if now - self.last_seen > TIMEOUT {
             out.push(ClientEvent::HostLeft);
+        }
+        if out.iter().any(|e| matches!(e, ClientEvent::HostLeft)) {
+            out.retain(|e| !matches!(e, ClientEvent::HostLeft));
+            if !self.gone {
+                self.gone = true;
+                out.push(ClientEvent::HostLeft);
+            }
         }
         out
     }

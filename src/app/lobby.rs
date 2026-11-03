@@ -17,8 +17,10 @@ impl App {
     fn lobby_rows(&self) -> usize {
         match self.lobby.state {
             LobbyState::Browse => 5 + self.ts_peers().len() + 1,
-            LobbyState::Hosting => 2,
-            LobbyState::Joining(_) | LobbyState::Joined => 1,
+            // Class, difficulty, begin, close.
+            LobbyState::Hosting => 4,
+            // Class, leave.
+            LobbyState::Joining(_) | LobbyState::Joined => 2,
         }
     }
 
@@ -36,13 +38,17 @@ impl App {
     pub(super) fn host_lobby(&mut self) {
         match HostNet::open(DEFAULT_PORT) {
             Ok(h) => {
+                crate::log!("hosting a lobby on UDP {}", DEFAULT_PORT);
                 self.net = NetMode::Host(h);
                 self.lobby.state = LobbyState::Hosting;
                 self.lobby.sel = 0;
                 self.lobby.msg = Some(("Lobby open. Share one of the addresses above with your companions.".into(), TEAL));
                 self.audio.play("kindle", 0.5);
             }
-            Err(e) => self.lobby.msg = Some((e, BLOOD)),
+            Err(e) => {
+                crate::log!("could not host: {}", e);
+                self.lobby.msg = Some((e, BLOOD));
+            }
         }
     }
 
@@ -50,6 +56,7 @@ impl App {
         let result = net::resolve(addr_text).and_then(|addr| ClientNet::connect(addr, get_time()).map(|c| (addr, c)));
         match result {
             Ok((addr, c)) => {
+                crate::log!("joining {}", addr);
                 self.net = NetMode::Client(c);
                 self.lobby.state = LobbyState::Joining(0.0);
                 self.lobby.sel = 0;
@@ -59,6 +66,44 @@ impl App {
             }
             Err(e) => self.lobby.msg = Some((e, BLOOD)),
         }
+    }
+
+    /// Steps through the difficulty presets; the host's choice applies to everyone.
+    fn cycle_difficulty(&mut self, dir: i32) {
+        let st = &mut self.save.settings;
+        let now = PRESETS.iter().position(|(_, d)| *d == st.diff).map(|i| i as i32).unwrap_or(if dir > 0 { -1 } else { 0 });
+        st.diff = PRESETS[(now + dir).rem_euclid(PRESETS.len() as i32) as usize].1;
+        self.lobby.diff = st.diff;
+        self.save.store();
+        self.audio.play("select", 0.5);
+    }
+
+    /// After a vigil online, everyone goes back to the same lobby, still connected,
+    /// to pick a hero and go again.
+    pub(super) fn return_to_lobby(&mut self) {
+        self.world = None;
+        self.tips.clear();
+        self.note = None;
+        self.screen = Screen::Lobby;
+        self.lobby.sel = 0;
+        self.audio.music(Music::Ambient);
+        match &mut self.net {
+            NetMode::Host(h) => {
+                h.started = false;
+                h.left.clear();
+                self.lobby.state = LobbyState::Hosting;
+                self.lobby.started = false;
+                self.lobby.msg = Some(("Back in the lobby. Pick your hero and begin again when everyone is ready.".into(), TEAL));
+            }
+            NetMode::Client(_) => {
+                self.lobby.state = LobbyState::Joined;
+                // Until the host says the old vigil is over, its snapshots must not start a new one.
+                self.lobby.started = true;
+                self.lobby.msg = Some(("Back in the lobby. Pick your hero; the host begins the next vigil.".into(), TEAL));
+            }
+            NetMode::Offline => self.screen = Screen::Menu,
+        }
+        crate::log!("back in the lobby: {}", self.log_status());
     }
 
     pub(super) fn leave_online(&mut self) {
@@ -83,14 +128,19 @@ impl App {
                 for ev in host.poll(now) {
                     match ev {
                         HostEvent::Joined(n) => {
+                            crate::log!("{} joined the lobby", n);
                             self.lobby.msg = Some((format!("{} joined the lobby.", n), TEAL));
                             self.audio.play("bell", 0.4);
                         }
-                        HostEvent::Left(n, _) => self.lobby.msg = Some((format!("{} left the lobby.", n), DIM)),
+                        HostEvent::Left(n, _) => {
+                            crate::log!("{} left the lobby", n);
+                            self.lobby.msg = Some((format!("{} left the lobby.", n), DIM));
+                        }
                         HostEvent::Rejoined(..) => {}
                     }
                 }
-                if host.sock.stats.foreign_version.take().is_some() {
+                if let Some(v) = host.sock.stats.foreign_version.take() {
+                    crate::log!("a player with protocol {} tried to join (this build: {})", v, net::VERSION);
                     self.lobby.msg = Some((format!("Someone with another version of the game tried to join. Everyone needs v{}.", net::VERSION), BLOOD));
                 }
                 let players = host.lobby_players(&name, my_class);
@@ -104,11 +154,13 @@ impl App {
                 for ev in client.poll(now) {
                     match ev {
                         ClientEvent::Welcome => {
+                            crate::log!("joined the lobby");
                             self.lobby.state = LobbyState::Joined;
                             self.lobby.msg = Some(("Joined. Waiting for the host to begin the vigil.".into(), TEAL));
                             self.audio.play("bell", 0.4);
                         }
                         ClientEvent::Refused(why) => {
+                            crate::log!("refused by the host: {}", why);
                             self.lobby.msg = Some((why, BLOOD));
                             self.lobby.state = LobbyState::Browse;
                         }
@@ -118,8 +170,10 @@ impl App {
                             start |= started && !self.lobby.started;
                             self.lobby.started = started;
                         }
-                        // The first snapshot can overtake the lobby packet that says "started".
-                        ClientEvent::Snapshot(_) => start = true,
+                        // The first snapshot can overtake the lobby packet that says "started";
+                        // snapshots of a vigil that already ended don't count.
+                        ClientEvent::Snapshot(_) if !self.lobby.started => start = true,
+                        ClientEvent::Snapshot(_) => {}
                         ClientEvent::HostLeft => {
                             let msg = if matches!(self.lobby.state, LobbyState::Joining(_)) {
                                 "No answer. Check the address, that the host has the lobby open, UDP port 7777 is allowed in their firewall and everyone runs the same version."
@@ -180,18 +234,34 @@ impl App {
             LobbyState::Browse => self.update_browse(rows, text_row),
             LobbyState::Hosting => {
                 drain_chars();
-                if confirm() {
-                    if self.lobby.sel == 0 {
-                        self.start_hosted();
-                    } else {
-                        self.leave_online();
-                    }
+                let dir = if left(false) {
+                    -1
+                } else if right(false) {
+                    1
+                } else {
+                    0
+                };
+                match self.lobby.sel {
+                    0 if dir != 0 => self.cycle_class(dir),
+                    1 if dir != 0 => self.cycle_difficulty(dir),
+                    2 if confirm() => self.start_hosted(),
+                    3 if confirm() => self.leave_online(),
+                    _ => {}
                 }
             }
             LobbyState::Joining(_) | LobbyState::Joined => {
                 drain_chars();
-                if confirm() {
-                    self.leave_online();
+                let dir = if left(false) {
+                    -1
+                } else if right(false) {
+                    1
+                } else {
+                    0
+                };
+                match self.lobby.sel {
+                    0 if dir != 0 => self.cycle_class(dir),
+                    1 if confirm() => self.leave_online(),
+                    _ => {}
                 }
             }
         }
@@ -312,15 +382,25 @@ impl App {
                     DIM,
                 );
                 y += 36.0;
+                let value_row = |i: usize, label: &str, value: &str, y: &mut f32| {
+                    let on = self.lobby.sel == i;
+                    ui.row(x, *y, w, 34.0, on);
+                    ui.text(label, x + 14.0, *y + 23.0, 19.0, PALE);
+                    ui.text_r(value, x + w - 14.0, *y + 23.0, 18.0, if on { GOLD } else { DIM });
+                    *y += 38.0;
+                };
+                let button = |i: usize, label: &str, col: Color, y: &mut f32| {
+                    ui.row(x, *y, w, 34.0, self.lobby.sel == i);
+                    ui.text_c(label, cx, *y + 23.0, 20.0, col);
+                    *y += 38.0;
+                };
+                value_row(0, "Your hero", &format!("<  {}  >", self.class().name()), &mut y);
                 if self.lobby.state == LobbyState::Hosting {
-                    ui.row(x, y, w, 34.0, self.lobby.sel == 0);
-                    ui.text_c("Begin the Vigil", cx, y + 23.0, 20.0, EMBER);
-                    y += 38.0;
-                    ui.row(x, y, w, 34.0, self.lobby.sel == 1);
-                    ui.text_c("Close lobby", cx, y + 23.0, 20.0, DIM);
+                    value_row(1, "Difficulty", &format!("<  {}  >", self.save.settings.diff.preset_name()), &mut y);
+                    button(2, "Begin the Vigil", EMBER, &mut y);
+                    button(3, "Close lobby", DIM, &mut y);
                 } else {
-                    ui.row(x, y, w, 34.0, true);
-                    ui.text_c("Leave", cx, y + 23.0, 20.0, DIM);
+                    button(1, "Leave", DIM, &mut y);
                 }
             }
         }

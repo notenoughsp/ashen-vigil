@@ -29,7 +29,7 @@ Main menu > Online Lobby. One player chooses **Host a vigil** (UDP port 7777), t
 - **Tailscale**: everyone in the same tailnet. The lobby lists online Tailscale devices; pick the host's device, or type its `100.x.y.z` address or MagicDNS name. No port forwarding needed.
 - **Direct IP**: type the host's IP (`1.2.3.4` or `1.2.3.4:7777`). Over the internet the host must forward UDP 7777 on their router. Windows asks once whether the game may use the network; allow it.
 
-The host simulates the world and sends each player a snapshot 30 times a second, cut to what that player's screen shows and coded against the last snapshot the player confirmed, so only changes travel: about 15-20 KB/s per joined player, so a host with three companions needs roughly 45-60 KB/s of upload. During level-up pauses the rate drops to 10 snapshots a second. Players send their input 60 times a second. All players need the same version of the game. The host's difficulty applies. Level-ups pause the game for everyone until all players have chosen, then a 2.5 s countdown resumes it. A fallen player can be revived by standing next to them for 3 s; shrines and boss kills revive everyone. Each player banks their own souls into their own save. A player who drops out (or leaves) can join the same vigil again from the lobby under the same name and gets their hero back.
+The host simulates the world and sends each player a snapshot 30 times a second, cut to what that player's screen shows and coded against the last snapshot the player confirmed, so only changes travel: about 15-20 KB/s per joined player, so a host with three companions needs roughly 45-60 KB/s of upload. During level-up pauses the rate drops to 10 snapshots a second. Players send their input 60 times a second. All players need the same version of the game. The host's difficulty applies. Level-ups pause the game for everyone until all players have chosen, then a 2.5 s countdown resumes it. A fallen player can be revived by standing next to them for 3 s; shrines and boss kills revive everyone. Each player banks their own souls into their own save. After a vigil ends, everyone returns to the same lobby, still connected; there each player picks a hero and the host picks the difficulty for the next vigil. A player who drops out (or leaves) can join the same vigil again from the lobby under the same name and gets their hero back.
 
 ## Controls
 
@@ -65,6 +65,10 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Difficulty ramp**: settings harder than Knight start at a third of their extra strength and reach all of it after three minutes.
 - **Endless night**: after keeping a single-player vigil until dawn, press C (Y) on the summary to fight on. Bosses keep coming every five minutes; the vigil ends when you fall, pays the marks earned beyond dawn and replaces its leaderboard entry.
 - **Lifesteal** (Reaper, Leech Fang) returns at most 4 health per second.
+- **Homing**: every projectile weapon seeks the nearest foe it has not hit yet; the axe only on its way out.
+- **Sound** comes from where it happens: full volume near your hero, silent about a screen away. Announcements are heard everywhere.
+- **Mouse**: hover and click work in the main menu and on the level-up cards.
+- **Logs**: every start writes a log to `%APPDATA%\AshenVigil\logs\` (the newest ten are kept), including crashes with their cause.
 - **First vigil**: a few tips appear during your first vigil.
 - **Bosses** every 5 minutes inside a fog ring you cannot leave: The Gravewarden, Pale Matriarch, The Tolling Hermit, Ashen Sovereign. All attacks are telegraphed. Each boss enters a second phase at half health. The finale at 30:00 is always the Sovereign.
 - **Enemy projectiles** are large and red. Your weapons destroy them: blades and sweeps cut them, projectiles and explosions shoot them down.

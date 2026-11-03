@@ -29,6 +29,8 @@ pub struct AutoTest {
     name: Option<&'static str>,
     /// Host only (ASHEN_AUTOTEST_PLAYERS): how many players to wait for, host included.
     players: usize,
+    /// ASHEN_AUTOTEST_AGAIN: everyone falls, the host goes back to the lobby and begins again.
+    again: bool,
     /// Frames at which the client left and came back; host: a hero was seen gone.
     left_at: Option<u32>,
 }
@@ -53,7 +55,12 @@ impl AutoTest {
         let rejoin = std::env::var("ASHEN_AUTOTEST_REJOIN").is_ok();
         let name = std::env::var("ASHEN_AUTOTEST_NAME").ok().map(|n| &*Box::leak(n.chars().take(16).collect::<String>().into_boxed_str()));
         let players = std::env::var("ASHEN_AUTOTEST_PLAYERS").ok().and_then(|v| v.parse().ok()).unwrap_or(2usize).clamp(2, crate::world::MAX_HEROES);
-        Some(AutoTest { dir, role, frame: 0, run_start: None, choosing_since: None, shots: Vec::new(), rejoin, left_at: None, name, players })
+        let again = std::env::var("ASHEN_AUTOTEST_AGAIN").is_ok();
+        Some(AutoTest { dir, role, frame: 0, run_start: None, choosing_since: None, shots: Vec::new(), rejoin, left_at: None, name, players, again })
+    }
+
+    pub fn log_file(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from(format!("{}/{}log.txt", self.dir, self.prefix()))
     }
 
     pub fn player_name(&self) -> &'static str {
@@ -428,6 +435,40 @@ impl App {
                 want.push("rejoined");
             }
         }
+        let again = self.auto.as_ref().unwrap().again;
+        if again {
+            match f.saturating_sub(s) {
+                1100 => {
+                    // Everyone falls at once.
+                    let w = self.world.as_mut().unwrap();
+                    for h in 0..w.heroes.len() {
+                        let hero = &mut w.heroes[h];
+                        hero.p.hp = 1.0;
+                        hero.p.iframes = 0.0;
+                        hero.p.roll_t = 0.0;
+                        hero.buffs = [0.0; 3];
+                        hero.p.revives = 0;
+                    }
+                    for h in 0..w.heroes.len() {
+                        w.hurt_hero(h, 9999.0);
+                    }
+                }
+                1300 => {
+                    println!("[host_] end screen: {:?}", self.screen);
+                    self.end_vigil();
+                }
+                1360 => want.push("lobby_again"),
+                1600 => {
+                    self.lobby.sel = 2;
+                    self.start_hosted();
+                    println!("[host_] second vigil with {} heroes", self.world.as_ref().map(|w| w.heroes.len()).unwrap_or(0));
+                }
+                1900 => want.push("second_run"),
+                2000 => std::process::exit(0),
+                _ => {}
+            }
+            return want;
+        }
         if f == s + 1300 {
             std::process::exit(0);
         }
@@ -491,6 +532,16 @@ impl App {
         }
         if matches!(self.screen, Screen::Dead { .. }) && !self.auto.as_ref().unwrap().has("end") {
             want.push("end");
+        }
+        // After the end screen: following the host into the lobby, then into the next vigil.
+        let au = self.auto.as_ref().unwrap();
+        if au.has("end") && self.screen == Screen::Lobby && !au.has("lobby_again") {
+            println!("[client_] followed the host back to the lobby");
+            want.push("lobby_again");
+        }
+        if au.has("lobby_again") && self.screen == Screen::Playing && self.world.as_ref().is_some_and(|w| !w.heroes.is_empty() && w.time > 2.0) && !au.has("second_run") {
+            println!("[client_] in the second vigil");
+            want.push("second_run");
         }
         if f > 3200 {
             std::process::exit(0);

@@ -120,13 +120,18 @@ fn mix(into: &mut Vec<f32>, other: &[f32], at: f32, gain: f32) {
 }
 
 fn boom(secs: f32, f0: f32, seed: u32) -> Vec<f32> {
+    drum(secs, f0, seed, 0.8)
+}
+
+/// A tuned thump with `noise` parts of rumble on top; music drums use little.
+fn drum(secs: f32, f0: f32, seed: u32, noise: f32) -> Vec<f32> {
     let mut s = noise_burst(secs, seed, 900.0, 120.0, 6.0, false);
     let mut ph = 0.0;
     for (i, v) in s.iter_mut().enumerate() {
         let t = t_of(i);
         let f = f0 * (1.0 + 2.0 * (-t * 18.0).exp());
         ph += f / SR;
-        *v = *v * 0.8 + (TAU * ph).sin() * (-t * 5.0).exp() * 1.2;
+        *v = *v * noise + (TAU * ph).sin() * (-t * 5.0).exp() * 1.2;
     }
     s
 }
@@ -314,20 +319,45 @@ fn synth(name: &str) -> Vec<f32> {
     }
 }
 
+/// A frequency nudged to a whole number of cycles per 16 s loop, so the loop has no seam.
+fn loop_hz(f: f32) -> f32 {
+    (f * 16.0).round() / 16.0
+}
+
+/// A soft voice from a few sine partials: warm, with no hiss and no buzz.
+fn voice(f: f32, t: f32) -> f32 {
+    (TAU * f * t).sin() + 0.45 * (TAU * 2.0 * f * t).sin() + 0.2 * (TAU * 3.0 * f * t).sin() + 0.08 * (TAU * 4.0 * f * t).sin()
+}
+
+/// Weight of chord `k` of four at time `t` in a 16 s loop: four seconds each, with a
+/// one-second crossfade, wrapping around the loop.
+fn chord_weight(k: usize, t: f32) -> f32 {
+    let centre = k as f32 * 4.0 + 2.0;
+    let d = (t - centre + 8.0).rem_euclid(16.0) - 8.0;
+    let x = ((2.5 - d.abs()) / 1.0).clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
 fn music_ambient() -> Vec<f32> {
     let len = 16.0;
     let mut s = buf(len);
-    let mut n = Noise(7);
-    let mut wind = Lp(0.0);
-    let mut drone = Lp(0.0);
+    // A low drone on A that breathes, and a choir-like pad walking Am - F - Dm - E.
+    let (a1, a1b, e2) = (55.0, 55.25, loop_hz(82.41));
+    let chords: [[f32; 3]; 4] = [[220.0, 261.63, 329.63], [174.61, 220.0, 261.63], [146.83, 174.61, 220.0], [164.81, 207.65, 246.94]];
+    let chords = chords.map(|c| c.map(loop_hz));
     for (i, v) in s.iter_mut().enumerate() {
         let t = t_of(i);
         // LFO rates are whole cycles per loop so the loop is seamless.
-        let lfo = 0.5 + 0.5 * (TAU * t / 8.0).sin();
-        let a = saw(55.0 * t) + saw(55.3 * t) * 0.8 + saw(82.41 * t) * 0.5;
-        let d = drone.run(a, 180.0 + 160.0 * lfo) * 0.6;
-        let w = wind.run(n.next(), 400.0 + 300.0 * (TAU * t / 16.0).sin().abs()) * 0.6;
-        *v = d + w;
+        let breath = 0.75 + 0.25 * (TAU * t / 8.0).sin();
+        let drone = (voice(a1, t) + voice(a1b, t) * 0.8) * 0.18 + voice(e2, t) * 0.08;
+        let mut pad = 0.0;
+        for (k, chord) in chords.iter().enumerate() {
+            let w = chord_weight(k, t);
+            if w > 0.0 {
+                pad += chord.iter().map(|f| voice(*f, t)).sum::<f32>() * w;
+            }
+        }
+        *v = drone * breath + pad * 0.045 * (0.85 + 0.15 * (TAU * t / 4.0).sin());
     }
     // Sparse bell motif in A minor.
     let notes = [(1.0, 440.0), (3.5, 392.0), (6.0, 349.23), (7.0, 329.63), (10.0, 293.66), (12.5, 261.63), (14.0, 329.63)];
@@ -386,12 +416,13 @@ fn music_boss(th: &Theme) -> Vec<f32> {
     let bars = 4;
     let len = beat * 4.0 * bars as f32;
     let mut s = buf(len);
-    let mut lp = Lp(0.0);
+    let (mut lp, mut lp2) = (Lp(0.0), Lp(0.0));
     for (i, v) in s.iter_mut().enumerate() {
         let t = t_of(i);
         let a = saw(th.root * t) + saw(th.root * th.clash * t) * 0.6 + saw(th.root * 2.0 * t) * 0.35;
         let pulse = 0.6 + 0.4 * (TAU * t / (beat * 2.0)).sin();
-        let mut x = lp.run(a, th.cutoff) * 0.45 * pulse;
+        // Two filter stages: the saws keep their grit without the fizz on top.
+        let mut x = lp2.run(lp.run(a, th.cutoff), th.cutoff * 1.5) * 0.5 * pulse;
         if th.arp {
             // Root, fifth, octave, minor third, cycling on sixteenths.
             let step = (t / (beat * 0.25)) as usize;
@@ -401,8 +432,8 @@ fn music_boss(th: &Theme) -> Vec<f32> {
         }
         *v = x;
     }
-    let kick = boom(0.4, 50.0, 5);
-    let tom = boom(0.3, 95.0, 9);
+    let kick = drum(0.4, 50.0, 5, 0.3);
+    let tom = drum(0.3, 95.0, 9, 0.3);
     let sixteenth = beat * 0.25;
     for bar in 0..bars {
         for k in 0..16 {
@@ -428,23 +459,23 @@ fn music_combat() -> Vec<f32> {
     let len = 16.0;
     let beat = len / 28.0;
     let mut s = buf(len);
-    let kick = boom(0.35, 48.0, 13);
-    let tom = boom(0.3, 80.0, 17);
-    let shaker = noise_burst(0.05, 19, 7000.0, 4000.0, 60.0, true);
+    let kick = drum(0.35, 48.0, 13, 0.25);
+    let tom = drum(0.3, 80.0, 17, 0.25);
+    // A muted bell on the offbeat instead of a hissing shaker.
+    let tick = bell(0.25, 880.0, 14.0);
     for b in 0..28 {
         let at = b as f32 * beat;
         mix(&mut s, &kick, at, 0.6);
         if b % 4 == 2 {
             mix(&mut s, &tom, at + beat * 0.5, 0.45);
         }
-        mix(&mut s, &shaker, at + beat * 0.5, 0.25);
+        mix(&mut s, &tick, at + beat * 0.5, 0.05);
     }
-    let mut lp = Lp(0.0);
     for (i, v) in s.iter_mut().enumerate() {
         let t = t_of(i);
         // A low pulsing string, also whole cycles per loop.
         let pulse = (0.5 + 0.5 * (TAU * t / (beat * 2.0)).sin()).powf(2.0);
-        *v += lp.run(saw(55.0 * t) + saw(55.4 * t), 300.0) * 0.25 * pulse;
+        *v += (voice(55.0, t) + voice(55.25, t)) * 0.12 * pulse;
     }
     fold_loop(s, len)
 }
@@ -596,4 +627,20 @@ impl Audio {
             self.music(cur);
         }
     }
+}
+
+/// How much of each music loop is hiss and buzz: the share of energy in the sample-to-sample
+/// difference, which grows with noise and harsh overtones. For `tests::music_report`.
+#[cfg(test)]
+pub fn music_roughness() -> Vec<(&'static str, f32)> {
+    let rough = |s: &[f32]| {
+        let e: f32 = s.iter().map(|x| x * x).sum::<f32>().max(1e-9);
+        let d: f32 = s.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum();
+        d / e * 1000.0
+    };
+    let mut out = vec![("ambient", rough(&music_ambient())), ("combat", rough(&music_combat()))];
+    for (k, th) in THEMES.iter().enumerate() {
+        out.push((["boss 1", "boss 2", "boss 3", "boss 4"][k], rough(&music_boss(th))));
+    }
+    out
 }

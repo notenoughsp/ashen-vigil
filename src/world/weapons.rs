@@ -5,6 +5,8 @@ use std::f32::consts::PI;
 
 /// How far auto-aim looks for a target.
 const AIM_RANGE: f32 = 650.0;
+/// How far projectiles look for a foe to seek.
+const HOMING_RANGE: f32 = 480.0;
 
 impl World {
     pub(crate) fn update_weapons(&mut self, dt: f32) {
@@ -76,7 +78,7 @@ impl World {
                         }
                     }
                     if n > 0 {
-                        self.sfx_gap("chime", 0.12, 0.5);
+                        self.sfx_gap_at("chime", 0.12, 0.5, p);
                     }
                 }
                 return;
@@ -128,7 +130,7 @@ impl World {
                     self.sector_hit(p, a, 1.05, radius, dmg, 160.0, src, evo);
                     self.fx.push(Fx { pos: p, life: 0.22, max_life: 0.22, kind: FxKind::Slash { ang: a, radius, evo, owner: h as u8 } });
                 }
-                self.sfx("slash", 0.5);
+                self.sfx_at("slash", 0.5, p);
             }
             WeaponKind::Scythe => {
                 let radius = 125.0 * area;
@@ -142,7 +144,7 @@ impl World {
                     }
                     self.fx.push(Fx { pos: p, life: 0.35, max_life: 0.35, kind: FxKind::Sweep { radius: r, evo, owner: h as u8 } });
                 }
-                self.sfx("slash", 0.6);
+                self.sfx_at("slash", 0.6, p);
             }
             WeaponKind::Daggers => {
                 for k in 0..amount {
@@ -151,7 +153,7 @@ impl World {
                     let dir = Vec2::from_angle(base + off + jitter);
                     self.projs.push(proj(p + dir * 10.0, dir, s.speed, 6.0, s.pierce, 1.1, PKind::Dagger));
                 }
-                self.sfx_gap("knife", 0.3, 0.07);
+                self.sfx_gap_at("knife", 0.3, 0.07, p);
             }
             WeaponKind::Crossbow => {
                 let turn = spin;
@@ -159,7 +161,7 @@ impl World {
                     let dir = Vec2::from_angle(turn + k as f32 / amount as f32 * TAU);
                     self.projs.push(proj(p + dir * 12.0, dir, s.speed, 5.0, s.pierce, 1.2, PKind::Quarrel));
                 }
-                self.sfx_gap("arrow", 0.35, 0.08);
+                self.sfx_gap_at("arrow", 0.35, 0.08, p);
             }
             WeaponKind::Lance => {
                 for k in 0..amount {
@@ -167,7 +169,7 @@ impl World {
                     let r = 9.0 * area;
                     self.projs.push(proj(p + side + face * 16.0, face, s.speed, r, s.pierce, 0.9, PKind::Lance));
                 }
-                self.sfx_gap("knife", 0.5, 0.1);
+                self.sfx_gap_at("knife", 0.5, 0.1, p);
             }
             WeaponKind::Hex => {
                 let r = 28.0 * area;
@@ -184,7 +186,7 @@ impl World {
                     let r = if evo { 18.0 } else { 9.0 } * area.sqrt();
                     self.projs.push(proj(p, dir, s.speed * if evo { 0.6 } else { 1.0 }, r, 0, 2.0, PKind::Orb));
                 }
-                self.sfx_gap("fire", 0.4, 0.1);
+                self.sfx_gap_at("fire", 0.4, 0.1, p);
             }
             WeaponKind::Spear => {
                 let candidates = self.nearest_enemies(p, 600.0, 40);
@@ -212,7 +214,7 @@ impl World {
                     }
                 }
                 self.shake = self.shake.max(2.0);
-                self.sfx_gap("zap", 0.45, 0.1);
+                self.sfx_gap_at("zap", 0.45, 0.1, p);
             }
             WeaponKind::Axe => {
                 for k in 0..amount {
@@ -220,14 +222,14 @@ impl World {
                     let dir = Vec2::from_angle(base + off);
                     self.projs.push(proj(p, dir, s.speed, 15.0 * area, 999, 3.0, PKind::Axe));
                 }
-                self.sfx_gap("slash", 0.3, 0.1);
+                self.sfx_gap_at("slash", 0.3, 0.1, p);
             }
             WeaponKind::Bolt => {
                 for k in 0..amount {
                     let dir = Vec2::from_angle(base + (k as f32 - amount as f32 * 0.5) * 0.5 + gen_range(-0.3, 0.3));
                     self.projs.push(proj(p, dir, s.speed, 6.0, 0, 3.0, PKind::Bolt));
                 }
-                self.sfx_gap("knife", 0.2, 0.1);
+                self.sfx_gap_at("knife", 0.2, 0.1, p);
             }
             WeaponKind::Lanterns | WeaponKind::Chime => {}
         }
@@ -279,12 +281,29 @@ impl World {
         let before = self.ebullets.len();
         let cut: Vec<Vec2> = self.ebullets.iter().filter(|b| in_cone(b.pos, b.r)).map(|b| b.pos).collect();
         self.ebullets.retain(|b| !in_cone(b.pos, b.r));
+        let first = cut.first().copied();
         for c in cut {
             self.particle(c, rand_dir() * 90.0, 0.3, 2.0, Color::from_rgba(255, 60, 40, 255), true);
         }
-        if self.ebullets.len() != before {
-            self.sfx_gap("hit", 0.2, 0.08);
+        if let (true, Some(at)) = (self.ebullets.len() != before, first) {
+            self.sfx_gap_at("hit", 0.2, 0.08, at);
         }
+    }
+
+    /// Turns projectile `pi` toward the nearest foe it has not hit yet, keeping its speed.
+    fn home_in(&mut self, pi: usize, turn: f32, dt: f32) {
+        let p = self.projs[pi].pos;
+        let near = self.nearest_enemies(p, HOMING_RANGE, 6);
+        let pr = &self.projs[pi];
+        let Some(t) = near.iter().map(|&i| &self.enemies[i]).find(|e| !pr.hits.contains(&e.id)).map(|e| e.pos) else { return };
+        let pr = &mut self.projs[pi];
+        let speed = pr.vel.length();
+        if speed < 1.0 {
+            return;
+        }
+        let desired = (t - pr.pos).normalize_or_zero() * speed;
+        // `dir` stays the launch direction: the axe brakes along it before it turns back.
+        pr.vel = pr.vel.lerp(desired, (turn * dt).min(1.0)).normalize_or_zero() * speed;
     }
 
     pub(crate) fn update_projs(&mut self, dt: f32) {
@@ -296,31 +315,31 @@ impl World {
                 pr.age += dt;
                 pr.life -= dt;
             }
-            match kind {
-                PKind::Axe => {
-                    let pr = &mut self.projs[pi];
-                    if pr.age < 0.55 {
-                        let decel = pr.dir * 520.0 * 1.6 * dt;
-                        pr.vel -= decel;
-                    } else {
-                        let to = (home - pr.pos).normalize_or_zero();
-                        pr.vel = pr.vel.lerp(to * 650.0, (6.0 * dt).min(1.0));
-                        if pr.pos.distance(home) < 20.0 {
-                            pr.dead = true;
-                        }
+            // The axe flies out, slows down and comes back to its thrower.
+            if kind == PKind::Axe {
+                let pr = &mut self.projs[pi];
+                if pr.age < 0.55 {
+                    let decel = pr.dir * 520.0 * 1.6 * dt;
+                    pr.vel -= decel;
+                } else {
+                    let to = (home - pr.pos).normalize_or_zero();
+                    pr.vel = pr.vel.lerp(to * 650.0, (6.0 * dt).min(1.0));
+                    if pr.pos.distance(home) < 20.0 {
+                        pr.dead = true;
                     }
                 }
-                PKind::Bolt => {
-                    let p = self.projs[pi].pos;
-                    let target = self.nearest_enemies(p, 450.0, 1).first().map(|&i| self.enemies[i].pos);
-                    let pr = &mut self.projs[pi];
-                    if let Some(t) = target {
-                        let speed = pr.vel.length();
-                        let desired = (t - pr.pos).normalize_or_zero() * speed;
-                        pr.vel = pr.vel.lerp(desired, (5.0 * dt).min(1.0)).normalize_or_zero() * speed;
-                    }
-                }
-                _ => {}
+            }
+            // Every projectile seeks the nearest foe it has not hit yet; the axe only on its way out.
+            let turn = match kind {
+                PKind::Axe if self.projs[pi].age >= 0.55 => 0.0,
+                PKind::Axe => 3.0,
+                PKind::Bolt => 5.0,
+                PKind::Dagger | PKind::Quarrel => 6.0,
+                PKind::Orb => 4.0,
+                PKind::Lance => 2.5,
+            };
+            if turn > 0.0 {
+                self.home_in(pi, turn, dt);
             }
             let pr = &mut self.projs[pi];
             pr.pos += pr.vel * dt;

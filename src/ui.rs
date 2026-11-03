@@ -67,6 +67,13 @@ pub fn mono_width(s: &str, size: f32) -> f32 {
 }
 
 /// 12345 -> "12.3k".
+/// Where the level-up cards sit, for drawing and for the mouse.
+pub fn level_up_cards(n: usize) -> Vec<Rect> {
+    let (sw, sh) = (ui_w(), ui_h());
+    let cw = 560.0f32.min(sw - 40.0);
+    (0..n).map(|i| Rect::new((sw - cw) * 0.5, sh * 0.16 + 56.0 + i as f32 * 84.0, cw, 74.0)).collect()
+}
+
 pub fn short(v: f64) -> String {
     if v >= 1e12 {
         format!("{:.1}T", v / 1e12)
@@ -390,11 +397,12 @@ impl<'a> Ui<'a> {
             return;
         }
         self.text_c("Choose what the ash grants you", sw * 0.5, sh * 0.16 + 30.0, 18.0, DIM);
-        let cw = 560.0f32.min(sw - 40.0);
-        let ch = 74.0;
-        let x = (sw - cw) * 0.5;
+        let cards = level_up_cards(me.choices.len());
+        let (cw, ch) = (cards.first().map(|r| r.w).unwrap_or(0.0), 74.0);
         let mut y = sh * 0.16 + 56.0;
-        for (i, c) in me.choices.iter().enumerate() {
+        for ((i, c), card) in me.choices.iter().enumerate().zip(&cards) {
+            let x = card.x;
+            y = card.y;
             let (title, desc, color, tag) = me.choice_text(*c);
             let on = i == sel;
             draw_rectangle(x, y, cw, ch, Color::new(0.07, 0.06, 0.06, 0.95));
@@ -406,11 +414,11 @@ impl<'a> Ui<'a> {
             let tag_col = if tag == "NEW" { EMBER } else { GOLD };
             self.text(&tag, x + 78.0 + self.width(&title, 22.0), y + 30.0, 16.0, tag_col);
             self.text(&desc, x + 70.0, y + 56.0, 16.0, DIM);
-            y += ch + 10.0;
         }
+        y += ch + 10.0;
         let reroll_key = if using_pad() { "Y" } else { key_label(Action::Reroll) };
         let reroll = if me.rerolls > 0 { format!("   {}: reroll ({})", reroll_key, me.rerolls) } else { String::new() };
-        self.text_c(&format!("{}{}", hint("1-4 or W/S + Enter", "Stick + A"), reroll), sw * 0.5, y + 24.0, 16.0, DIM);
+        self.text_c(&format!("{}{}", hint("1-4, W/S + Enter, or click", "Stick + A"), reroll), sw * 0.5, y + 24.0, 16.0, DIM);
         if w.heroes.len() > 1 {
             let others: Vec<String> = w.heroes.iter().filter(|h| h.slot != me.slot).map(|h| format!("{} {}", h.name, if h.picked { "(ready)" } else { "(choosing)" })).collect();
             self.text_c(&others.join("     "), sw * 0.5, y + 50.0, 16.0, DIM);

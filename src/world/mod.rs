@@ -25,6 +25,10 @@ pub const VICTORY_TIME: f32 = 30.0 * 60.0;
 /// Most foes alive at once. Hordes and swarms grow with time, so without a ceiling an
 /// endless night would pile up thousands.
 pub const MAX_ENEMIES: usize = 1600;
+/// Sounds are at full volume this close to the listener...
+pub const HEAR_FULL: f32 = 450.0;
+/// ...and silent from here on, about a screen away.
+pub const HEAR_MAX: f32 = 1100.0;
 pub const BOSS_INTERVAL: f32 = 5.0 * 60.0;
 pub const RESUME_DELAY: f32 = 2.5;
 pub const MAX_HEROES: usize = 4;
@@ -439,7 +443,7 @@ pub struct Cat {
 
 /// Spatial hash so area queries stay cheap with a thousand enemies, however far apart
 /// the heroes wander.
-struct Grid {
+pub(crate) struct Grid {
     cell: f32,
     buckets: Vec<Vec<(i32, i32, u32)>>,
 }
@@ -455,7 +459,7 @@ impl Grid {
         ((cx as u32).wrapping_mul(73_856_093) ^ (cy as u32).wrapping_mul(19_349_663)) as usize % GRID_BUCKETS
     }
 
-    fn rebuild(&mut self, enemies: &[Enemy]) {
+    pub(crate) fn rebuild(&mut self, enemies: &[Enemy]) {
         for b in self.buckets.iter_mut() {
             b.clear();
         }
@@ -539,10 +543,10 @@ pub struct World {
     pub cam: Vec2,
     pub shake: f32,
     pub events: Vec<Event>,
-    pub sounds: Vec<(&'static str, f32, f64)>,
+    pub sounds: Vec<(&'static str, f32, f64, Option<Vec2>)>,
     pub banner: Option<(String, String, Color, f32)>,
     pub toasts: Vec<(String, f32)>,
-    grid: Grid,
+    pub(crate) grid: Grid,
     qbuf: Vec<usize>,
     pub show_numbers: bool,
     pub gore: bool,
@@ -564,7 +568,7 @@ pub struct World {
     pub record_net: bool,
     pub net_nums: Vec<DmgNum>,
     pub net_deaths: Vec<(Vec2, EnemyKind, bool)>,
-    pub net_sounds: Vec<(&'static str, f32)>,
+    pub net_sounds: Vec<(&'static str, f32, Option<Vec2>)>,
     /// Boss health as (current, max), kept separately so clients can show the bar.
     pub boss_hp: (f32, f32),
     /// Boss kind for the health bar on clients, which have no `BossAi`.
@@ -691,8 +695,14 @@ impl World {
         self.heroes.len() > 1
     }
 
+    /// A sound heard everywhere: announcements and things that concern everyone.
     pub fn sfx(&mut self, name: &'static str, vol: f32) {
         self.sfx_gap(name, vol, 0.03);
+    }
+
+    /// A sound from a place on the field; it fades with distance from whoever listens.
+    pub fn sfx_at(&mut self, name: &'static str, vol: f32, pos: Vec2) {
+        self.sfx_gap_at(name, vol, 0.03, pos);
     }
 
     pub(crate) fn sfx_quiet(&mut self, name: &'static str) {
@@ -700,10 +710,32 @@ impl World {
     }
 
     pub(crate) fn sfx_gap(&mut self, name: &'static str, vol: f32, gap: f64) {
-        self.sounds.push((name, vol, gap));
-        if self.record_net && self.net_sounds.len() < 24 && !self.net_sounds.iter().any(|s| s.0 == name) {
-            self.net_sounds.push((name, vol));
+        self.push_sound(name, vol, gap, None);
+    }
+
+    pub(crate) fn sfx_gap_at(&mut self, name: &'static str, vol: f32, gap: f64, pos: Vec2) {
+        self.push_sound(name, vol, gap, Some(pos));
+    }
+
+    fn push_sound(&mut self, name: &'static str, vol: f32, gap: f64, pos: Option<Vec2>) {
+        self.sounds.push((name, vol, gap, pos));
+        // Clients hear the same sound once per spot, not once per foe.
+        let near = |p: Option<Vec2>| match (p, pos) {
+            (Some(a), Some(b)) => a.distance(b) < 300.0,
+            (None, None) => true,
+            _ => false,
+        };
+        if self.record_net && self.net_sounds.len() < 24 && !self.net_sounds.iter().any(|s| s.0 == name && near(s.2)) {
+            self.net_sounds.push((name, vol, pos));
         }
+    }
+
+    /// How loud a sound from `pos` is for this player: full up close, gone a screen away.
+    pub fn hearing(&self, pos: Option<Vec2>) -> f32 {
+        let Some(p) = pos else { return 1.0 };
+        let Some(me) = self.heroes.get(self.local).map(|h| h.p.pos) else { return 1.0 };
+        let d = me.distance(p);
+        (1.0 - (d - HEAR_FULL) / (HEAR_MAX - HEAR_FULL)).clamp(0.0, 1.0)
     }
 
     pub fn toast(&mut self, text: &str) {

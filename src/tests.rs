@@ -611,3 +611,102 @@ fn huge_numbers_and_endless_hours() {
     assert_eq!(client.kills, u32::MAX - 5);
     assert!(client.nums.iter().any(|n| n.val >= 250_000.0), "a big hit showed a capped number: {:?}", client.nums.iter().map(|n| n.val).collect::<Vec<_>>());
 }
+
+#[test]
+fn projectiles_seek_their_targets() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.enemies.clear();
+    let hero = w.heroes[0].p.pos;
+    // A foe off to the side; a dagger fired straight up must still reach it.
+    let e = w.make_enemy(EnemyKind::Knight, hero + vec2(300.0, -200.0));
+    let id = e.id;
+    w.enemies.push(e);
+    let src = Src { hero: 0, weapon: WeaponKind::Daggers };
+    w.projs.push(Proj {
+        pos: hero,
+        vel: vec2(0.0, -500.0),
+        dir: vec2(0.0, -1.0),
+        r: 6.0,
+        dmg: 1.0,
+        pierce: 0,
+        life: 3.0,
+        age: 0.0,
+        kind: PKind::Dagger,
+        evo: false,
+        area: 1.0,
+        src,
+        hits: Vec::new(),
+        dead: false,
+    });
+    let mut closest = f32::MAX;
+    for _ in 0..90 {
+        w.grid.rebuild(&w.enemies);
+        w.update_projs(1.0 / 60.0);
+        if let (Some(p), Some(e)) = (w.projs.first(), w.enemies.iter().find(|e| e.id == id)) {
+            closest = closest.min(p.pos.distance(e.pos));
+        }
+    }
+    assert!(closest < 40.0 || w.projs.is_empty(), "the dagger never got near its target (closest {:.0})", closest);
+}
+
+#[test]
+fn the_grave_cat_waits_inside_the_walls() {
+    for seed in 0..20 {
+        macroquad::rand::srand(seed);
+        let mut w = world_with(1, PRESETS[1].1);
+        let cat = w.cat.as_ref().expect("no Grave Cat on the field").pos;
+        assert!(inside_world(cat, 100.0), "the cat sits outside the walls at {:?}", cat);
+        w.heroes[0].p.pos = cat + vec2(10.0, 0.0);
+        w.update_cat(0.016);
+        assert_eq!(w.cat.as_ref().unwrap().owner, Some(0), "walking up to the cat does not befriend it");
+        assert!(w.heroes[0].has_cat);
+    }
+}
+
+#[test]
+fn log_file_names_get_the_date_right() {
+    assert_eq!(crate::log::date_of(0), (1970, 1, 1));
+    assert_eq!(crate::log::date_of(20_760), (2026, 11, 3));
+    assert_eq!(crate::log::date_of(11_016), (2000, 2, 29));
+}
+
+#[test]
+fn logs_keep_the_newest_sessions() {
+    let dir = std::env::temp_dir().join(format!("ashen_vigil_logs_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for i in 0..12 {
+        std::fs::write(dir.join(format!("2026-01-{:02}_10-00-00.log", i + 1)), "old").unwrap();
+    }
+    std::fs::write(dir.join("notes.txt"), "not a log").unwrap();
+    crate::log::init(&dir, None);
+    crate::log!("hello from the test");
+    let mut logs: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".log")).collect();
+    logs.sort();
+    assert_eq!(logs.len(), 10, "{:?}", logs);
+    assert!(!logs.contains(&"2026-01-01_10-00-00.log".to_string()), "the oldest log should be gone");
+    assert!(dir.join("notes.txt").exists(), "other files stay");
+    let newest = std::fs::read_to_string(dir.join(logs.last().unwrap())).unwrap();
+    assert!(newest.contains("hello from the test"), "{}", newest);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Hiss and buzz in each music loop; lower is calmer. `cargo test --release music_report -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn music_report() {
+    for (name, r) in crate::audio::music_roughness() {
+        println!("{:8} roughness {:6.2}", name, r);
+    }
+}
+
+#[test]
+fn sounds_fade_with_distance() {
+    let w = world_with(1, PRESETS[1].1);
+    let me = w.heroes[0].p.pos;
+    assert_eq!(w.hearing(None), 1.0, "announcements are heard everywhere");
+    assert_eq!(w.hearing(Some(me + vec2(100.0, 0.0))), 1.0);
+    let mid = w.hearing(Some(me + vec2((HEAR_FULL + HEAR_MAX) * 0.5, 0.0)));
+    assert!(mid > 0.3 && mid < 0.7, "{}", mid);
+    assert_eq!(w.hearing(Some(me + vec2(HEAR_MAX + 50.0, 0.0))), 0.0, "far away is silent");
+}

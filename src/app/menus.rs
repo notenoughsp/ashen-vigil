@@ -142,6 +142,12 @@ const PAGES: [(&str, &[Opt]); 4] = [
     ("Difficulty", &[Opt::Preset, Opt::Count, Opt::Hp, Opt::Dmg, Opt::Speed, Opt::BossHp, Opt::Back]),
 ];
 
+/// Where the main menu rows sit, for drawing and for the mouse.
+fn menu_rows() -> Vec<Rect> {
+    let (sw, sh) = (ui_w(), ui_h());
+    (0..MENU_ITEMS.len()).map(|i| Rect::new(sw * 0.5 - 160.0, sh * 0.37 + i as f32 * 44.0, 320.0, 38.0)).collect()
+}
+
 /// A selectable row with a label on the left and a value on the right.
 fn value_row(ui: &Ui, x: f32, y: f32, w: f32, on: bool, label: &str, value: &str) {
     ui.row(x, y, w, 34.0, on);
@@ -178,7 +184,18 @@ impl App {
         if back() {
             self.menu_sel = MENU_ITEMS.len() - 1;
         }
-        if !confirm() {
+        let under = hovered(&menu_rows());
+        if let Some(i) = under.filter(|_| mouse_moved()) {
+            if i != self.menu_sel {
+                self.menu_sel = i;
+                self.audio.play("select", 0.3);
+            }
+        }
+        let click = clicked() && under.is_some();
+        if click {
+            self.menu_sel = under.unwrap_or(self.menu_sel);
+        }
+        if !confirm() && !click {
             return;
         }
         self.audio.play("select", 0.6);
@@ -203,6 +220,7 @@ impl App {
             }
             _ => {
                 self.save.store();
+                crate::log!("exit from the main menu");
                 std::process::exit(0);
             }
         }
@@ -212,14 +230,12 @@ impl App {
         let (sw, sh) = (ui_w(), ui_h());
         ui.spaced_c("ASHEN VIGIL", sw * 0.5, sh * 0.27, 72.0, 14.0, PALE);
         ui.text_c("hold the dark at bay until dawn", sw * 0.5, sh * 0.27 + 44.0, 20.0, DIM);
-        let w = 320.0;
-        for (i, item) in MENU_ITEMS.iter().enumerate() {
-            let y = sh * 0.37 + i as f32 * 44.0;
+        for (i, (item, r)) in MENU_ITEMS.iter().zip(menu_rows()).enumerate() {
             let on = self.menu_sel == i;
-            ui.row(sw * 0.5 - w * 0.5, y, w, 38.0, on);
-            ui.text_c(item, sw * 0.5, y + 27.0, 25.0, if on { GOLD } else { PALE });
+            ui.row(r.x, r.y, r.w, r.h, on);
+            ui.text_c(item, sw * 0.5, r.y + 27.0, 25.0, if on { GOLD } else { PALE });
         }
-        ui.text_c(hint("W/S or arrows to choose, Enter to confirm", "Stick or d-pad to choose, A to confirm"), sw * 0.5, sh - 40.0, 16.0, DIM);
+        ui.text_c(hint("W/S, arrows or mouse to choose, Enter or click to confirm", "Stick or d-pad to choose, A to confirm"), sw * 0.5, sh - 40.0, 16.0, DIM);
         let b = self.save.best_time as u32;
         let cats = if self.save.cats > 0 { format!("    Cats befriended {}", self.save.cats) } else { String::new() };
         ui.text_c(

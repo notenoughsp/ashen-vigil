@@ -3,6 +3,7 @@ mod audio;
 mod data;
 mod draw;
 mod embedded;
+mod log;
 mod net;
 mod save;
 mod snapshot;
@@ -119,6 +120,8 @@ async fn main() {
     precise_sleep_timer();
     rand::srand((macroquad::miniquad::date::now() * 1000.0) as u64);
     let auto = AutoTest::from_env();
+    // The self-test logs next to its screenshots, so it never pushes the player's logs out.
+    log::init(&log::log_dir(), auto.as_ref().map(|a| a.log_file()));
     let mut save = Save::load();
     let mut audio = Audio::new().await;
     if let Some(au) = &auto {
@@ -132,7 +135,26 @@ async fn main() {
     audio.music_vol = save.settings.music;
     let font_bytes = std::fs::read("assets/font.ttf").unwrap_or_else(|_| embedded::FONT.to_vec());
     let font = load_ttf_font_from_bytes(&font_bytes).ok();
+    {
+        let st = &save.settings;
+        crate::log!(
+            "window {}x{} (asked {}x{}), fullscreen {}, vsync {}, fps cap {}, ui scale setting {}, lighting {}, msaa {}",
+            screen_width(),
+            screen_height(),
+            st.resolution.0,
+            st.resolution.1,
+            st.fullscreen,
+            st.vsync,
+            st.fps_cap,
+            st.ui_scale,
+            st.lighting,
+            st.msaa
+        );
+        crate::log!("save: {} vigils, {} souls, {} marks", save.vigils, save.souls, save.marks);
+    }
     let mut app = App::new(save, audio, font, auto);
+    // Frame times, summed up in the log once a minute.
+    let (mut perf_t, mut perf_frames, mut perf_worst) = (0.0f32, 0u32, 0.0f32);
     let mut placed = window_pos().is_none();
     let mut frame_start = Instant::now();
     loop {
@@ -142,7 +164,15 @@ async fn main() {
             macroquad::miniquad::window::set_window_position(x as u32, y as u32);
             placed = true;
         }
-        let dt = get_frame_time().min(1.0 / 30.0);
+        let raw_dt = get_frame_time();
+        let dt = raw_dt.min(1.0 / 30.0);
+        perf_t += raw_dt;
+        perf_frames += 1;
+        perf_worst = perf_worst.max(raw_dt);
+        if perf_t >= 60.0 {
+            crate::log!("perf: {:.0} fps average, slowest frame {:.0} ms; {}", perf_frames as f32 / perf_t, perf_worst * 1000.0, app.log_status());
+            (perf_t, perf_frames, perf_worst) = (0.0, 0, 0.0);
+        }
         app.update(dt);
         app.draw(dt);
         app.autotest();

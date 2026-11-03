@@ -185,7 +185,7 @@ impl World {
             }
             let who = if self.multiplayer() { format!("{} buys ", self.heroes[h].name) } else { "Bought ".to_string() };
             self.toast(&format!("{}{} for {} souls", who, ware.name(), price));
-            self.sfx("chest", 0.7);
+            self.sfx_at("chest", 0.7, self.heroes[h].p.pos);
         }
     }
 }
