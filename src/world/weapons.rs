@@ -5,8 +5,8 @@ use std::f32::consts::PI;
 
 /// How far auto-aim looks for a target.
 const AIM_RANGE: f32 = 650.0;
-/// How far projectiles look for a foe to seek.
-const HOMING_RANGE: f32 = 480.0;
+/// How far the soulbolt looks for a foe to seek.
+const HOMING_RANGE: f32 = 450.0;
 
 impl World {
     pub(crate) fn update_weapons(&mut self, dt: f32) {
@@ -47,16 +47,12 @@ impl World {
 
         let (mut timer, mut spin) = {
             let w = &self.heroes[h].weapons[wi];
-            if part.second {
-                (w.timer2, w.spin2)
-            } else {
-                (w.timer, w.spin)
-            }
+            (w.timers.get(part.slot).copied().unwrap_or(0.0), w.spins.get(part.slot).copied().unwrap_or(0.0))
         };
         match kind {
             WeaponKind::Lanterns => {
                 spin += s.speed * dt;
-                self.store_part(h, wi, part.second, timer, spin);
+                self.store_part(h, wi, part.slot, timer, spin);
                 for (lp, r) in self.heroes[h].lantern_positions() {
                     self.hit_circle(lp, r, dmg, 120.0, src, Some(cd));
                 }
@@ -68,7 +64,7 @@ impl World {
                 if fire {
                     timer = cd;
                 }
-                self.store_part(h, wi, part.second, timer, spin);
+                self.store_part(h, wi, part.slot, timer, spin);
                 if fire {
                     let r = 75.0 * area;
                     let n = self.hit_circle(p, r, dmg, 60.0, src, None);
@@ -87,7 +83,7 @@ impl World {
         }
         timer -= dt;
         if timer > 0.0 {
-            self.store_part(h, wi, part.second, timer, spin);
+            self.store_part(h, wi, part.slot, timer, spin);
             return;
         }
         timer = cd;
@@ -95,7 +91,7 @@ impl World {
             // Each volley turns a little so the gaps between quarrels move.
             spin += PI / amount as f32 * 0.5;
         }
-        self.store_part(h, wi, part.second, timer, spin);
+        self.store_part(h, wi, part.slot, timer, spin);
         let base = face.to_angle();
         let proj = |pos: Vec2, dir: Vec2, speed: f32, r: f32, pierce: i32, life: f32, kind: PKind| Proj {
             pos,
@@ -147,10 +143,12 @@ impl World {
                 self.sfx_at("slash", 0.6, p);
             }
             WeaponKind::Daggers => {
-                for k in 0..amount {
-                    let off = (k as f32 - (amount - 1) as f32 * 0.5) * 0.14;
-                    let jitter = if evo { gen_range(-0.18, 0.18) } else { 0.0 };
-                    let dir = Vec2::from_angle(base + off + jitter);
+                // Each dagger flies at a foe; several on the same foe fan out a little.
+                let dirs = self.shot_dirs(p, amount as usize, face);
+                for (k, aim) in dirs.into_iter().enumerate() {
+                    let off = if k >= self.enemies.len().max(1) { (k as f32 - (amount - 1) as f32 * 0.5) * 0.14 } else { 0.0 };
+                    let jitter = if evo { gen_range(-0.08, 0.08) } else { 0.0 };
+                    let dir = Vec2::from_angle(aim.to_angle() + off + jitter);
                     self.projs.push(proj(p + dir * 10.0, dir, s.speed, 6.0, s.pierce, 1.1, PKind::Dagger));
                 }
                 self.sfx_gap_at("knife", 0.3, 0.07, p);
@@ -164,6 +162,8 @@ impl World {
                 self.sfx_gap_at("arrow", 0.35, 0.08, p);
             }
             WeaponKind::Lance => {
+                // The lances fly side by side at the nearest foe.
+                let face = self.shot_dirs(p, 1, face)[0];
                 for k in 0..amount {
                     let side = vec2(-face.y, face.x) * (k as f32 - (amount - 1) as f32 * 0.5) * 22.0;
                     let r = 9.0 * area;
@@ -191,7 +191,7 @@ impl World {
             WeaponKind::Spear => {
                 let candidates = self.nearest_enemies(p, 600.0, 40);
                 if candidates.is_empty() {
-                    self.store_part(h, wi, part.second, 0.2, spin);
+                    self.store_part(h, wi, part.slot, 0.2, spin);
                     return;
                 }
                 for _ in 0..amount {
@@ -217,16 +217,16 @@ impl World {
                 self.sfx_gap_at("zap", 0.45, 0.1, p);
             }
             WeaponKind::Axe => {
-                for k in 0..amount {
-                    let off = (k as f32 - (amount - 1) as f32 * 0.5) * 0.6;
-                    let dir = Vec2::from_angle(base + off);
+                let dirs = self.shot_dirs(p, amount as usize, face);
+                for dir in dirs {
                     self.projs.push(proj(p, dir, s.speed, 15.0 * area, 999, 3.0, PKind::Axe));
                 }
                 self.sfx_gap_at("slash", 0.3, 0.1, p);
             }
             WeaponKind::Bolt => {
-                for k in 0..amount {
-                    let dir = Vec2::from_angle(base + (k as f32 - amount as f32 * 0.5) * 0.5 + gen_range(-0.3, 0.3));
+                let dirs = self.shot_dirs(p, amount as usize, face);
+                for aim in dirs {
+                    let dir = Vec2::from_angle(aim.to_angle() + gen_range(-0.2, 0.2));
                     self.projs.push(proj(p, dir, s.speed, 6.0, 0, 3.0, PKind::Bolt));
                 }
                 self.sfx_gap_at("knife", 0.2, 0.1, p);
@@ -235,15 +235,25 @@ impl World {
         }
     }
 
-    fn store_part(&mut self, h: usize, wi: usize, second: bool, timer: f32, spin: f32) {
+    fn store_part(&mut self, h: usize, wi: usize, slot: usize, timer: f32, spin: f32) {
         let w = &mut self.heroes[h].weapons[wi];
-        if second {
-            w.timer2 = timer;
-            w.spin2 = spin;
-        } else {
-            w.timer = timer;
-            w.spin = spin;
+        if let (Some(t), Some(s)) = (w.timers.get_mut(slot), w.spins.get_mut(slot)) {
+            *t = timer;
+            *s = spin;
         }
+    }
+
+    /// Directions to the nearest foes in reach, one per shot; with fewer foes than shots
+    /// they are shared, and with none the shots go where the hero faces.
+    fn shot_dirs(&mut self, p: Vec2, n: usize, fallback: Vec2) -> Vec<Vec2> {
+        let targets = self.nearest_enemies(p, AIM_RANGE, n.max(1));
+        (0..n)
+            .map(|k| match targets.get(k % targets.len().max(1)) {
+                Some(&i) => (self.enemies[i].pos - p).normalize_or_zero(),
+                None => fallback,
+            })
+            .map(|d| if d == Vec2::ZERO { fallback } else { d })
+            .collect()
     }
 
     /// Hits enemies (and bullets) in a cone in front of `p`.
@@ -278,16 +288,7 @@ impl World {
             }
         }
         self.qbuf = q;
-        let before = self.ebullets.len();
-        let cut: Vec<Vec2> = self.ebullets.iter().filter(|b| in_cone(b.pos, b.r)).map(|b| b.pos).collect();
-        self.ebullets.retain(|b| !in_cone(b.pos, b.r));
-        let first = cut.first().copied();
-        for c in cut {
-            self.particle(c, rand_dir() * 90.0, 0.3, 2.0, Color::from_rgba(255, 60, 40, 255), true);
-        }
-        if let (true, Some(at)) = (self.ebullets.len() != before, first) {
-            self.sfx_gap_at("hit", 0.2, 0.08, at);
-        }
+        self.damage_bullets_where(in_cone, dmg);
     }
 
     /// Turns projectile `pi` toward the nearest foe it has not hit yet, keeping its speed.
@@ -329,17 +330,9 @@ impl World {
                     }
                 }
             }
-            // Every projectile seeks the nearest foe it has not hit yet; the axe only on its way out.
-            let turn = match kind {
-                PKind::Axe if self.projs[pi].age >= 0.55 => 0.0,
-                PKind::Axe => 3.0,
-                PKind::Bolt => 5.0,
-                PKind::Dagger | PKind::Quarrel => 6.0,
-                PKind::Orb => 4.0,
-                PKind::Lance => 2.5,
-            };
-            if turn > 0.0 {
-                self.home_in(pi, turn, dt);
+            // Only the soulbolt seeks; everything else flies where it was aimed.
+            if kind == PKind::Bolt {
+                self.home_in(pi, 5.0, dt);
             }
             let pr = &mut self.projs[pi];
             pr.pos += pr.vel * dt;
@@ -366,7 +359,8 @@ impl World {
             }
             // Any of our projectiles cuts through enemy bullets.
             if self.ebullets.iter().any(|b| b.pos.distance(pos) < r + b.r) {
-                self.clear_bullets(pos, r);
+                let dmg = self.projs[pi].dmg;
+                self.damage_bullets(pos, r, dmg);
             }
             let mut q = std::mem::take(&mut self.qbuf);
             self.grid.query(pos, r, &mut q);

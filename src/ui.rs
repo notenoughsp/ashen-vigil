@@ -22,6 +22,31 @@ thread_local! {
     static UI_SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
 }
 
+thread_local! {
+    /// Menu rows and tabs as drawn last frame, in drawing order, for the mouse.
+    static ROWS: std::cell::RefCell<Vec<Rect>> = const { std::cell::RefCell::new(Vec::new()) };
+    static TABS: std::cell::RefCell<Vec<Rect>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Forgets last frame's rows and tabs; called before drawing a frame.
+pub fn clear_hit_areas() {
+    ROWS.with(|r| r.borrow_mut().clear());
+    TABS.with(|t| t.borrow_mut().clear());
+}
+
+pub fn rows_drawn() -> Vec<Rect> {
+    ROWS.with(|r| r.borrow().clone())
+}
+
+pub fn tabs_drawn() -> Vec<Rect> {
+    TABS.with(|t| t.borrow().clone())
+}
+
+/// Marks a page tab as clickable.
+pub fn register_tab(r: Rect) {
+    TABS.with(|t| t.borrow_mut().push(r));
+}
+
 /// UI scale choices; 0 means automatic (grows with the window above 1080 lines).
 pub const UI_SCALES: [f32; 6] = [0.0, 1.0, 1.25, 1.5, 1.75, 2.0];
 
@@ -128,8 +153,10 @@ impl<'a> Ui<'a> {
         }
     }
 
-    /// A selectable menu row background.
+    /// A selectable menu row background. Rows are remembered in drawing order, which every
+    /// menu keeps the same as its selection order, so the mouse can pick them.
     pub fn row(&self, x: f32, y: f32, w: f32, h: f32, on: bool) {
+        ROWS.with(|r| r.borrow_mut().push(Rect::new(x, y, w, h)));
         draw_rectangle(x, y, w, h, Color::new(0.07, 0.06, 0.06, if on { 0.95 } else { 0.7 }));
         if on {
             draw_rectangle_lines(x, y, w, h, 2.0, GOLD);
@@ -163,9 +190,10 @@ impl<'a> Ui<'a> {
             }
             let c = vec2(sw, sh) * 0.5;
             let d = (s - c).normalize_or_zero();
-            let m = 34.0;
+            // Well inside the screen, so a glance from the middle catches them.
+            let m = (sw.min(sh) * 0.12).max(40.0);
             // Keep clear of the boss bar along the bottom edge.
-            let my = if d.y > 0.0 && w.boss_kind.is_some() { 105.0 } else { m };
+            let my = if d.y > 0.0 && w.boss_kind.is_some() { m.max(105.0) } else { m };
             let tx = if d.x.abs() > 0.001 { ((sw * 0.5 - m) / d.x.abs()).abs() } else { f32::MAX };
             let ty = if d.y.abs() > 0.001 { ((sh * 0.5 - my) / d.y.abs()).abs() } else { f32::MAX };
             let p = c + d * tx.min(ty);
@@ -202,15 +230,35 @@ impl<'a> Ui<'a> {
         for wp in &me.weapons {
             let c = wp.kind.color();
             draw_rectangle(x, 56.0, 26.0, 26.0, Color::new(0.05, 0.05, 0.05, 0.85));
-            match wp.fused {
-                Some(k2) => {
+            match wp.tier() {
+                0 => draw_rectangle(x + 5.0, 61.0, 16.0, 16.0, c),
+                1 => {
                     draw_triangle(vec2(x + 5.0, 61.0), vec2(x + 21.0, 61.0), vec2(x + 5.0, 77.0), c);
-                    draw_triangle(vec2(x + 21.0, 61.0), vec2(x + 21.0, 77.0), vec2(x + 5.0, 77.0), k2.color());
+                    draw_triangle(vec2(x + 21.0, 61.0), vec2(x + 21.0, 77.0), vec2(x + 5.0, 77.0), wp.fused[0].color());
                 }
-                None => draw_rectangle(x + 5.0, 61.0, 16.0, 16.0, c),
+                _ => {
+                    // A little grid of every weapon inside.
+                    let kinds = wp.kinds();
+                    let per_row = if kinds.len() > 4 { 4 } else { 2 };
+                    let cell = 16.0 / per_row as f32;
+                    for (k, kind) in kinds.iter().enumerate() {
+                        let (cx, cy) = ((k % per_row) as f32, (k / per_row) as f32);
+                        draw_rectangle(
+                            x + 5.0 + cx * cell,
+                            61.0 + cy * cell * if kinds.len() > 4 { 2.0 } else { 1.0 },
+                            cell,
+                            cell * if kinds.len() > 4 { 2.0 } else { 1.0 },
+                            kind.color(),
+                        );
+                    }
+                }
             }
             let ready = !wp.evolved && wp.level >= WEAPON_MAX_LEVEL && me.items.iter().any(|it| it.kind == wp.kind.evo_item());
-            let border = if wp.fused.is_some() {
+            let border = if wp.tier() >= 3 {
+                Color::new(1.0, 0.95, 0.75, 1.0)
+            } else if wp.tier() == 2 {
+                Color::new(0.85, 0.55, 1.0, 1.0)
+            } else if wp.is_fused() {
                 Color::new(1.0, 0.35, 0.25, 1.0)
             } else if wp.evolved {
                 GOLD
@@ -220,8 +268,8 @@ impl<'a> Ui<'a> {
                 Color::new(0.35, 0.32, 0.3, 1.0)
             };
             draw_rectangle_lines(x, 56.0, 26.0, 26.0, 2.0, border);
-            let lv = if wp.fused.is_some() {
-                "F".to_string()
+            let lv = if wp.is_fused() {
+                ["", "F", "M", "U"][wp.tier() as usize].to_string()
             } else if wp.evolved {
                 "E".to_string()
             } else {
@@ -427,7 +475,7 @@ impl<'a> Ui<'a> {
 
     pub fn countdown(&self, t: f32) {
         let (sw, sh) = (ui_w(), ui_h());
-        draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.35 * (t / RESUME_DELAY)));
+        draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.35 * (t / RESUME_DELAY).min(1.0)));
         let n = t.ceil() as u32;
         // Below the banner line (at 0.38), so a banner and the countdown never overlap.
         let k = t - t.floor();
@@ -472,7 +520,7 @@ impl<'a> Ui<'a> {
                 .iter()
                 .filter(|k| me.dmg_weapon[k.idx()] > 0.0)
                 .map(|k| {
-                    let name = me.weapons.iter().find(|wp| wp.has(*k)).map(|wp| if wp.fused.is_some() { k.name(true) } else { wp.display_name() }).unwrap_or(k.name(false));
+                    let name = me.weapons.iter().find(|wp| wp.has(*k)).map(|wp| if wp.is_fused() { k.name(true) } else { wp.display_name() }).unwrap_or(k.name(false));
                     (name.to_string(), me.dmg_weapon[k.idx()], f32::NAN, k.color())
                 })
                 .collect();

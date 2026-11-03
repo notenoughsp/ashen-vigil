@@ -1,6 +1,7 @@
 //! Damage in both directions: hitting enemies, hurting heroes, enemy movement and hazards.
 
 use super::*;
+use std::collections::HashMap;
 
 impl World {
     /// Damages enemy `i`. `tag` stamps the per-weapon hit timer used by lingering attacks.
@@ -131,13 +132,21 @@ impl World {
         }
     }
 
-    fn drop_soul(&mut self, pos: Vec2, v: f32) {
-        // Too many orbs on the floor: fold new ones into an existing orb instead, preferably
-        // one still lying there, else one already flying to a hero; the souls are never lost.
-        if self.pickups.len() > 500 {
-            let lying = self.pickups.iter().position(|p| p.pulled.is_none() && matches!(p.kind, PickKind::Soul(_)));
-            let any = || self.pickups.iter().position(|p| matches!(p.kind, PickKind::Soul(_)));
-            if let Some(i) = lying.or_else(any) {
+    pub(crate) fn drop_soul(&mut self, pos: Vec2, v: f32) {
+        // A full floor makes room by merging old orbs, so new ones still drop where foes fall.
+        if self.pickups.len() >= MAX_PICKUPS {
+            self.merge_souls();
+        }
+        // Nothing left to merge (every orb is flying to a hero): join the nearest orb instead.
+        if self.pickups.len() >= MAX_PICKUPS {
+            let nearest = self
+                .pickups
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| matches!(p.kind, PickKind::Soul(_)))
+                .min_by(|a, b| a.1.pos.distance_squared(pos).total_cmp(&b.1.pos.distance_squared(pos)))
+                .map(|(i, _)| i);
+            if let Some(i) = nearest {
                 if let PickKind::Soul(ref mut x) = self.pickups[i].kind {
                     *x += v;
                     return;
@@ -147,6 +156,44 @@ impl World {
         let mut p = Pickup::new(pos, PickKind::Soul(v));
         p.bob = gen_range(0.0, TAU);
         self.pickups.push(p);
+    }
+
+    /// Merges lying soul orbs that are close together into one worth all of them, at their
+    /// value-weighted centre, until the floor is back to `MERGED_PICKUPS`. Neighbours on a fine
+    /// grid go first; the grid grows only while that is not enough. Orbs flying to a hero stay.
+    pub(crate) fn merge_souls(&mut self) {
+        let mut cell = 96.0;
+        while self.pickups.len() > MERGED_PICKUPS && cell < 8000.0 {
+            let mut keeper: HashMap<(i32, i32), usize> = HashMap::new();
+            let mut gone = vec![false; self.pickups.len()];
+            for (i, merged) in gone.iter_mut().enumerate() {
+                let (pos, v) = match self.pickups[i].kind {
+                    PickKind::Soul(v) if self.pickups[i].pulled.is_none() => (self.pickups[i].pos, v),
+                    _ => continue,
+                };
+                let key = ((pos.x / cell).floor() as i32, (pos.y / cell).floor() as i32);
+                match keeper.get(&key) {
+                    Some(&k) => {
+                        let keep = &mut self.pickups[k];
+                        if let PickKind::Soul(kv) = keep.kind {
+                            let total = kv + v;
+                            keep.pos = (keep.pos * kv + pos * v) / total.max(0.001);
+                            keep.kind = PickKind::Soul(total);
+                        }
+                        *merged = true;
+                    }
+                    None => {
+                        keeper.insert(key, i);
+                    }
+                }
+            }
+            let mut i = 0;
+            self.pickups.retain(|_| {
+                i += 1;
+                !gone[i - 1]
+            });
+            cell *= 2.0;
+        }
     }
 
     pub fn hurt_hero(&mut self, h: usize, dmg: f32) {
@@ -262,19 +309,41 @@ impl World {
 
     /// Enemy projectiles are bigger than they used to be and always red.
     pub(crate) fn enemy_bullet(&mut self, pos: Vec2, vel: Vec2, r: f32, dmg: f32, homing: f32, life: f32) {
-        self.ebullets.push(EBullet { pos, vel, r: (r * 1.5).max(8.0), dmg, life, homing });
+        let hp = BULLET_HP * self.hp_scale();
+        self.ebullets.push(EBullet { pos, vel, r: (r * 1.5).max(8.0), dmg, life, homing, hp, hit_cd: 0.0 });
     }
 
-    /// Destroys enemy projectiles inside a circle. Returns how many.
+    /// Destroys every enemy projectile inside a circle. Returns how many.
     pub(crate) fn clear_bullets(&mut self, c: Vec2, r: f32) -> usize {
+        self.damage_bullets(c, r, f32::INFINITY)
+    }
+
+    /// Deals `dmg` to enemy projectiles inside a circle; those it breaks are gone. Returns how many.
+    pub(crate) fn damage_bullets(&mut self, c: Vec2, r: f32, dmg: f32) -> usize {
+        self.damage_bullets_where(|p, br| p.distance(c) < r + br, dmg)
+    }
+
+    pub(crate) fn damage_bullets_where(&mut self, inside: impl Fn(Vec2, f32) -> bool, dmg: f32) -> usize {
         let mut gone = Vec::new();
-        self.ebullets.retain(|b| {
-            let hit = b.pos.distance(c) < r + b.r;
-            if hit {
-                gone.push(b.pos);
+        let mut struck = Vec::new();
+        self.ebullets.retain_mut(|b| {
+            if !inside(b.pos, b.r) || b.hit_cd > 0.0 {
+                return true;
             }
-            !hit
+            b.hp -= dmg;
+            b.hit_cd = 0.15;
+            if b.hp <= 0.0 {
+                gone.push(b.pos);
+                false
+            } else {
+                struck.push(b.pos);
+                true
+            }
         });
+        // A bullet that holds out flickers instead of bursting.
+        for p in &struck {
+            self.particle(*p, rand_dir() * 60.0, 0.15, 1.5, Color::from_rgba(255, 200, 160, 255), true);
+        }
         for p in &gone {
             for _ in 0..4 {
                 self.particle(*p, rand_dir() * gen_range(40.0, 140.0), 0.3, 2.0, Color::from_rgba(255, 60, 40, 255), true);
@@ -323,7 +392,7 @@ impl World {
             n += 1;
         }
         self.qbuf = q;
-        self.clear_bullets(c, r);
+        self.damage_bullets(c, r, dmg);
         n
     }
 
@@ -362,6 +431,7 @@ impl World {
         let targets: Vec<(usize, Vec2)> = self.heroes.iter().enumerate().filter(|(_, h)| h.alive()).map(|(i, h)| (i, h.p.pos)).collect();
         let mut hurts: Vec<(usize, f32)> = Vec::new();
         for b in self.ebullets.iter_mut() {
+            b.hit_cd = (b.hit_cd - dt).max(0.0);
             if b.homing > 0.0 {
                 if let Some((_, t)) = targets.iter().min_by(|a, c| a.1.distance(b.pos).total_cmp(&c.1.distance(b.pos))) {
                     let speed = b.vel.length();

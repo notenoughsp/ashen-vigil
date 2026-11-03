@@ -174,7 +174,7 @@ fn fusion_merges_partners_and_frees_a_slot() {
     w.check_fusion(0);
     let h = &w.heroes[0];
     assert_eq!(h.weapons.len(), 2);
-    assert!(h.weapons.iter().any(|wp| wp.kind == WeaponKind::Blade && wp.fused == Some(WeaponKind::Axe)));
+    assert!(h.weapons.iter().any(|wp| wp.kind == WeaponKind::Blade && wp.fused == vec![WeaponKind::Axe]));
 }
 
 #[test]
@@ -613,40 +613,116 @@ fn huge_numbers_and_endless_hours() {
 }
 
 #[test]
-fn projectiles_seek_their_targets() {
+fn projectile_weapons_aim_at_foes_and_fly_straight() {
     let mut w = world_with(1, PRESETS[1].1);
     w.enemies.clear();
+    w.heroes[0].weapons = vec![Weapon::new(WeaponKind::Daggers)];
+    w.heroes[0].auto_aim = false;
+    w.heroes[0].p.facing = vec2(0.0, -1.0);
     let hero = w.heroes[0].p.pos;
-    // A foe off to the side; a dagger fired straight up must still reach it.
-    let e = w.make_enemy(EnemyKind::Knight, hero + vec2(300.0, -200.0));
-    let id = e.id;
+    let target = hero + vec2(300.0, 120.0);
+    let e = w.make_enemy(EnemyKind::Knight, target);
     w.enemies.push(e);
-    let src = Src { hero: 0, weapon: WeaponKind::Daggers };
-    w.projs.push(Proj {
-        pos: hero,
-        vel: vec2(0.0, -500.0),
-        dir: vec2(0.0, -1.0),
-        r: 6.0,
-        dmg: 1.0,
-        pierce: 0,
-        life: 3.0,
-        age: 0.0,
-        kind: PKind::Dagger,
-        evo: false,
-        area: 1.0,
-        src,
-        hits: Vec::new(),
-        dead: false,
-    });
-    let mut closest = f32::MAX;
-    for _ in 0..90 {
-        w.grid.rebuild(&w.enemies);
-        w.update_projs(1.0 / 60.0);
-        if let (Some(p), Some(e)) = (w.projs.first(), w.enemies.iter().find(|e| e.id == id)) {
-            closest = closest.min(p.pos.distance(e.pos));
-        }
+    w.grid.rebuild(&w.enemies);
+    w.heroes[0].weapons[0].timers[0] = 0.0;
+    w.update_weapons(1.0 / 60.0);
+    let p = w.projs.first().expect("the daggers did not fire");
+    let want = (target - hero).normalize();
+    assert!(p.vel.normalize().dot(want) > 0.99, "fired {:?}, the foe is at {:?}", p.vel.normalize(), want);
+    // Once fired, a dagger keeps its course: no homing.
+    let before = p.vel;
+    w.enemies[0].pos = hero + vec2(-300.0, 0.0);
+    w.grid.rebuild(&w.enemies);
+    w.update_projs(1.0 / 60.0);
+    assert_eq!(w.projs[0].vel, before);
+}
+
+#[test]
+fn fusions_grow_into_mega_and_ultra_fusions() {
+    let mut w = world_with(1, PRESETS[1].1);
+    let maxed = |k: WeaponKind| {
+        let mut wp = Weapon::new(k);
+        wp.level = WEAPON_MAX_LEVEL;
+        wp
+    };
+    // A new pair: Blade and Scythe.
+    w.heroes[0].weapons = vec![maxed(WeaponKind::Blade), maxed(WeaponKind::Scythe)];
+    w.check_fusion(0);
+    assert_eq!(w.heroes[0].weapons.len(), 1);
+    assert_eq!(w.heroes[0].weapons[0].display_name(), "Reaper's Waltz");
+    // Two more pairs: the second fusion merges with the first into a mega fusion.
+    w.heroes[0].weapons.push(maxed(WeaponKind::Orb));
+    w.heroes[0].weapons.push(maxed(WeaponKind::Hex));
+    w.check_fusion(0);
+    assert_eq!(w.heroes[0].weapons.len(), 1);
+    assert_eq!(w.heroes[0].weapons[0].tier(), 2, "two fusions should make a mega fusion");
+    assert_eq!(w.heroes[0].weapons[0].parts().len(), 4);
+    // Four more: another mega fusion, and the two megas become an ultra fusion.
+    for k in [WeaponKind::Spear, WeaponKind::Bolt, WeaponKind::Chime, WeaponKind::Lanterns] {
+        w.heroes[0].weapons.push(maxed(k));
     }
-    assert!(closest < 40.0 || w.projs.is_empty(), "the dagger never got near its target (closest {:.0})", closest);
+    w.check_fusion(0);
+    let ultra = &w.heroes[0].weapons[0];
+    assert_eq!(w.heroes[0].weapons.len(), 1);
+    assert_eq!(ultra.tier(), 3);
+    assert_eq!(ultra.parts().len(), 8);
+    assert!(ultra.parts().iter().all(|p| p.mult == ULTRA_MULT && p.evo));
+    assert_eq!(ultra.timers.len(), 8);
+    // It fires every part and survives a long fight and a snapshot round trip.
+    let peaks = simulate(&mut w, 60.0, true, |_, _| {});
+    assert_bounded(&peaks);
+    let mut enc = snapshot::Encoder::default();
+    let ev = snapshot::begin_round(&mut w);
+    let data = enc.encode(&w, &ev, &snapshot::View::of(&w, 0, vec2(1920.0, 1080.0)), 1, 0);
+    let mut c = World::new(w.diff, None);
+    c.is_client = true;
+    assert!(snapshot::Decoder::default().decode(&mut c, &data, 0, 0.03));
+    assert_eq!(c.heroes[0].weapons[0].kinds(), w.heroes[0].weapons[0].kinds());
+}
+
+#[test]
+fn enemy_bullets_toughen_as_foes_do() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.enemy_bullet(vec2(0.0, 0.0), vec2(1.0, 0.0), 6.0, 5.0, 0.0, 3.0);
+    let early = w.ebullets[0].hp;
+    w.time = 25.0 * 60.0;
+    w.enemy_bullet(vec2(0.0, 0.0), vec2(1.0, 0.0), 6.0, 5.0, 0.0, 3.0);
+    let late = w.ebullets[1].hp;
+    assert!(late > early * 5.0, "early {} late {}", early, late);
+    // A weak hit only dents a tough bullet; enough damage breaks it.
+    w.ebullets.remove(0);
+    assert_eq!(w.damage_bullets(vec2(0.0, 0.0), 10.0, late * 0.5), 0);
+    assert_eq!(w.ebullets.len(), 1);
+    w.ebullets[0].hit_cd = 0.0;
+    assert_eq!(w.damage_bullets(vec2(0.0, 0.0), 10.0, late), 1);
+    assert!(w.ebullets.is_empty());
+}
+
+#[test]
+fn the_lost_grave_gives_a_relic_once() {
+    let mut w = world_with(1, PRESETS[1].1);
+    assert!(inside_world(LOST_GRAVE, 100.0));
+    w.heroes[0].p.pos = LOST_GRAVE + vec2(10.0, 0.0);
+    w.update_secrets(0.016);
+    assert!(w.grave_found);
+    let banner = w.banner.clone().map(|b| b.0);
+    w.banner = None;
+    w.update_secrets(0.016);
+    assert!(w.banner.is_none(), "the grave gave twice");
+    assert_eq!(banner.as_deref(), Some("HERE LIES THE LAST KEEPER"));
+}
+
+#[test]
+fn received_logs_are_kept_with_safe_names() {
+    let dir = std::env::temp_dir().join(format!("ashen_vigil_recv_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    for i in 0..25 {
+        crate::log::store_received(&dir, &format!("We/ird:{}", i), "vigil", "text").unwrap();
+    }
+    let names: Vec<String> = std::fs::read_dir(dir.join("players")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    assert!(names.len() <= 20, "{}", names.len());
+    assert!(names.iter().all(|n| !n.contains('/') && !n.contains(':')), "{:?}", names);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -709,4 +785,84 @@ fn sounds_fade_with_distance() {
     let mid = w.hearing(Some(me + vec2((HEAR_FULL + HEAR_MAX) * 0.5, 0.0)));
     assert!(mid > 0.3 && mid < 0.7, "{}", mid);
     assert_eq!(w.hearing(Some(me + vec2(HEAR_MAX + 50.0, 0.0))), 0.0, "far away is silent");
+}
+
+#[test]
+fn full_floor_merges_old_orbs_and_new_ones_still_drop() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.pickups.clear();
+    let me = w.heroes[0].p.pos;
+    // A floor covered in single souls, in clumps far from the hero.
+    for i in 0..MAX_PICKUPS {
+        let at = me + vec2(800.0 + (i % 25) as f32 * 30.0, -600.0 + (i / 25) as f32 * 60.0);
+        w.pickups.push(Pickup::new(at, PickKind::Soul(1.0)));
+    }
+    let total = |w: &World| w.pickups.iter().map(|p| if let PickKind::Soul(v) = p.kind { v as f64 } else { 0.0 }).sum::<f64>();
+    let before = total(&w);
+    let kill_at = me + vec2(40.0, 0.0);
+    w.drop_soul(kill_at, 5.0);
+    assert!(w.pickups.len() <= MERGED_PICKUPS + 1, "the floor did not make room: {}", w.pickups.len());
+    assert!((total(&w) - (before + 5.0)).abs() < 1e-3, "souls were lost or made up: {} vs {}", total(&w), before + 5.0);
+    let fresh = w.pickups.iter().any(|p| p.pos.distance(kill_at) < 1.0 && matches!(p.kind, PickKind::Soul(v) if (v - 5.0).abs() < 1e-3));
+    assert!(fresh, "the new orb did not drop where the foe fell");
+    assert!(w.pickups.iter().any(|p| matches!(p.kind, PickKind::Soul(v) if v > 1.5)), "no orb grew from merging");
+    // Orbs already flying to a hero are left alone.
+    for p in w.pickups.iter_mut() {
+        p.pulled = Some(0);
+    }
+    let n = w.pickups.len();
+    w.merge_souls();
+    assert_eq!(w.pickups.len(), n);
+}
+
+/// Upgrades a hero until no level-up has anything left to offer.
+fn max_out(w: &mut World, h: usize) {
+    for _ in 0..500 {
+        let Some(c) = w.heroes[h].pool(true).first().map(|p| p.0) else { break };
+        w.heroes[h].apply_choice(c);
+        w.check_fusion(h);
+    }
+    assert!(w.heroes[h].maxed(), "the hero could not be maxed out");
+}
+
+#[test]
+fn maxed_heroes_take_souls_without_a_popup() {
+    let mut w = world_with(1, PRESETS[1].1);
+    max_out(&mut w, 0);
+    let souls = w.heroes[0].p.souls;
+    w.pending_levels = 3;
+    for _ in 0..10 {
+        w.update(1.0 / 60.0);
+        assert_ne!(w.pause, Pause::Choosing, "a maxed hero got a level-up popup");
+        w.heroes[0].p.hp = w.heroes[0].stats.max_hp;
+        w.heroes[0].p.iframes = 1.0;
+    }
+    assert_eq!(w.pending_levels, 0);
+    assert_eq!(w.heroes[0].p.souls - souls, 3 * 150, "each level-up should pay 150 souls");
+
+    // Two players, one maxed: only the other one chooses, then the countdown follows.
+    let mut w = world_with(2, PRESETS[1].1);
+    max_out(&mut w, 0);
+    w.pending_levels = 1;
+    w.update(1.0 / 60.0);
+    assert_eq!(w.pause, Pause::Choosing);
+    assert!(w.heroes[0].picked && !w.heroes[1].picked);
+    let round = w.level_round;
+    w.pick(1, round, 0);
+    w.update(1.0 / 60.0);
+    assert!(matches!(w.pause, Pause::Countdown(_)), "{:?}", w.pause);
+    assert_eq!(w.pending_levels, 0);
+}
+
+#[test]
+fn the_countdown_shrinks_every_five_levels() {
+    let mut w = world_with(2, PRESETS[1].1);
+    w.level = 1;
+    assert_eq!(w.resume_delay(), RESUME_DELAY);
+    w.level = 5;
+    assert!((w.resume_delay() - RESUME_DELAY * 0.95).abs() < 1e-5);
+    w.level = 10;
+    assert!((w.resume_delay() - RESUME_DELAY * 0.95 * 0.95).abs() < 1e-5);
+    w.level = 400;
+    assert_eq!(w.resume_delay(), MIN_RESUME_DELAY);
 }

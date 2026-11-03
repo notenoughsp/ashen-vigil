@@ -89,6 +89,8 @@ pub struct App {
     level_sel: usize,
     class_idx: usize,
     konami: Vec<KeyCode>,
+    /// Clicks on the title, for the blue embers.
+    title_clicks: u32,
     note: Option<(String, f32)>,
     vignette: Texture2D,
     grain: Texture2D,
@@ -183,6 +185,7 @@ impl App {
             level_sel: 0,
             class_idx: 0,
             konami: Vec::new(),
+            title_clicks: 0,
             note: None,
             vignette: make_vignette(),
             grain: make_grain(),
@@ -310,16 +313,16 @@ impl App {
             Screen::Dead { t, lost, marks } => {
                 self.screen = Screen::Dead { t: t + dt, lost, marks };
                 self.step_game(dt, Input::default(), false);
-                if t > 2.5 && confirm() {
+                if t > 2.5 && (confirm() || clicked()) {
                     self.end_vigil();
                 }
             }
             Screen::Victory { t, marks } => {
                 self.screen = Screen::Victory { t: t + dt, marks };
                 self.step_game(dt, Input::default(), false);
-                if t > 2.5 && !self.online() && (is_key_pressed(KeyCode::C) || pad_pressed(Pad::Reroll)) {
+                if t > 2.5 && !matches!(self.net, NetMode::Client(_)) && (is_key_pressed(KeyCode::C) || pad_pressed(Pad::Reroll)) {
                     self.continue_endless();
-                } else if t > 2.5 && confirm() {
+                } else if t > 2.5 && (confirm() || clicked()) {
                     self.end_vigil();
                 }
             }
@@ -336,8 +339,13 @@ impl App {
             e.pos.x += (self.t * 0.8 + e.life).sin() * 0.3;
             e.life -= dt;
             let k = (e.life / 3.0).min(1.0);
-            draw_circle(e.pos.x, e.pos.y, 5.0, Color::new(1.0, 0.5, 0.15, 0.08 * k));
-            draw_circle(e.pos.x, e.pos.y, 1.6, Color::new(1.0, 0.6, 0.25, 0.9 * k));
+            let (glow, core) = if self.save.blue_embers {
+                (Color::new(0.3, 0.6, 1.0, 0.08 * k), Color::new(0.5, 0.8, 1.0, 0.9 * k))
+            } else {
+                (Color::new(1.0, 0.5, 0.15, 0.08 * k), Color::new(1.0, 0.6, 0.25, 0.9 * k))
+            };
+            draw_circle(e.pos.x, e.pos.y, 5.0, glow);
+            draw_circle(e.pos.x, e.pos.y, 1.6, core);
         }
         self.embers.retain(|e| e.life > 0.0 && e.pos.y > -10.0);
     }
@@ -372,6 +380,7 @@ impl App {
     pub fn draw(&mut self, dt: f32) {
         set_ui_scale(self.save.settings.ui_scale);
         set_ui_camera();
+        crate::ui::clear_hit_areas();
         let font = self.font.clone();
         let ui = Ui { font: font.as_ref() };
         let (sw, sh) = (ui_w(), ui_h());

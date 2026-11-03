@@ -3,11 +3,17 @@
 use super::*;
 
 impl World {
-    pub(crate) fn make_enemy(&mut self, kind: EnemyKind, pos: Vec2) -> Enemy {
+    /// How much tougher foes are now than at the start, with difficulty, co-op and curses.
+    pub(crate) fn hp_scale(&self) -> f32 {
         let m = self.time / 60.0;
         let coop = 1.0 + 0.35 * (self.heroes.len().max(1) - 1) as f32;
         let cursed = self.cursed.as_ref().map(|c| c.curse > 0.0).unwrap_or(false);
-        let hp_scale = (1.0 + m * 0.2 + (m / 10.0).powi(2) * 0.6) * self.diff.at(self.time).hp * coop * if cursed { 1.3 } else { 1.0 };
+        (1.0 + m * 0.2 + (m / 10.0).powi(2) * 0.6) * self.diff.at(self.time).hp * coop * if cursed { 1.3 } else { 1.0 }
+    }
+
+    pub(crate) fn make_enemy(&mut self, kind: EnemyKind, pos: Vec2) -> Enemy {
+        let m = self.time / 60.0;
+        let hp_scale = self.hp_scale();
         let dmg_scale = (1.0 + m * 0.06) * self.diff.at(self.time).dmg * if self.blood_moon > 0.0 { 1.25 } else { 1.0 };
         let (hp, speed, dmg, xp) = match kind {
             EnemyKind::Hollow => (10.0, 55.0, 8.0, 1.0),

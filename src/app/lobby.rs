@@ -1,7 +1,7 @@
 //! Online lobby: hosting, joining by address and Tailscale device discovery.
 
 use super::*;
-use crate::net::{ClientEvent, HostEvent, DEFAULT_PORT};
+use crate::net::{game_port, ClientEvent, HostEvent};
 use crate::ui::{BLOOD, EMBER, GOLD, TEAL};
 
 impl App {
@@ -36,9 +36,9 @@ impl App {
     }
 
     pub(super) fn host_lobby(&mut self) {
-        match HostNet::open(DEFAULT_PORT) {
+        match HostNet::open(game_port()) {
             Ok(h) => {
-                crate::log!("hosting a lobby on UDP {}", DEFAULT_PORT);
+                crate::log!("hosting a lobby on UDP {}", game_port());
                 self.net = NetMode::Host(h);
                 self.lobby.state = LobbyState::Hosting;
                 self.lobby.sel = 0;
@@ -107,6 +107,7 @@ impl App {
     }
 
     pub(super) fn leave_online(&mut self) {
+        crate::net::forget_upload();
         match &mut self.net {
             NetMode::Host(h) => h.close(),
             NetMode::Client(c) => c.leave(),
@@ -137,6 +138,7 @@ impl App {
                             self.lobby.msg = Some((format!("{} left the lobby.", n), DIM));
                         }
                         HostEvent::Rejoined(..) => {}
+                        HostEvent::Log(name, reason, text) => store_player_log(self.auto.as_ref(), &name, &reason, &text),
                     }
                 }
                 if let Some(v) = host.sock.stats.foreign_version.take() {
@@ -221,6 +223,7 @@ impl App {
         if nav(&mut self.lobby.sel, rows, text_row) {
             self.audio.play("select", 0.4);
         }
+        let mouse = mouse_rows(&mut self.lobby.sel);
         if back() {
             if self.lobby.state == LobbyState::Browse {
                 self.screen = Screen::Menu;
@@ -231,43 +234,44 @@ impl App {
             return;
         }
         match self.lobby.state {
-            LobbyState::Browse => self.update_browse(rows, text_row),
+            LobbyState::Browse => self.update_browse(rows, text_row, mouse),
             LobbyState::Hosting => {
                 drain_chars();
-                let dir = if left(false) {
+                let dir = if left(false) || mouse.right {
                     -1
-                } else if right(false) {
+                } else if right(false) || mouse.left {
                     1
                 } else {
                     0
                 };
+                let go = confirm() || mouse.left;
                 match self.lobby.sel {
                     0 if dir != 0 => self.cycle_class(dir),
                     1 if dir != 0 => self.cycle_difficulty(dir),
-                    2 if confirm() => self.start_hosted(),
-                    3 if confirm() => self.leave_online(),
+                    2 if go => self.start_hosted(),
+                    3 if go => self.leave_online(),
                     _ => {}
                 }
             }
             LobbyState::Joining(_) | LobbyState::Joined => {
                 drain_chars();
-                let dir = if left(false) {
+                let dir = if left(false) || mouse.right {
                     -1
-                } else if right(false) {
+                } else if right(false) || mouse.left {
                     1
                 } else {
                     0
                 };
                 match self.lobby.sel {
                     0 if dir != 0 => self.cycle_class(dir),
-                    1 if confirm() => self.leave_online(),
+                    1 if confirm() || mouse.left => self.leave_online(),
                     _ => {}
                 }
             }
         }
     }
 
-    fn update_browse(&mut self, rows: usize, text_row: bool) {
+    fn update_browse(&mut self, rows: usize, text_row: bool, mouse: MouseRow) {
         let sel = self.lobby.sel;
         match sel {
             0 => edit_text(&mut self.save.settings.name, 16, name_char),
@@ -275,14 +279,15 @@ impl App {
             _ => drain_chars(),
         }
         if sel == 1 {
-            if left(false) {
+            if left(false) || mouse.right {
                 self.cycle_class(-1);
             }
-            if right(false) {
+            if right(false) || mouse.left {
                 self.cycle_class(1);
             }
         }
-        let enter = pressed_any(&[KeyCode::Enter, KeyCode::KpEnter]) || (!text_row && is_key_pressed(KeyCode::Space));
+        // A click on the name row only puts the cursor there; elsewhere it acts like Enter.
+        let enter = pressed_any(&[KeyCode::Enter, KeyCode::KpEnter]) || (!text_row && is_key_pressed(KeyCode::Space)) || (mouse.left && sel != 0 && sel != 1);
         if !enter {
             return;
         }
@@ -318,10 +323,10 @@ impl App {
 
         // Our addresses, so the host can share them.
         let ts = self.lobby.ts.as_ref();
-        let lan = self.lobby.lan.map(|i| format!("{}:{}", i, DEFAULT_PORT)).unwrap_or("-".into());
+        let lan = self.lobby.lan.map(|i| format!("{}:{}", i, game_port())).unwrap_or("-".into());
         let ts_line = match ts {
             None => "Tailscale: checking...".to_string(),
-            Some(t) if t.running => format!("Tailscale: {}:{}  ({})", t.self_ip.clone().unwrap_or("-".into()), DEFAULT_PORT, t.self_name),
+            Some(t) if t.running => format!("Tailscale: {}:{}  ({})", t.self_ip.clone().unwrap_or("-".into()), game_port(), t.self_name),
             Some(t) => format!("Tailscale: {}", t.error.clone().unwrap_or("not running".into())),
         };
         ui.text(&format!("LAN: {}", lan), x, y + 16.0, 16.0, DIM);
@@ -341,7 +346,7 @@ impl App {
                 let name = format!("{}{}", self.save.settings.name, if self.lobby.sel == 0 { caret } else { "" });
                 row(0, "Name", &name, &mut y, PALE);
                 row(1, "Class", &format!("<  {}  >", self.class().name()), &mut y, PALE);
-                row(2, "Host a vigil", &format!("UDP port {}", DEFAULT_PORT), &mut y, EMBER);
+                row(2, "Host a vigil", &format!("UDP port {}", game_port()), &mut y, EMBER);
                 let shown = if self.lobby.ip.is_empty() && self.lobby.sel != 3 { "ip or name[:port]" } else { &self.lobby.ip };
                 row(3, "Join by address", &format!("{}{}", shown, if self.lobby.sel == 3 { caret } else { "" }), &mut y, EMBER);
                 row(4, "Refresh Tailscale", if self.lobby.ts_job.is_some() { "..." } else { "" }, &mut y, PALE);
@@ -408,5 +413,17 @@ impl App {
             ui.text_c(m, cx, sh - 54.0, 17.0, *c);
         }
         ui.text_c("Tailscale: all players in the same tailnet, then pick the host's device or enter its 100.x address", cx, sh - 24.0, 15.0, DIM);
+    }
+}
+
+/// Keeps a log a player sent: next to the host's own logs, or in the test folder.
+pub(super) fn store_player_log(auto: Option<&AutoTest>, name: &str, reason: &str, text: &str) {
+    let dir = match auto {
+        Some(a) => a.log_file().parent().map(|p| p.to_path_buf()).unwrap_or_default(),
+        None => crate::log::log_dir(),
+    };
+    match crate::log::store_received(&dir, name, reason, text) {
+        Some(p) => crate::log!("received {}'s log ({}), saved as {}", name, reason, p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+        None => crate::log!("received {}'s log ({}) but could not save it", name, reason),
     }
 }

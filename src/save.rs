@@ -257,6 +257,8 @@ pub struct Save {
     pub vigils: u32,
     /// Grave Cats befriended over all vigils.
     pub cats: u32,
+    /// Seven clicks on the title turn the menu's embers blue.
+    pub blue_embers: bool,
     pub achievements: u32,
     /// Best ten vigils, best first.
     pub runs: Vec<RunRecord>,
@@ -280,6 +282,7 @@ impl Default for Save {
             best_time: 0.0,
             vigils: 0,
             cats: 0,
+            blue_embers: false,
             achievements: 0,
             runs: Vec::new(),
             best_kills: 0,
@@ -391,6 +394,7 @@ impl Save {
                 "best" => s.best_time = f(0.0),
                 "vigils" => s.vigils = v.parse().unwrap_or(0),
                 "cats" => s.cats = v.parse().unwrap_or(0),
+                "blue_embers" => s.blue_embers = flag(v),
                 "achievements" => s.achievements = v.parse().unwrap_or(0),
                 "best_kills" => s.best_kills = v.parse().unwrap_or(0),
                 "best_level" => s.best_level = v.parse().unwrap_or(0),
@@ -492,7 +496,7 @@ impl Save {
         let st = &self.settings;
         let mut out = String::new();
         out += &format!("souls={}\nmarks={}\nunlocks={}\n", self.souls, self.marks, self.profile.unlocks);
-        out += &format!("bucket={}\nbest={:.1}\nvigils={}\ncats={}\n", b(self.bucket_unlocked), self.best_time, self.vigils, self.cats);
+        out += &format!("bucket={}\nbest={:.1}\nvigils={}\ncats={}\nblue_embers={}\n", b(self.bucket_unlocked), self.best_time, self.vigils, self.cats, b(self.blue_embers));
         out += &format!(
             "achievements={}\nbest_kills={}\nbest_level={}\nbest_damage={:.0}\nchallenges={}\n",
             self.achievements, self.best_kills, self.best_level, self.best_damage, self.challenges

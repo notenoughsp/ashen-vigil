@@ -7,6 +7,9 @@ pub const MAX_ITEMS: usize = 6;
 pub const WEAPON_MAX_LEVEL: u32 = 10;
 /// Damage multiplier of a fused weapon over its two evolved parts.
 pub const FUSION_MULT: f32 = 1.5;
+/// Damage of each part in a mega fusion (four weapons) and an ultra fusion (eight).
+pub const MEGA_MULT: f32 = 1.9;
+pub const ULTRA_MULT: f32 = 2.4;
 
 // ---------------------------------------------------------------- weapons
 
@@ -145,23 +148,28 @@ impl WeaponKind {
         }
     }
 
-    /// Weapon this one fuses with when both reach max level.
-    pub fn fusion_partner(self) -> WeaponKind {
+    /// Weapons this one fuses with when both reach max level; the first is its classic partner.
+    pub fn fusion_partners(self) -> [WeaponKind; 2] {
         use WeaponKind::*;
         match self {
-            Blade => Axe,
-            Axe => Blade,
-            Daggers => Crossbow,
-            Crossbow => Daggers,
-            Orb => Hex,
-            Hex => Orb,
-            Chime => Lanterns,
-            Lanterns => Chime,
-            Spear => Bolt,
-            Bolt => Spear,
-            Scythe => Lance,
-            Lance => Scythe,
+            Blade => [Axe, Scythe],
+            Axe => [Blade, Crossbow],
+            Daggers => [Crossbow, Bolt],
+            Crossbow => [Daggers, Axe],
+            Orb => [Hex, Spear],
+            Hex => [Orb, Chime],
+            Chime => [Lanterns, Hex],
+            Lanterns => [Chime, Lance],
+            Spear => [Bolt, Orb],
+            Bolt => [Spear, Daggers],
+            Scythe => [Lance, Blade],
+            Lance => [Scythe, Lanterns],
         }
+    }
+
+    /// The classic partner, for the table in the README and the evolution hints.
+    pub fn fusion_partner(self) -> WeaponKind {
+        self.fusion_partners()[0]
     }
 
     pub fn color(self) -> Color {
@@ -296,8 +304,33 @@ pub fn fusion_name(a: WeaponKind, b: WeaponKind) -> &'static str {
         (Chime, Lanterns) => "Requiem of Bells",
         (Spear, Bolt) => "Wrath of the Pale Sky",
         (Scythe, Lance) => "Crimson Harvest",
+        (Blade, Scythe) => "Reaper's Waltz",
+        (Daggers, Bolt) => "Ghostfang Storm",
+        (Orb, Spear) => "Thunderpyre",
+        (Chime, Hex) => "Tolling Brand",
+        (Lanterns, Lance) => "Lantern Pike",
+        (Axe, Crossbow) => "Moonfall Barrage",
         _ => "Abomination",
     }
+}
+
+const MEGA_NAMES: [&str; 8] = ["Pyre of Kings", "Grave Tide", "Choir of Ash", "The Hollow Crown", "Eclipse Engine", "Black Cathedral", "Wake of Ruin", "The Long Night"];
+const ULTRA_NAMES: [&str; 4] = ["Dawnbreaker", "The Unending", "Ash Incarnate", "World Pyre"];
+
+/// The same set of weapons always gets the same name.
+fn names_for(kinds: &[WeaponKind], names: &[&'static str]) -> &'static str {
+    let mut idx: Vec<usize> = kinds.iter().map(|k| k.idx()).collect();
+    idx.sort_unstable();
+    let h = idx.iter().fold(7usize, |h, i| h.wrapping_mul(31).wrapping_add(*i + 1));
+    names[h % names.len()]
+}
+
+pub fn mega_name(kinds: &[WeaponKind]) -> &'static str {
+    names_for(kinds, &MEGA_NAMES)
+}
+
+pub fn ultra_name(kinds: &[WeaponKind]) -> &'static str {
+    names_for(kinds, &ULTRA_NAMES)
 }
 
 // ---------------------------------------------------------------- items

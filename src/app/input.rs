@@ -210,6 +210,37 @@ pub fn clicked() -> bool {
     is_mouse_button_pressed(MouseButton::Left)
 }
 
+pub fn right_clicked() -> bool {
+    is_mouse_button_pressed(MouseButton::Right)
+}
+
+/// Lets the mouse drive a menu: hovering a row drawn last frame selects it, and the result
+/// says whether it was left- or right-clicked this frame.
+pub fn mouse_rows(sel: &mut usize) -> MouseRow {
+    let under = hovered(&crate::ui::rows_drawn());
+    let Some(i) = under else { return MouseRow::default() };
+    let (left, right) = (clicked(), right_clicked());
+    if mouse_moved() || left || right {
+        *sel = i;
+    }
+    MouseRow { left, right }
+}
+
+#[derive(Default, Clone, Copy)]
+pub struct MouseRow {
+    pub left: bool,
+    pub right: bool,
+}
+
+/// The tab clicked this frame, if any.
+pub fn clicked_tab() -> Option<usize> {
+    if clicked() {
+        hovered(&crate::ui::tabs_drawn())
+    } else {
+        None
+    }
+}
+
 /// The row under the mouse.
 pub fn hovered(rows: &[Rect]) -> Option<usize> {
     let m = mouse_ui();

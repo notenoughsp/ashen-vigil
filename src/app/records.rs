@@ -63,8 +63,8 @@ impl App {
         check(w.time >= 300.0, Achievement::FirstLight);
         check(w.bosses_killed >= 1, Achievement::Gravebreaker);
         check(w.kills >= 10_000, Achievement::Legion);
-        check(me.weapons.iter().any(|wp| wp.fused.is_some()), Achievement::Fusionist);
-        check(me.weapons.iter().any(|wp| wp.evolved && wp.fused.is_none()), Achievement::Evolved);
+        check(me.weapons.iter().any(|wp| wp.is_fused()), Achievement::Fusionist);
+        check(me.weapons.iter().any(|wp| wp.evolved && !wp.is_fused()), Achievement::Evolved);
         check(me.rolls == 0 && w.time >= 600.0 && !me.downed, Achievement::Steadfast);
         check(me.has_cat, Achievement::CatPerson);
         check(me.purchases >= 3, Achievement::Patron);
@@ -233,8 +233,11 @@ impl App {
         ui.text("The vigil over time", rx, gy, 18.0, a(PALE, k2));
         self.draw_run_graph(rx, gy + 12.0, rw, gh, k2);
         if t > 2.5 {
-            let more = if s.won && !self.online() {
+            let client = matches!(self.net, NetMode::Client(_));
+            let more = if s.won && !client {
                 hint("Enter: leave     C: keep fighting into the endless night", "A: leave     Y: keep fighting into the endless night")
+            } else if s.won {
+                "The host decides: back to the lobby, or on into the endless night."
             } else {
                 hint("Enter", "A")
             };
@@ -282,6 +285,14 @@ impl App {
             self.records_page = 1 - self.records_page;
             self.audio.play("select", 0.5);
         }
+        if let Some(t) = clicked_tab() {
+            if t < 2 && t != self.records_page {
+                self.records_page = t;
+                self.audio.play("select", 0.5);
+            } else if t == 2 {
+                self.screen = Screen::Menu;
+            }
+        }
         if back() || confirm() {
             self.screen = Screen::Menu;
         }
@@ -294,6 +305,7 @@ impl App {
         let tabs = ["Leaderboard", "Achievements"];
         for (i, name) in tabs.iter().enumerate() {
             let x = cx - 190.0 + i as f32 * 200.0;
+            crate::ui::register_tab(Rect::new(x, 72.0, 180.0, 30.0));
             let on = i == self.records_page;
             draw_rectangle(x, 72.0, 180.0, 30.0, Color::new(0.07, 0.06, 0.06, if on { 0.95 } else { 0.5 }));
             if on {
@@ -370,6 +382,15 @@ impl App {
                 ui.text_r(&format!("+{}", ach.reward()), cx0 + col_w - 22.0, y + 22.0, 15.0, if have { TEAL } else { EMBER });
             }
         }
+        // A back button, the third clickable tab.
+        let back_r = Rect::new(cx - 80.0, sh - 108.0, 160.0, 30.0);
+        crate::ui::register_tab(back_r);
+        let hot = back_r.contains(mouse_ui());
+        draw_rectangle(back_r.x, back_r.y, back_r.w, back_r.h, Color::new(0.07, 0.06, 0.06, if hot { 0.95 } else { 0.6 }));
+        if hot {
+            draw_rectangle_lines(back_r.x, back_r.y, back_r.w, back_r.h, 2.0, GOLD);
+        }
+        ui.text_c("Back", cx, back_r.y + 21.0, 18.0, if hot { GOLD } else { DIM });
         ui.text_c(hint("Tab / A / D: page    Esc back", "RB: page    B back"), cx, sh - 20.0, 15.0, DIM);
     }
 }

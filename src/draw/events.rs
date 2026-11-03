@@ -5,6 +5,7 @@ use super::*;
 impl World {
     pub(super) fn draw_events(&self) {
         let t = self.time;
+        self.draw_lost_grave(t);
         if let Some(c) = &self.cursed {
             let p = c.pos;
             let active = c.curse > 0.0;
@@ -89,5 +90,25 @@ impl World {
                 draw_text(&price, q.x - w * 0.5, q.y + 21.0, 14.0, rgba(170, 210, 255, 255));
             }
         }
+    }
+
+    /// A weathered headstone with a candle that is always lit, far from everything.
+    fn draw_lost_grave(&self, t: f32) {
+        let p = LOST_GRAVE;
+        if !self.on_screen(p, 120.0) {
+            return;
+        }
+        draw_ellipse(p.x, p.y + 12.0, 22.0, 7.0, 0.0, rgba(0, 0, 0, 130));
+        draw_rectangle(p.x - 12.0, p.y - 26.0, 24.0, 38.0, rgba(20, 20, 24, 255));
+        draw_circle(p.x, p.y - 26.0, 12.0, rgba(20, 20, 24, 255));
+        draw_rectangle(p.x - 10.0, p.y - 24.0, 20.0, 34.0, rgba(58, 58, 66, 255));
+        draw_circle(p.x, p.y - 24.0, 10.0, rgba(58, 58, 66, 255));
+        draw_line(p.x - 5.0, p.y - 18.0, p.x + 5.0, p.y - 18.0, 1.5, rgba(30, 30, 36, 255));
+        draw_line(p.x, p.y - 23.0, p.x, p.y - 8.0, 1.5, rgba(30, 30, 36, 255));
+        let flame = 0.8 + 0.2 * (t * 9.0).sin();
+        let c = vec2(p.x + 17.0, p.y + 6.0);
+        draw_rectangle(c.x - 2.0, c.y - 8.0, 4.0, 8.0, rgba(220, 210, 190, 255));
+        draw_circle(c.x, c.y - 11.0, 6.0 * flame, Color::new(1.0, 0.6, 0.2, 0.25));
+        draw_circle(c.x, c.y - 11.0, 2.2 * flame, Color::new(1.0, 0.85, 0.5, 1.0));
     }
 }

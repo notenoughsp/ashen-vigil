@@ -10,8 +10,13 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs, UdpSocket};
 
 pub const DEFAULT_PORT: u16 = 7777;
+
+/// The port to host on and join by default: 7777, or ASHEN_PORT (tests run beside a real game).
+pub fn game_port() -> u16 {
+    std::env::var("ASHEN_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PORT)
+}
 // The last byte is the protocol version; different builds refuse to talk to each other.
-const MAGIC: [u8; 3] = [0xA5, 0x1C, 8];
+const MAGIC: [u8; 3] = [0xA5, 0x1C, 9];
 /// Shown in menus, so players can tell whether they run the same build.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const FRAG_PAYLOAD: usize = 1100;
@@ -32,6 +37,8 @@ pub enum PType {
     Pong = 7,
     Leave = 8,
     Refused = 9,
+    /// A fragment of a player's log, sent to the host after a vigil or a crash.
+    Log = 10,
 }
 
 impl PType {
@@ -47,6 +54,7 @@ impl PType {
             7 => Pong,
             8 => Leave,
             9 => Refused,
+            10 => Log,
             _ => return None,
         })
     }
@@ -232,7 +240,7 @@ impl NetStats {
 }
 
 pub struct Sock {
-    s: UdpSocket,
+    pub(crate) s: UdpSocket,
     pub stats: NetStats,
     buf: Vec<u8>,
     /// Fraction of outgoing packets to drop on purpose, for testing bad connections
@@ -312,6 +320,45 @@ pub fn fragments(tick: u32, payload: &[u8]) -> Vec<Vec<u8>> {
 /// Fragments of one snapshot: how many there are, and those that arrived.
 type Partial = (u16, Vec<Option<Vec<u8>>>);
 
+/// A player's log never travels in more than this many fragments, or unpacks bigger than this.
+const MAX_LOG_FRAGMENTS: usize = 600;
+const MAX_LOG_BYTES: usize = 2 << 20;
+
+/// The socket and host a player's log goes to, set while joined to someone's vigil.
+static UPLOAD: std::sync::Mutex<Option<(UdpSocket, SocketAddr)>> = std::sync::Mutex::new(None);
+
+/// Stops sending logs anywhere, after leaving a host.
+pub fn forget_upload() {
+    if let Ok(mut up) = UPLOAD.lock() {
+        *up = None;
+    }
+}
+
+/// Sends this session's log to the host this player joined, if any: packed, in fragments,
+/// twice over so a lost packet rarely loses the log. `reason` says why ("vigil", "crash").
+pub fn upload_log(reason: &str) {
+    let Ok(guard) = UPLOAD.try_lock() else { return };
+    let Some((sock, host)) = guard.as_ref() else { return };
+    let Some(text) = crate::log::current_text() else { return };
+    let tail_from = text.len().saturating_sub(MAX_LOG_BYTES - 1024);
+    let tail = &text[text.char_indices().map(|(i, _)| i).find(|&i| i >= tail_from).unwrap_or(0)..];
+    let packed = miniz_oxide::deflate::compress_to_vec(format!("{}\n{}", reason, tail).as_bytes(), 6);
+    let count = packed.len().div_ceil(FRAG_PAYLOAD).clamp(1, MAX_LOG_FRAGMENTS);
+    let id = (crate::log::uptime_ms() as u32) ^ 0x5a5a;
+    for _ in 0..2 {
+        for i in 0..count {
+            let mut w = Writer::packet(PType::Log);
+            w.u32(id);
+            w.u16(i as u16);
+            w.u16(count as u16);
+            let end = ((i + 1) * FRAG_PAYLOAD).min(packed.len());
+            w.0.extend_from_slice(&packed[(i * FRAG_PAYLOAD).min(end)..end]);
+            let _ = sock.send_to(&w.0, host);
+        }
+    }
+    crate::log!("sent this log to the host ({}, {} bytes packed)", reason, packed.len());
+}
+
 /// Reassembles snapshot fragments; only the newest complete snapshot matters.
 #[derive(Default)]
 pub struct Assembler {
@@ -358,7 +405,7 @@ pub fn resolve(text: &str) -> Result<SocketAddr, String> {
     let with_port = if t.parse::<SocketAddr>().is_ok() || t.rsplit_once(':').map(|(_, p)| p.parse::<u16>().is_ok()).unwrap_or(false) {
         t.to_string()
     } else {
-        format!("{}:{}", t, DEFAULT_PORT)
+        format!("{}:{}", t, game_port())
     };
     with_port.to_socket_addrs().map_err(|e| format!("Cannot resolve {}: {}", t, e))?.find(|a| a.is_ipv4()).ok_or_else(|| format!("No IPv4 address for {}", t))
 }
@@ -597,6 +644,10 @@ pub struct HostNet {
     /// Players who dropped out of the running vigil, by name and slot; the same name may
     /// come back and take its hero over again.
     pub left: Vec<(String, u8)>,
+    /// Players' logs arriving in fragments, by sender and log id.
+    logs_in: HashMap<(SocketAddr, u32), Partial>,
+    /// Logs already stored; their second copy is ignored.
+    logs_done: Vec<(SocketAddr, u32)>,
 }
 
 pub enum HostEvent {
@@ -605,12 +656,25 @@ pub enum HostEvent {
     Left(String, u8),
     /// A player who dropped out is back in the running vigil.
     Rejoined(String, u8),
+    /// A player's log arrived: name, why it was sent, the text.
+    Log(String, String, String),
 }
 
 impl HostNet {
     pub fn open(port: u16) -> Result<HostNet, String> {
         let sock = Sock::bind(port).map_err(|e| format!("Cannot open port {}: {}", port, e))?;
-        Ok(HostNet { sock, peers: Vec::new(), started: false, tick: 0, snap_acc: 0.0, ping_acc: 0.0, lobby_acc: 0.0, left: Vec::new() })
+        Ok(HostNet {
+            sock,
+            peers: Vec::new(),
+            started: false,
+            tick: 0,
+            snap_acc: 0.0,
+            ping_acc: 0.0,
+            lobby_acc: 0.0,
+            left: Vec::new(),
+            logs_in: HashMap::new(),
+            logs_done: Vec::new(),
+        })
     }
 
     /// Handles incoming packets. `lobby` is the current player list for new joiners.
@@ -679,6 +743,34 @@ impl HostNet {
                     if let Some(i) = known {
                         self.peers[i].ping_ms = ((now - r.f64()) * 1000.0) as f32;
                         self.peers[i].last_seen = now;
+                    }
+                }
+                PType::Log => {
+                    // Only from players in this lobby, and never more than a few at once.
+                    if let (Some(i), true) = (known, self.logs_in.len() < 8) {
+                        let (id, idx, count) = (r.u32(), r.u16() as usize, r.u16() as usize);
+                        let body = r.rest().to_vec();
+                        if !r.ok || count == 0 || count > MAX_LOG_FRAGMENTS || idx >= count || self.logs_done.contains(&(from, id)) {
+                            continue;
+                        }
+                        let entry = self.logs_in.entry((from, id)).or_insert_with(|| (count as u16, vec![None; count]));
+                        if entry.1.len() != count {
+                            continue;
+                        }
+                        entry.1[idx] = Some(body);
+                        if entry.1.iter().all(|p| p.is_some()) {
+                            let (_, parts) = self.logs_in.remove(&(from, id)).unwrap_or_default();
+                            self.logs_done.push((from, id));
+                            if self.logs_done.len() > 32 {
+                                self.logs_done.remove(0);
+                            }
+                            let packed: Vec<u8> = parts.into_iter().flatten().flatten().collect();
+                            if let Ok(raw) = miniz_oxide::inflate::decompress_to_vec_with_limit(&packed, MAX_LOG_BYTES) {
+                                let text = String::from_utf8_lossy(&raw);
+                                let (reason, text) = text.split_once('\n').unwrap_or(("log", &text));
+                                events.push(HostEvent::Log(self.peers[i].name.clone(), reason.to_string(), text.to_string()));
+                            }
+                        }
                     }
                 }
                 PType::Leave => {
@@ -807,6 +899,10 @@ pub struct ClientNet {
 impl ClientNet {
     pub fn connect(host: SocketAddr, now: f64) -> Result<ClientNet, String> {
         let sock = Sock::bind(0).map_err(|e| format!("Cannot open a socket: {}", e))?;
+        // Kept for sending the log to this host, even from inside a crash.
+        if let (Ok(s), Ok(mut up)) = (sock.s.try_clone(), UPLOAD.lock()) {
+            *up = Some((s, host));
+        }
         Ok(ClientNet { sock, host, slot: None, last_seen: now, assembler: Assembler::default(), hello_acc: 10.0, ping_acc: 0.0, gone: false })
     }
 

@@ -361,6 +361,23 @@ impl App {
                     w.enemies.push(e);
                 }
             }
+            300 => {
+                // A floor full of single souls: the next kills must still drop orbs while the
+                // old ones merge into bigger ones.
+                let w = self.world.as_mut().unwrap();
+                let me = w.heroes[0].p.pos;
+                for i in 0..520 {
+                    let at = me + Vec2::from_angle(i as f32 * 2.39996) * (120.0 + (i as f32).sqrt() * 22.0);
+                    w.pickups.push(Pickup::new(clamp_world(at, 30.0), PickKind::Soul(1.0)));
+                }
+            }
+            330 => {
+                let w = self.world.as_ref().unwrap();
+                let souls = w.pickups.iter().filter(|p| matches!(p.kind, PickKind::Soul(_))).count();
+                let merged = w.pickups.iter().filter(|p| matches!(p.kind, PickKind::Soul(v) if v >= 2.0)).count();
+                println!("[stress_] orbs on the floor: {} souls, {} grown by merging", souls, merged);
+                want.push("orbs");
+            }
             600 => want.push("horde"),
             4200 => std::process::exit(0),
             _ => {}
@@ -435,6 +452,43 @@ impl App {
                 want.push("rejoined");
             }
         }
+        if std::env::var("ASHEN_AUTOTEST_ENDLESS").is_ok() {
+            match f.saturating_sub(s) {
+                1100..=1250 => {
+                    // Dawn, with no level-up or boss in the way.
+                    let w = self.world.as_mut().unwrap();
+                    w.next_boss = f32::MAX;
+                    w.pending_levels = 0;
+                    // A boss still fighting holds back the dawn, as in the real game.
+                    w.enemies.retain(|e| !e.boss);
+                    w.boss = None;
+                    w.boss_kind = None;
+                    w.arena = None;
+                    if w.pause == Pause::Choosing {
+                        for h in 0..w.heroes.len() {
+                            let round = w.level_round;
+                            w.pick(h, round, 0);
+                        }
+                    }
+                    if w.time < VICTORY_TIME {
+                        w.time = VICTORY_TIME + 0.5;
+                    }
+                }
+                1300 => {
+                    println!("[host_] end screen: {:?}", self.screen);
+                    want.push("victory");
+                    self.continue_endless();
+                }
+                1500 => {
+                    let w = self.world.as_ref().unwrap();
+                    println!("[host_] endless {} won {} screen {:?} heroes {}", w.endless, w.won, self.screen, w.heroes.len());
+                    want.push("endless");
+                }
+                1600 => std::process::exit(0),
+                _ => {}
+            }
+            return want;
+        }
         let again = self.auto.as_ref().unwrap().again;
         if again {
             match f.saturating_sub(s) {
@@ -482,8 +536,9 @@ impl App {
             let n = self.auto.as_ref().unwrap().player_name().bytes().map(|b| b as usize).sum::<usize>();
             self.class_idx = n % self.classes().len();
             self.open_lobby();
-            self.lobby.ip = "127.0.0.1".into();
-            self.join("127.0.0.1");
+            let local = format!("127.0.0.1:{}", crate::net::game_port());
+            self.lobby.ip = local.clone();
+            self.join(&local);
         }
         let au = self.auto.as_ref().unwrap();
         if self.lobby.state == LobbyState::Joined && self.screen == Screen::Lobby && !au.has("lobby") {
@@ -506,8 +561,9 @@ impl App {
         if let (true, Some(l)) = (rejoin, left) {
             if f == l + 90 {
                 self.open_lobby();
-                self.lobby.ip = "127.0.0.1".into();
-                self.join("127.0.0.1");
+                let local = format!("127.0.0.1:{}", crate::net::game_port());
+                self.lobby.ip = local.clone();
+                self.join(&local);
                 println!("[client_] joining again");
             }
             if f > l + 300 && self.world.as_ref().is_some_and(|w| !w.heroes.is_empty() && w.me().connected) && !self.auto.as_ref().unwrap().has("rejoined") {
@@ -532,6 +588,18 @@ impl App {
         }
         if matches!(self.screen, Screen::Dead { .. }) && !self.auto.as_ref().unwrap().has("end") {
             want.push("end");
+        }
+        // Following the host into the endless night from the victory screen.
+        if matches!(self.screen, Screen::Victory { .. }) && !self.auto.as_ref().unwrap().has("victory") {
+            println!("[client_] on the victory screen");
+            want.push("victory");
+        }
+        if let Some(w) = &self.world {
+            let au = self.auto.as_ref().unwrap();
+            if w.endless && !w.won && self.screen == Screen::Playing && !au.has("endless") {
+                println!("[client_] fighting on in the endless night at {:.0}s", w.time);
+                want.push("endless");
+            }
         }
         // After the end screen: following the host into the lobby, then into the next vigil.
         let au = self.auto.as_ref().unwrap();

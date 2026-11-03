@@ -166,6 +166,9 @@ impl App {
 
     fn on_death(&mut self) {
         crate::log!("vigil lost: {}", self.log_status());
+        if matches!(self.net, NetMode::Client(_)) {
+            crate::net::upload_log("vigil");
+        }
         let online = self.online();
         let marks = self.award_marks(false);
         let w = self.world.as_mut().unwrap();
@@ -182,6 +185,9 @@ impl App {
 
     fn on_victory(&mut self) {
         crate::log!("vigil kept until dawn: {}", self.log_status());
+        if matches!(self.net, NetMode::Client(_)) {
+            crate::net::upload_log("vigil");
+        }
         self.sync_bank();
         let marks = self.award_marks(true);
         self.finish_run(true, marks);
@@ -200,7 +206,7 @@ impl App {
             }
         }
         let events: Vec<Event> = std::mem::take(&mut w.events);
-        let (client, dead, won, boss, empty) = (w.is_client, w.dead, w.won, w.boss_kind.is_some(), w.heroes.is_empty());
+        let (client, dead, won, boss, empty, endless) = (w.is_client, w.dead, w.won, w.boss_kind.is_some(), w.heroes.is_empty(), w.endless);
         let boss_index = w.boss_kind.map(|k| k as usize).unwrap_or(0);
         // Drums swell with the number of enemies around us.
         let near = if empty {
@@ -232,6 +238,10 @@ impl App {
         }
         self.sync_bank();
         // Clients learn about the end of the vigil from snapshot flags.
+        // The host chose the endless night: follow it from the victory screen.
+        if client && !empty && endless && !won && matches!(self.screen, Screen::Victory { .. }) {
+            self.continue_endless();
+        }
         if client && !empty && matches!(self.screen, Screen::Playing | Screen::Paused) {
             self.audio.music(if boss { Music::Boss(boss_index) } else { Music::Ambient });
             if dead {
@@ -259,7 +269,7 @@ impl App {
         }
         self.show_tips();
         let paused = self.screen == Screen::Paused;
-        if is_key_pressed(KeyCode::Escape) || act_pressed(Action::Pause) || pad_pressed(Pad::Pause) || (paused && pad_pressed(Pad::Back)) {
+        if is_key_pressed(KeyCode::Escape) || act_pressed(Action::Pause) || pad_pressed(Pad::Pause) || (paused && (pad_pressed(Pad::Back) || clicked())) {
             self.screen = if paused { Screen::Playing } else { Screen::Paused };
             return;
         }
@@ -416,6 +426,7 @@ impl App {
                                 w.toast(&format!("{} has returned to the vigil.", name));
                             }
                         }
+                        HostEvent::Log(name, reason, text) => super::lobby::store_player_log(self.auto.as_ref(), &name, &reason, &text),
                         HostEvent::Joined(_) => {}
                     }
                 }

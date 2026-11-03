@@ -206,7 +206,10 @@ fn hero_slow(h: &Hero) -> Vec<u8> {
         w.u8(wp.kind.idx() as u8);
         w.u8(wp.level as u8);
         w.bool(wp.evolved);
-        w.u8(wp.fused.map(|k| k.idx() as u8).unwrap_or(255));
+        w.u8(wp.fused.len() as u8);
+        for k in &wp.fused {
+            w.u8(k.idx() as u8);
+        }
     }
     w.u8(h.items.len() as u8);
     for it in &h.items {
@@ -242,8 +245,13 @@ fn read_hero_slow(data: &[u8], h: &mut Hero, predicted: bool) -> bool {
         let mut wp = old.get(i).filter(|o| o.kind == kind).cloned().unwrap_or_else(|| Weapon::new(kind));
         wp.level = r.u8() as u32;
         wp.evolved = r.bool();
-        let fused = r.u8();
-        wp.fused = (fused != 255).then(|| WeaponKind::from_idx(fused));
+        let fused: Vec<WeaponKind> = (0..r.u8().min(11)).map(|_| WeaponKind::from_idx(r.u8())).collect();
+        if fused != wp.fused {
+            let (level, evolved) = (wp.level, wp.evolved);
+            wp = Weapon::with_parts(kind, fused);
+            wp.level = level;
+            wp.evolved = evolved;
+        }
         h.weapons.push(wp);
     }
     h.items.clear();
@@ -290,13 +298,12 @@ fn write_hero_fast(w: &mut Writer, h: &Hero, viewer: bool) {
     w.f32(h.aim.y);
     // Only lanterns (orbit angle) and the chime (pulse) show their timers.
     for wp in &h.weapons {
-        if wp.has(WeaponKind::Lanterns) {
-            w.u16((wp.spin.rem_euclid(SPIN_PERIOD) / SPIN_PERIOD * 65535.0) as u16);
-            w.u16((wp.spin2.rem_euclid(SPIN_PERIOD) / SPIN_PERIOD * 65535.0) as u16);
-        }
-        if wp.has(WeaponKind::Chime) {
-            w.u16((wp.timer * 1000.0).clamp(0.0, 65535.0) as u16);
-            w.u16((wp.timer2 * 1000.0).clamp(0.0, 65535.0) as u16);
+        for part in wp.parts() {
+            match part.kind {
+                WeaponKind::Lanterns => w.u16((wp.spins[part.slot].rem_euclid(SPIN_PERIOD) / SPIN_PERIOD * 65535.0) as u16),
+                WeaponKind::Chime => w.u16((wp.timers[part.slot] * 1000.0).clamp(0.0, 65535.0) as u16),
+                _ => {}
+            }
         }
     }
 }
@@ -332,13 +339,12 @@ fn read_hero_fast(r: &mut Reader, h: &mut Hero, predicted: bool) {
     }
     h.aim = vec2(r.f32(), r.f32());
     for wp in h.weapons.iter_mut() {
-        if wp.has(WeaponKind::Lanterns) {
-            wp.spin = r.u16() as f32 / 65535.0 * SPIN_PERIOD;
-            wp.spin2 = r.u16() as f32 / 65535.0 * SPIN_PERIOD;
-        }
-        if wp.has(WeaponKind::Chime) {
-            wp.timer = r.u16() as f32 / 1000.0;
-            wp.timer2 = r.u16() as f32 / 1000.0;
+        for part in wp.parts() {
+            match part.kind {
+                WeaponKind::Lanterns => wp.spins[part.slot] = r.u16() as f32 / 65535.0 * SPIN_PERIOD,
+                WeaponKind::Chime => wp.timers[part.slot] = r.u16() as f32 / 1000.0,
+                _ => {}
+            }
         }
     }
     // Snap our predicted position back if the host moved us (revive, fog ring) or we drifted.
@@ -434,7 +440,7 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
     e.w.u8(pause);
     e.w.f32(countdown);
     e.w.u16(w.level_round);
-    e.w.u8(w.dead as u8 | (w.won as u8) << 1);
+    e.w.u8(w.dead as u8 | (w.won as u8) << 1 | (w.endless as u8) << 2);
     e.w.u16(w.bosses_killed as u16);
 
     e.w.u8(w.heroes.len() as u8);
@@ -779,6 +785,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     let flags = d.r.u8();
     w.dead = flags & 1 != 0;
     w.won = flags & 2 != 0;
+    w.endless = flags & 4 != 0;
     w.bosses_killed = d.r.u16() as u32;
 
     let n = d.r.u8() as usize;
@@ -898,7 +905,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         let vel = d.vel();
         let r = d.r.u8() as f32;
         let homing = if d.r.bool() { 1.0 } else { 0.0 };
-        w.ebullets.push(EBullet { pos, vel, r, dmg: 0.0, life: 1.0, homing });
+        w.ebullets.push(EBullet { pos, vel, r, dmg: 0.0, life: 1.0, homing, hp: 1.0, hit_cd: 0.0 });
     }
 
     w.pickups.clear();

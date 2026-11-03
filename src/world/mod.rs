@@ -25,12 +25,26 @@ pub const VICTORY_TIME: f32 = 30.0 * 60.0;
 /// Most foes alive at once. Hordes and swarms grow with time, so without a ceiling an
 /// endless night would pile up thousands.
 pub const MAX_ENEMIES: usize = 1600;
+/// A lone grave in the far south-west corner of the field, for those who wander.
+pub const LOST_GRAVE: Vec2 = Vec2::new(-WORLD_HALF + 260.0, WORLD_HALF - 240.0);
+/// Seconds of standing still, with no foe near, before a hero sits down by a fire.
+pub const REST_AFTER: f32 = 20.0;
+/// Health of an enemy projectile at the start; it grows like the foes' health.
+pub const BULLET_HP: f32 = 6.0;
+/// Pickups on the floor before old soul orbs start merging...
+pub const MAX_PICKUPS: usize = 500;
+/// ...and how far a merge brings the count back down.
+pub const MERGED_PICKUPS: usize = 350;
 /// Sounds are at full volume this close to the listener...
 pub const HEAR_FULL: f32 = 450.0;
 /// ...and silent from here on, about a screen away.
 pub const HEAR_MAX: f32 = 1100.0;
 pub const BOSS_INTERVAL: f32 = 5.0 * 60.0;
 pub const RESUME_DELAY: f32 = 2.5;
+/// The countdown never gets shorter than this...
+pub const MIN_RESUME_DELAY: f32 = 0.7;
+/// ...and shrinks by this factor every five levels.
+const RESUME_SHRINK: f32 = 0.95;
 pub const MAX_HEROES: usize = 4;
 pub const REVIVE_TIME: f32 = 3.0;
 const MAX_DECALS: usize = 900;
@@ -259,6 +273,10 @@ pub struct EBullet {
     pub dmg: f32,
     pub life: f32,
     pub homing: f32,
+    /// Damage it takes to shoot down; grows with the foes.
+    pub hp: f32,
+    /// Shrugs off hits for a moment after one, so a passing blade counts once.
+    pub hit_cd: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -562,6 +580,8 @@ pub struct World {
     pub won: bool,
     /// The vigil was kept and goes on past dawn; it only ends when everyone falls.
     pub endless: bool,
+    /// The lost grave gave up its relic this vigil.
+    pub grave_found: bool,
     /// Set on a network client: the world is only displayed, never simulated.
     pub is_client: bool,
     /// Set on a host: record cosmetic events so they can be sent to clients.
@@ -663,6 +683,7 @@ impl World {
             dead: false,
             won: false,
             endless: false,
+            grave_found: false,
             is_client: false,
             record_net: false,
             net_nums: Vec::new(),
@@ -769,12 +790,36 @@ impl World {
     // ---------------------------------------------------------------- level-ups
 
     /// Starts a level-up round: everyone gets cards and the world waits.
+    /// The countdown after a level-up: 5% shorter every five levels, down to `MIN_RESUME_DELAY`.
+    pub fn resume_delay(&self) -> f32 {
+        (RESUME_DELAY * RESUME_SHRINK.powi((self.level / 5) as i32)).max(MIN_RESUME_DELAY)
+    }
+
     fn begin_round(&mut self) {
         self.level_round = self.level_round.wrapping_add(1);
-        for hero in self.heroes.iter_mut() {
+        let mut auto = Vec::new();
+        for (h, hero) in self.heroes.iter_mut().enumerate() {
             hero.choices = hero.roll_choices();
             // Players who left can't choose; don't let them hold everyone up.
             hero.picked = !hero.connected;
+            // Nothing left to choose: take the souls without asking.
+            if hero.connected && !hero.downed && hero.maxed() {
+                hero.choices = vec![Choice::Souls];
+                hero.apply_choice(Choice::Souls);
+                hero.picked = true;
+                auto.push(h);
+            }
+        }
+        if self.heroes.iter().all(|h| h.picked) {
+            // Nobody has a choice to make: no pause, no countdown.
+            self.pending_levels = self.pending_levels.saturating_sub(1);
+            for h in auto {
+                let pos = self.heroes[h].p.pos;
+                self.sfx_at("pickup", 0.5, pos);
+            }
+            // After a real choice the usual countdown still follows; otherwise play straight on.
+            self.pause = if self.pause == Pause::Choosing && self.multiplayer() { Pause::Countdown(self.resume_delay()) } else { Pause::Running };
+            return;
         }
         self.pause = Pause::Choosing;
         self.sfx("levelup", 0.7);
@@ -858,7 +903,7 @@ impl World {
                     if self.pending_levels > 0 {
                         self.begin_round();
                     } else if self.multiplayer() {
-                        self.pause = Pause::Countdown(RESUME_DELAY);
+                        self.pause = Pause::Countdown(self.resume_delay());
                     } else {
                         self.pause = Pause::Running;
                     }
@@ -895,6 +940,7 @@ impl World {
         self.update_pickups(dt);
         self.update_shrines(dt);
         self.update_cat(dt);
+        self.update_secrets(dt);
         self.update_events(dt);
         self.boss_hp = match &self.boss {
             Some(b) => self.enemies.iter().find(|e| e.id == b.id).map(|e| (e.hp, e.max_hp)).unwrap_or((0.0, 1.0)),

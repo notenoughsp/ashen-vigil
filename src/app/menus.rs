@@ -180,6 +180,20 @@ impl App {
         if nav(&mut self.menu_sel, MENU_ITEMS.len(), false) {
             self.audio.play("select", 0.4);
         }
+        // Seven clicks on the title stir the embers.
+        let title = Rect::new(ui_w() * 0.5 - 320.0, ui_h() * 0.27 - 70.0, 640.0, 90.0);
+        if clicked() && title.contains(mouse_ui()) {
+            self.title_clicks += 1;
+            self.audio.play("chime", 0.3 + 0.05 * self.title_clicks as f32);
+            if self.title_clicks >= 7 {
+                self.title_clicks = 0;
+                self.save.blue_embers = !self.save.blue_embers;
+                self.save.store();
+                self.audio.play("bell", 0.8);
+                let msg = if self.save.blue_embers { "The embers burn cold and blue. Something old remembers you." } else { "The embers warm again." };
+                self.set_note(msg, 5.0);
+            }
+        }
         drain_chars();
         if back() {
             self.menu_sel = MENU_ITEMS.len() - 1;
@@ -284,8 +298,9 @@ impl App {
             self.credits_scroll -= ui_h() * 0.8;
         }
         let max = (Self::credit_lines().len() as f32 * 17.0 - ui_h() + 200.0).max(0.0);
+        self.credits_scroll -= mouse_wheel().1 * 40.0;
         self.credits_scroll = self.credits_scroll.clamp(0.0, max);
-        if back() || confirm() {
+        if back() || confirm() || clicked() {
             self.screen = Screen::Menu;
         }
     }
@@ -354,10 +369,19 @@ impl App {
             drain_chars();
             return;
         }
+        if let Some(t) = clicked_tab() {
+            if t != self.opt_page {
+                self.opt_page = t;
+                self.opt_sel = 0;
+                self.audio.play("select", 0.5);
+                return;
+            }
+        }
         let rows = self.option_rows();
         if nav(&mut self.opt_sel, rows.len(), on_name) {
             self.audio.play("select", 0.4);
         }
+        let mouse = mouse_rows(&mut self.opt_sel);
         let opt = rows[self.opt_sel.min(rows.len() - 1)];
         if opt == Opt::Name {
             edit_text(&mut self.save.settings.name, 16, name_char);
@@ -365,15 +389,15 @@ impl App {
             drain_chars();
         }
         let on_back = opt == Opt::Back;
-        let dir = if left(on_name) {
+        let dir = if left(on_name) || mouse.right {
             -1
-        } else if right(on_name) || (!on_name && !on_back && confirm()) {
+        } else if right(on_name) || (!on_name && !on_back && (confirm() || mouse.left)) {
             1
         } else {
             0
         };
         if let Opt::Bind(i) = opt {
-            if confirm() {
+            if confirm() || mouse.left {
                 self.binding = Some(i as usize);
                 self.audio.play("select", 0.5);
             }
@@ -381,7 +405,7 @@ impl App {
             self.change_option(opt, dir);
             self.audio.play("select", 0.5);
         }
-        if back() || (on_back && confirm()) {
+        if back() || (on_back && (confirm() || mouse.left)) {
             if self.save.settings.name.trim().is_empty() {
                 self.save.settings.name = "Ashen One".into();
             }
@@ -545,6 +569,7 @@ impl App {
         let x0 = cx - tab_w * PAGES.len() as f32 * 0.5;
         for (i, (name, _)) in PAGES.iter().enumerate() {
             let x = x0 + i as f32 * tab_w;
+            crate::ui::register_tab(Rect::new(x + 4.0, 74.0, tab_w - 8.0, 30.0));
             let on = i == self.opt_page;
             draw_rectangle(x + 4.0, 74.0, tab_w - 8.0, 30.0, Color::new(0.07, 0.06, 0.06, if on { 0.95 } else { 0.5 }));
             if on {
@@ -595,15 +620,21 @@ impl App {
             self.screen = Screen::Menu;
             return;
         }
+        let mouse = mouse_rows(&mut self.hub_sel);
+        // Clicking the class row picks a class (right click: the other way); it does not start.
+        if self.hub_sel == 0 && (mouse.left || mouse.right) {
+            self.cycle_class(if mouse.right { -1 } else { 1 });
+            return;
+        }
         let on_challenge = (HUB_CHALLENGE_ROW..HUB_META_ROW).contains(&self.hub_sel);
-        if on_challenge && (confirm() || left(false) || right(false)) {
+        if on_challenge && (confirm() || left(false) || right(false) || mouse.left || mouse.right) {
             let ch = ALL_CHALLENGES[self.hub_sel - HUB_CHALLENGE_ROW];
             self.save.challenges ^= ch.bit();
             self.save.store();
             self.audio.play("select", 0.6);
             return;
         }
-        if !confirm() {
+        if !confirm() && !mouse.left {
             return;
         }
         if self.hub_sel == 0 || self.hub_sel == HUB_ROWS - 1 {
@@ -685,11 +716,12 @@ impl App {
         if nav(&mut self.relic_sel, rows, false) {
             self.audio.play("select", 0.4);
         }
-        if back() || (self.relic_sel == rows - 1 && confirm()) {
+        let click = mouse_rows(&mut self.relic_sel).left;
+        if back() || (self.relic_sel == rows - 1 && (confirm() || click)) {
             self.screen = Screen::Menu;
             return;
         }
-        if !confirm() {
+        if !confirm() && !click {
             return;
         }
         let (cost, owned) = if self.relic_sel < UNLOCKS.len() {

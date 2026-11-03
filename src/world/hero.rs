@@ -17,56 +17,82 @@ pub struct Player {
     pub walk: f32,
 }
 
-/// A weapon slot. A fused weapon carries its second half in `fused`.
+/// A weapon slot. A fused weapon carries its other weapons in `fused`: one for a fusion,
+/// three for a mega fusion, seven for an ultra fusion. Every part keeps its own timer and spin.
 #[derive(Clone)]
 pub struct Weapon {
     pub kind: WeaponKind,
     pub level: u32,
     pub evolved: bool,
-    pub timer: f32,
-    pub spin: f32,
-    pub fused: Option<WeaponKind>,
-    pub timer2: f32,
-    pub spin2: f32,
+    pub fused: Vec<WeaponKind>,
+    pub timers: Vec<f32>,
+    pub spins: Vec<f32>,
 }
 
 /// Most health per second that lifesteal can return.
 pub const LEECH_RATE: f32 = 4.0;
 
-/// One firing part of a weapon slot.
+/// One firing part of a weapon slot; `slot` indexes its timer and spin.
 #[derive(Clone, Copy)]
 pub struct Part {
     pub kind: WeaponKind,
     pub evo: bool,
     pub mult: f32,
-    pub second: bool,
+    pub slot: usize,
 }
 
 impl Weapon {
     pub fn new(kind: WeaponKind) -> Weapon {
-        Weapon { kind, level: 1, evolved: false, timer: 0.3, spin: 0.0, fused: None, timer2: 0.6, spin2: 0.0 }
+        Weapon::with_parts(kind, Vec::new())
     }
 
-    pub fn parts(&self) -> Vec<Part> {
-        match self.fused {
-            Some(k2) => vec![Part { kind: self.kind, evo: true, mult: FUSION_MULT, second: false }, Part { kind: k2, evo: true, mult: FUSION_MULT, second: true }],
-            None => vec![Part { kind: self.kind, evo: self.evolved, mult: 1.0, second: false }],
+    pub fn with_parts(kind: WeaponKind, fused: Vec<WeaponKind>) -> Weapon {
+        let n = fused.len() + 1;
+        // Staggered first shots, so the parts of a fusion don't all fire on the same frame.
+        let timers = (0..n).map(|i| 0.3 + i as f32 * 0.3).collect();
+        Weapon { kind, level: 1, evolved: false, fused, timers, spins: vec![0.0; n] }
+    }
+
+    /// 0 plain, 1 fusion, 2 mega fusion, 3 ultra fusion.
+    pub fn tier(&self) -> u8 {
+        match self.fused.len() {
+            0 => 0,
+            1 | 2 => 1,
+            3..=6 => 2,
+            _ => 3,
         }
     }
 
+    pub fn is_fused(&self) -> bool {
+        !self.fused.is_empty()
+    }
+
+    /// Every weapon kind in this slot, its own first.
+    pub fn kinds(&self) -> Vec<WeaponKind> {
+        std::iter::once(self.kind).chain(self.fused.iter().copied()).collect()
+    }
+
+    pub fn parts(&self) -> Vec<Part> {
+        let mult = [1.0, FUSION_MULT, MEGA_MULT, ULTRA_MULT][self.tier() as usize];
+        let evo = self.evolved || self.is_fused();
+        self.kinds().into_iter().enumerate().map(|(slot, kind)| Part { kind, evo, mult, slot }).collect()
+    }
+
     pub fn has(&self, k: WeaponKind) -> bool {
-        self.kind == k || self.fused == Some(k)
+        self.kind == k || self.fused.contains(&k)
     }
 
     pub fn display_name(&self) -> &'static str {
-        match self.fused {
-            Some(k2) => fusion_name(self.kind, k2),
-            None => self.kind.name(self.evolved),
+        match self.tier() {
+            0 => self.kind.name(self.evolved),
+            1 => fusion_name(self.kind, self.fused[0]),
+            2 => mega_name(&self.kinds()),
+            _ => ultra_name(&self.kinds()),
         }
     }
 
     pub fn maxed(&self) -> bool {
-        self.fused.is_some() || self.evolved || self.level >= WEAPON_MAX_LEVEL
+        self.is_fused() || self.evolved || self.level >= WEAPON_MAX_LEVEL
     }
 }
 
@@ -151,6 +177,9 @@ pub struct Hero {
     /// Health that kills can still give back right now; refills over time, so lifesteal
     /// cannot outheal everything once the hordes get thick.
     pub leech: f32,
+    /// Seconds without moving, and whether this hero already rested by a fire this vigil.
+    pub idle: f32,
+    pub rested: bool,
     /// Challenge bits (single player).
     pub challenges: u8,
     /// Weapons aim at the nearest enemy instead of the walking direction.
@@ -202,6 +231,8 @@ impl Hero {
             has_cat: false,
             purchases: 0,
             leech: LEECH_RATE,
+            idle: 0.0,
+            rested: false,
             challenges: 0,
             auto_aim: false,
             aim: vec2(1.0, 0.0),
@@ -324,7 +355,7 @@ impl Hero {
                 ItemKind::GraveCandle => elite_dmg += 0.15 * l,
             }
         }
-        if self.weapons.iter().any(|w| w.has(WeaponKind::Chime) && (w.evolved || w.fused.is_some())) {
+        if self.weapons.iter().any(|w| w.has(WeaponKind::Chime) && (w.evolved || w.is_fused())) {
             regen += 1.0;
         }
         if self.has_cat {
@@ -408,7 +439,7 @@ impl Hero {
         let mut out = Vec::new();
         for w in &self.weapons {
             for part in w.parts().into_iter().filter(|p| p.kind == WeaponKind::Lanterns) {
-                let spin = if part.second { w.spin2 } else { w.spin };
+                let spin = w.spins.get(part.slot).copied().unwrap_or(0.0);
                 let s = WeaponKind::Lanterns.stats(w.level, part.evo);
                 let n = s.amount + self.stats.amount;
                 let area = s.area * self.stats.area;
@@ -468,6 +499,11 @@ impl Hero {
             }
         }
         pool
+    }
+
+    /// Every weapon and item is as good as it gets; level-ups have nothing left to offer.
+    pub fn maxed(&self) -> bool {
+        self.pool(true).is_empty()
     }
 
     pub fn roll_choices(&self) -> Vec<Choice> {
@@ -548,20 +584,29 @@ impl Hero {
     }
 
     pub fn evolvable(&self) -> Option<usize> {
-        self.weapons.iter().position(|w| w.fused.is_none() && !w.evolved && w.level >= WEAPON_MAX_LEVEL && self.items.iter().any(|it| it.kind == w.kind.evo_item()))
+        self.weapons.iter().position(|w| !w.is_fused() && !w.evolved && w.level >= WEAPON_MAX_LEVEL && self.items.iter().any(|it| it.kind == w.kind.evo_item()))
     }
 
     /// Two max-level fusion partners, if this hero has them.
+    /// Two slots that merge now: partner weapons at max level into a fusion, or two fusions
+    /// of the same tier into the next (two fusions into a mega fusion, two megas into an ultra).
     fn fusable(&self) -> Option<(usize, usize)> {
         for (i, a) in self.weapons.iter().enumerate() {
-            if a.fused.is_some() || a.level < WEAPON_MAX_LEVEL {
+            if a.is_fused() || a.level < WEAPON_MAX_LEVEL {
                 continue;
             }
-            let partner = a.kind.fusion_partner();
-            if let Some(j) = self.weapons.iter().position(|b| b.kind == partner && b.fused.is_none() && b.level >= WEAPON_MAX_LEVEL) {
-                if i != j {
-                    return Some((i, j));
+            for partner in a.kind.fusion_partners() {
+                if let Some(j) = self.weapons.iter().position(|b| b.kind == partner && !b.is_fused() && b.level >= WEAPON_MAX_LEVEL) {
+                    if i != j {
+                        return Some((i, j));
+                    }
                 }
+            }
+        }
+        for tier in 1..=2 {
+            let same: Vec<usize> = (0..self.weapons.len()).filter(|&i| self.weapons[i].tier() == tier).collect();
+            if same.len() >= 2 {
+                return Some((same[0], same[1]));
             }
         }
         None
@@ -571,20 +616,32 @@ impl Hero {
 impl World {
     /// Fuses two max-level partner weapons into one, freeing a weapon slot.
     pub(crate) fn check_fusion(&mut self, h: usize) {
-        let Some((i, j)) = self.heroes[h].fusable() else { return };
+        while self.fuse_once(h) {}
+    }
+
+    fn fuse_once(&mut self, h: usize) -> bool {
+        let Some((i, j)) = self.heroes[h].fusable() else { return false };
         let prefix = if self.multiplayer() { format!("{}: ", self.heroes[h].name) } else { String::new() };
         let hero = &mut self.heroes[h];
-        let first = hero.weapons[i].kind;
-        let second = hero.weapons[j].kind;
-        hero.weapons[i].fused = Some(second);
-        hero.weapons[i].evolved = true;
-        hero.weapons.remove(j);
+        let (a_name, b_name) = (hero.weapons[i].display_name(), hero.weapons[j].display_name());
+        let b = hero.weapons.remove(j);
+        let a = &mut hero.weapons[if j < i { i - 1 } else { i }];
+        a.fused.extend(b.kinds());
+        a.timers.extend(b.timers);
+        a.spins.extend(b.spins);
+        a.evolved = true;
+        let (tier, name) = (a.tier(), a.display_name());
         hero.recompute_stats();
-        let name = fusion_name(first, second);
-        self.banner("FUSION", &format!("{}{} and {} become {}", prefix, first.name(false), second.name(false), name), Color::from_rgba(255, 120, 90, 255), 4.5);
+        let (title, color) = match tier {
+            1 => ("FUSION", Color::from_rgba(255, 120, 90, 255)),
+            2 => ("MEGA FUSION", Color::from_rgba(220, 140, 255, 255)),
+            _ => ("ULTRA FUSION", Color::from_rgba(255, 245, 200, 255)),
+        };
+        self.banner(title, &format!("{}{} and {} become {}", prefix, a_name, b_name, name), color, 4.5);
         self.sfx("evolve", 1.0);
         self.sfx("roar", 0.5);
         self.shake = self.shake.max(10.0);
+        true
     }
 
     pub(crate) fn update_heroes(&mut self, dt: f32) {

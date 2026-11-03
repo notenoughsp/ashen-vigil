@@ -161,7 +161,7 @@ impl World {
                 for part in w.parts().into_iter().filter(|p| p.kind == WeaponKind::Chime) {
                     let s = WeaponKind::Chime.stats(w.level, part.evo);
                     let r = 75.0 * s.area * hero.stats.area;
-                    let timer = if part.second { w.timer2 } else { w.timer };
+                    let timer = w.timers.get(part.slot).copied().unwrap_or(0.0);
                     let pulse = (timer / (s.cd * hero.stats.cooldown)).clamp(0.0, 1.0);
                     let c = if part.evo { Color::new(1.0, 0.9, 0.6, 1.0) } else { Color::new(0.95, 0.8, 0.45, 1.0) };
                     let p = hero.p.pos;
@@ -272,8 +272,11 @@ impl World {
                         (rgba(120, 255, 220, 255), 4.5)
                     } else if v < 25.0 {
                         (rgba(255, 220, 120, 255), 5.5)
-                    } else {
+                    } else if v < 100.0 {
                         (rgba(255, 110, 90, 255), 7.0)
+                    } else {
+                        // Merged hoards.
+                        (rgba(230, 170, 255, 255), 9.0)
                     };
                     draw_circle(p.x, p.y, s * 2.4, with_alpha(c, 0.1));
                     for k in 1..4 {
@@ -451,7 +454,7 @@ impl World {
             }
         }
         for hero in self.heroes.iter().filter(|h| !h.downed) {
-            let evo = hero.weapons.iter().any(|w| w.has(WeaponKind::Lanterns) && (w.evolved || w.fused.is_some()));
+            let evo = hero.weapons.iter().any(|w| w.has(WeaponKind::Lanterns) && (w.evolved || w.is_fused()));
             let c = if evo { rgba(140, 255, 230, 255) } else { rgba(120, 200, 255, 255) };
             for (p, r) in hero.lantern_positions() {
                 glow(p, r * 0.55, c, 1.2);

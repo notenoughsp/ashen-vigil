@@ -269,3 +269,37 @@ impl World {
         }
     }
 }
+
+impl World {
+    /// The small secrets of the field: the lost grave, and a fire for those who stand still.
+    pub(crate) fn update_secrets(&mut self, dt: f32) {
+        if !self.grave_found {
+            if let Some(h) = self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(LOST_GRAVE) < 40.0) {
+                self.grave_found = true;
+                self.banner("HERE LIES THE LAST KEEPER", "\"I kept the vigil. I forgot to roll.\"", Color::from_rgba(200, 200, 220, 255), 5.0);
+                self.sfx_at("bell", 0.7, LOST_GRAVE);
+                self.grant_relic(h);
+            }
+        }
+        for h in 0..self.heroes.len() {
+            let pos = self.heroes[h].p.pos;
+            let quiet = !self.enemies.iter().any(|e| !e.dead && e.pos.distance_squared(pos) < 400.0 * 400.0);
+            let hero = &mut self.heroes[h];
+            if !hero.alive() || hero.p.moving || hero.p.roll_t > 0.0 || !quiet {
+                hero.idle = 0.0;
+                continue;
+            }
+            hero.idle += dt;
+            if hero.idle >= REST_AFTER && !hero.rested {
+                hero.rested = true;
+                hero.heal(hero.stats.max_hp * 0.25);
+                let at = pos + vec2(22.0, 10.0);
+                let who = if self.multiplayer() { format!("{} rests", self.heroes[h].name) } else { "You rest".to_string() };
+                self.toast(&format!("{} a while by a small fire. The dark can wait.", who));
+                // A harmless little fire to sit by.
+                self.pools.push(FirePool { pos: at, r: 12.0, life: 12.0, max_life: 12.0, dps: 0.0, tick: 1.0, src: Src { hero: h, weapon: WeaponKind::Orb }, hex: false });
+                self.sfx_at("kindle", 0.6, at);
+            }
+        }
+    }
+}

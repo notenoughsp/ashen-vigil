@@ -63,18 +63,20 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **The field** is a walled square of 7200 x 7200 with the abyss beyond; torches on the wall light the edges.
 - **Lighting**: the world is dark; heroes, torches, candles, shrines, fire, lightning and spells cast light. It can be switched off in the options.
 - **Difficulty ramp**: settings harder than Knight start at a third of their extra strength and reach all of it after three minutes.
-- **Endless night**: after keeping a single-player vigil until dawn, press C (Y) on the summary to fight on. Bosses keep coming every five minutes; the vigil ends when you fall, pays the marks earned beyond dawn and replaces its leaderboard entry.
+- **Endless night**: after keeping a vigil until dawn, press C (Y) on the summary to fight on; online the host decides and everyone follows. Bosses keep coming every five minutes; the vigil ends when you fall, pays the marks earned beyond dawn and replaces its leaderboard entry.
 - **Lifesteal** (Reaper, Leech Fang) returns at most 4 health per second.
-- **Homing**: every projectile weapon seeks the nearest foe it has not hit yet; the axe only on its way out.
+- **Aiming**: daggers, lances, axes and soulbolts are fired at the nearest foes (several shots spread over several foes); only the soulbolt keeps seeking after it is fired. The crossbow fires in every direction; melee weapons follow the auto-aim toggle.
 - **Sound** comes from where it happens: full volume near your hero, silent about a screen away. Announcements are heard everywhere.
-- **Mouse**: hover and click work in the main menu and on the level-up cards.
-- **Logs**: every start writes a log to `%APPDATA%\AshenVigil\logs\` (the newest ten are kept), including crashes with their cause.
+- **Mouse**: hover and click work in every menu and on the level-up cards; right click turns a value or class back.
+- **Logs**: every start writes a log to `%APPDATA%\AshenVigil\logs\` (the newest ten are kept), including crashes with their cause. A player who joined someone's vigil sends their log to the host at the end of each vigil and on a crash; the host keeps the last twenty under `logs\players\`. The log holds the game's own events and settings, not the Windows user name.
 - **First vigil**: a few tips appear during your first vigil.
 - **Bosses** every 5 minutes inside a fog ring you cannot leave: The Gravewarden, Pale Matriarch, The Tolling Hermit, Ashen Sovereign. All attacks are telegraphed. Each boss enters a second phase at half health. The finale at 30:00 is always the Sovereign.
 - **Enemy projectiles** are large and red. Your weapons destroy them: blades and sweeps cut them, projectiles and explosions shoot them down.
 - **Relics on the map** appear every 30-45 s near a player and vanish after a minute (marked on the screen edge): Bloodstone (+50% might), Quicksilver (weapons 40% faster), Aegis Ash (untouchable), a free item upgrade, a pyre bomb that burns everything around it, and grave bread (+60 health).
 - **Coffers** drop from bosses and gold-ringed elites. A weapon at level 10 plus its paired item evolves when you open a coffer.
-- **Fusion**: when a weapon and its partner both reach level 10, they merge into one weapon that fires both evolved forms at 150% damage and frees a slot.
+- **Fusion**: when a weapon and one of its two partners both reach level 10, they merge into one weapon that fires both evolved forms at 150% damage and frees a slot. Two fusions merge into a **mega fusion** (four weapons at 190% each), two mega fusions into an **ultra fusion** (eight weapons at 240% each).
+- **Enemy projectiles** can be shot down, but they grow tougher along with the foes: a weak hit dents a late one, a strong one breaks it.
+- **Markers** for things off screen sit well inside the screen edge.
 - **Damage meter** (top right): damage this vigil and in the last minute per player; hold Tab for your weapons.
 - **Late foes**: Cultists (from 6:00) light a fuse and explode, Shieldbearers (from 10:00) block most damage from the front, Necromancers (from 14:00) keep their distance and raise the dead.
 - **Blood Moon** at 8:00 and 18:00 for a minute: red sky, more and harder-hitting foes, double souls.
@@ -85,7 +87,7 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **End of vigil**: a summary of time, kills, damage per weapon, a graph of the fight, marks, leaderboard rank and new bests.
 - **Music**: an ambient loop that adds a combat layer as the fight heats up, and a theme of its own for each boss.
 
-| Weapon | Paired item | Evolution | Fuses with |
+| Weapon | Paired item | Evolution | Fuses with (classic) |
 |---|---|---|---|
 | Rusted Blade | Ember Heart | Cinder Edge | Crescent Axe: Executioner's Gyre |
 | Pale Daggers | Pilgrim's Boots | Thousand Thorns | Gloom Crossbow: Thousandfold Volley |
@@ -99,6 +101,8 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 | Hex Brand* | Warden's Lung | Hellbrand | Kindled Orb |
 | Blood Lance* | Grave Candle* | Sanguine Pike | Grave Scythe |
 | Gloom Crossbow* | Soulward Censer | Arbalest of the Damned | Pale Daggers |
+
+New fusions: Blade + Scythe = Reaper's Waltz, Daggers + Soulbolt = Ghostfang Storm, Orb + Storm Spear = Thunderpyre, Chime + Hex Brand = Tolling Brand, Lanterns + Blood Lance = Lantern Pike, Crescent Axe + Gloom Crossbow = Moonfall Barrage.
 
 \* unlocked in the Reliquary. Cracked Crown* (+10% experience) has no evolution partner. Classes Reaper, Hexblade, Blood Knight and Arbalist start with the new weapons and are unlocked there too.
 
@@ -125,7 +129,7 @@ License texts are in `assets/licenses/`.
 | `src/audio.rs` | sound and music synthesis |
 | `src/save.rs` | save file, settings, leaderboard (`%APPDATA%\AshenVigil\ashen_vigil.sav`) |
 
-Stress tests: `cargo test --release -- --nocapture` simulates full vigils headless (Abyss, 4 players with snapshots every frame) and fuzzes the network decoder; it also checks that delta snapshots stay exact under 30% packet loss, the leaderboard save round trip, challenges and map events. `ASHEN_AUTOTEST_ROLE=stress` puts ~1800 enemies on screen and logs the frame rate; `ASHEN_NET_LOSS=0.1` drops 10% of outgoing packets to test bad connections. `cargo test --release snapshot_size -- --ignored --nocapture` reports snapshot sizes, `cargo test --release balance -- --ignored --nocapture` how long a simple bot survives per class and difficulty. `ASHEN_WINDOW_SIZE=3840x2160` opens a test window at that size, `ASHEN_AUTOTEST_REJOIN=1` makes the test client leave and rejoin. For a four-player test start the host with `ASHEN_AUTOTEST_PLAYERS=4` and three clients with different `ASHEN_AUTOTEST_NAME`s. Formatting: `cargo fmt` (rustfmt.toml).
+Stress tests: `cargo test --release -- --nocapture` simulates full vigils headless (Abyss, 4 players with snapshots every frame) and fuzzes the network decoder; it also checks that delta snapshots stay exact under 30% packet loss, the leaderboard save round trip, challenges and map events. `ASHEN_AUTOTEST_ROLE=stress` puts ~1800 enemies on screen and logs the frame rate; `ASHEN_NET_LOSS=0.1` drops 10% of outgoing packets to test bad connections. `cargo test --release snapshot_size -- --ignored --nocapture` reports snapshot sizes, `cargo test --release balance -- --ignored --nocapture` how long a simple bot survives per class and difficulty. `ASHEN_WINDOW_SIZE=3840x2160` opens a test window at that size, `ASHEN_AUTOTEST_REJOIN=1` makes the test client leave and rejoin, `ASHEN_AUTOTEST_AGAIN=1` and `ASHEN_AUTOTEST_ENDLESS=1` (host) test the lobby return and the endless night online. `ASHEN_PORT` changes the game's UDP port, so tests can run beside a real game. For a four-player test start the host with `ASHEN_AUTOTEST_PLAYERS=4` and three clients with different `ASHEN_AUTOTEST_NAME`s. Formatting: `cargo fmt` (rustfmt.toml).
 
 Self-test: `ASHEN_AUTOTEST=<dir>` (plus `ASHEN_AUTOTEST_ROLE=host|client` for a network test) plays muted and writes screenshots; `ASHEN_WINDOW_POS=x,y` places the window, e.g. on a second monitor.
 
