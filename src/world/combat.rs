@@ -125,9 +125,11 @@ impl World {
         }
         self.drop_soul(pos, xp);
         let luck = self.heroes.iter().map(|h| h.stats.luck).fold(1.0f32, f32::max);
-        if chance(0.006 * luck) {
+        // Draughts and magnets lie until picked up, so on a crowded floor they stop dropping.
+        let room = self.pickups.len() < MAX_PICKUPS - 50;
+        if room && chance(0.006 * luck) {
             self.pickups.push(Pickup::new(pos + rand_dir() * 8.0, PickKind::Draught));
-        } else if chance(0.0015 * luck) {
+        } else if room && chance(0.0015 * luck) {
             self.pickups.push(Pickup::new(pos + rand_dir() * 8.0, PickKind::Magnet));
         }
     }
