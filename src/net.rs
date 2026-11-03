@@ -12,6 +12,8 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs, UdpSocket};
 pub const DEFAULT_PORT: u16 = 7777;
 // The last byte is the protocol version; different builds refuse to talk to each other.
 const MAGIC: [u8; 3] = [0xA5, 0x1C, 6];
+/// Shown in menus, so players can tell whether they run the same build.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const FRAG_PAYLOAD: usize = 1100;
 pub const TIMEOUT: f64 = 6.0;
 pub const SNAPSHOT_RATE: f32 = 30.0;
@@ -195,6 +197,8 @@ pub struct NetStats {
     window_pkts_recv: u32,
     window_t: f32,
     pub ping_ms: f32,
+    /// Set when a packet from another build of the game arrived (its protocol byte).
+    pub foreign_version: Option<u8>,
 }
 
 impl NetStats {
@@ -232,6 +236,11 @@ impl Sock {
         Ok(Sock { s, stats: NetStats::default(), buf: vec![0; 65536], loss })
     }
 
+    #[cfg(test)]
+    pub fn local_port(&self) -> u16 {
+        self.s.local_addr().map(|a| a.port()).unwrap_or(0)
+    }
+
     pub fn send(&mut self, data: &[u8], to: SocketAddr) {
         if self.loss > 0.0 && macroquad::rand::gen_range(0.0, 1.0) < self.loss {
             return;
@@ -254,6 +263,10 @@ impl Sock {
                     self.stats.recv_total += n64;
                     self.stats.window_recv += n64;
                     self.stats.window_pkts_recv += 1;
+                    if n >= 4 && self.buf[..2] == MAGIC[..2] && self.buf[2] != MAGIC[2] {
+                        self.stats.foreign_version = Some(self.buf[2]);
+                        continue;
+                    }
                     if n < 4 || self.buf[..3] != MAGIC {
                         continue;
                     }
@@ -428,7 +441,13 @@ pub fn tailscale_status() -> TsStatus {
     };
     st.running = v["BackendState"].as_str() == Some("Running");
     if !st.running {
-        st.error = Some(format!("Tailscale state: {}", v["BackendState"].as_str().unwrap_or("unknown")));
+        // Tailscale's own state names mean little to players.
+        st.error = Some(match v["BackendState"].as_str().unwrap_or("") {
+            "NoState" | "Stopped" => "not connected, open Tailscale and connect".to_string(),
+            "NeedsLogin" | "NeedsMachineAuth" => "signed out, sign in to Tailscale".to_string(),
+            "Starting" => "starting...".to_string(),
+            other => format!("state {}", if other.is_empty() { "unknown" } else { other }),
+        });
     }
     let first_v4 = |n: &serde_json::Value| -> Option<String> { n["TailscaleIPs"].as_array()?.iter().filter_map(|x| x.as_str()).find(|s| s.contains('.')).map(|s| s.to_string()) };
     st.self_ip = first_v4(&v["Self"]).or(routed.map(|i| i.to_string()));

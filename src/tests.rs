@@ -536,3 +536,18 @@ fn endless_night_goes_on_past_dawn() {
     assert!(d.at(0.0).hp < d.at(200.0).hp && d.at(200.0).hp == d.hp);
     assert_eq!(PRESETS[0].1.at(0.0).hp, PRESETS[0].1.hp, "easy settings are not ramped");
 }
+
+#[test]
+fn packets_from_another_version_are_noticed() {
+    let mut host = net::Sock::bind(0).unwrap();
+    let port = host.local_port();
+    let other = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    // Same game, older protocol byte, then a packet from something else entirely.
+    other.send_to(&[0xA5, 0x1C, 5, 1, 0, 0], ("127.0.0.1", port)).unwrap();
+    other.send_to(b"hello there", ("127.0.0.1", port)).unwrap();
+    let start = Instant::now();
+    while host.stats.foreign_version.is_none() && start.elapsed().as_secs_f32() < 2.0 {
+        assert!(host.recv().is_none(), "a foreign packet was accepted");
+    }
+    assert_eq!(host.stats.foreign_version, Some(5));
+}

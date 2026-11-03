@@ -90,6 +90,9 @@ impl App {
                         HostEvent::Rejoined(..) => {}
                     }
                 }
+                if host.sock.stats.foreign_version.take().is_some() {
+                    self.lobby.msg = Some((format!("Someone with another version of the game tried to join. Everyone needs v{}.", net::VERSION), BLOOD));
+                }
                 let players = host.lobby_players(&name, my_class);
                 host.tick_lobby(dt, now, &players, &self.save.settings.diff);
                 self.lobby.players = players;
@@ -119,7 +122,7 @@ impl App {
                         ClientEvent::Snapshot(_) => start = true,
                         ClientEvent::HostLeft => {
                             let msg = if matches!(self.lobby.state, LobbyState::Joining(_)) {
-                                "No answer. Check the address, that the host has the lobby open and UDP port 7777 is allowed in their firewall."
+                                "No answer. Check the address, that the host has the lobby open, UDP port 7777 is allowed in their firewall and everyone runs the same version."
                             } else {
                                 "The host closed the lobby or cannot be reached."
                             };
@@ -141,7 +144,10 @@ impl App {
             self.lobby.state = LobbyState::Joining(t);
             if t > 8.0 {
                 self.leave_online();
-                self.lobby.msg = Some(("No answer. Check the address, that the host has the lobby open and UDP port 7777 is allowed in their firewall.".into(), BLOOD));
+                self.lobby.msg = Some((
+                    "No answer. Check the address, that the host has the lobby open, UDP port 7777 is allowed in their firewall and everyone runs the same version.".into(),
+                    BLOOD,
+                ));
             }
         }
         false
@@ -321,6 +327,6 @@ impl App {
         if let Some((m, c)) = &self.lobby.msg {
             ui.text_c(m, cx, sh - 54.0, 17.0, *c);
         }
-        ui.text_c("Tailscale: both players in the same tailnet, then pick the host's device or enter its 100.x address", cx, sh - 24.0, 15.0, DIM);
+        ui.text_c("Tailscale: all players in the same tailnet, then pick the host's device or enter its 100.x address", cx, sh - 24.0, 15.0, DIM);
     }
 }

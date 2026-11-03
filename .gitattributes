@@ -1,0 +1,6 @@
+# Text is stored with LF; PowerShell scripts keep CRLF for Windows PowerShell 5.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.ttf binary
+*.ogg binary
+*.png binary

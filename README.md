@@ -1,8 +1,19 @@
 # Ashen Vigil
 
-A dark-fantasy survivors-like prototype in Rust ([macroquad](https://macroquad.rs)). Hold out against the endless dark until dawn (30:00).
+[![CI](https://github.com/notenoughsp/ashen-vigil/actions/workflows/ci.yml/badge.svg)](https://github.com/notenoughsp/ashen-vigil/actions/workflows/ci.yml)
 
-## Run
+A dark-fantasy survivors-like in Rust ([macroquad](https://macroquad.rs)). Hold out against the endless dark until dawn (30:00), alone or with up to three friends online.
+
+**[Download the latest AshenVigil.exe](https://github.com/notenoughsp/ashen-vigil/releases/latest)**: one file for 64-bit Windows, nothing to install.
+
+| | |
+|---|---|
+| ![A boss fight](docs/boss.jpg) | ![Four players online](docs/coop.jpg) |
+| ![Blood Moon and the merchant](docs/events.jpg) | ![The summary after a vigil](docs/summary.jpg) |
+
+## Build from source
+
+With [Rust](https://rustup.rs) installed: `cargo run --release`. On Windows the scripts below do the rest. Releases are built by CI: pushing a tag like `v0.1.2` publishes a new release (small fixes raise the last number by one) with the exe.
 
 ```powershell
 .\scripts\run.ps1          # build release and play
