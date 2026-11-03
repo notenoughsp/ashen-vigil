@@ -103,7 +103,7 @@ impl World {
             }
             for _ in 0..30 {
                 let v = 10.0 * (1.0 + self.time / 300.0);
-                self.pickups.push(Pickup::new(pos + rand_dir() * gen_range(10.0, 90.0), PickKind::Soul(v)));
+                self.drop_soul(pos + rand_dir() * gen_range(10.0, 90.0), v);
             }
             self.banner("FOE VANQUISHED", "", Color::from_rgba(230, 190, 90, 255), 4.0);
             self.sfx("bell", 1.0);
@@ -132,10 +132,13 @@ impl World {
     }
 
     fn drop_soul(&mut self, pos: Vec2, v: f32) {
-        // Too many orbs on the floor: fold new ones into an existing orb instead.
+        // Too many orbs on the floor: fold new ones into an existing orb instead, preferably
+        // one still lying there, else one already flying to a hero; the souls are never lost.
         if self.pickups.len() > 500 {
-            if let Some(p) = self.pickups.iter_mut().find(|p| p.pulled.is_none() && matches!(p.kind, PickKind::Soul(_))) {
-                if let PickKind::Soul(ref mut x) = p.kind {
+            let lying = self.pickups.iter().position(|p| p.pulled.is_none() && matches!(p.kind, PickKind::Soul(_)));
+            let any = || self.pickups.iter().position(|p| matches!(p.kind, PickKind::Soul(_)));
+            if let Some(i) = lying.or_else(any) {
+                if let PickKind::Soul(ref mut x) = self.pickups[i].kind {
                     *x += v;
                     return;
                 }
@@ -220,7 +223,7 @@ impl World {
 
     /// A necromancer pulls three hollows out of the ground around it.
     fn raise_dead(&mut self, at: Vec2) {
-        if self.enemies.len() > 1600 {
+        if self.enemy_room() < 3 {
             return;
         }
         for k in 0..3 {

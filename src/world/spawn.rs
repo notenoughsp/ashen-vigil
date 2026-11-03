@@ -117,6 +117,11 @@ impl World {
         self.enemies.push(e);
     }
 
+    /// How many more foes fit under `MAX_ENEMIES`.
+    pub(crate) fn enemy_room(&self) -> usize {
+        MAX_ENEMIES.saturating_sub(self.enemies.len())
+    }
+
     pub(crate) fn update_spawns(&mut self, dt: f32) {
         let m = self.time / 60.0;
         let coop = 1.0 + 0.5 * (self.heroes.len().max(1) - 1) as f32;
@@ -128,7 +133,7 @@ impl World {
         self.spawn_acc += rate * dt;
         while self.spawn_acc >= 1.0 {
             self.spawn_acc -= 1.0;
-            if (self.enemies.len() as f32) < target.min(1600.0) {
+            if (self.enemies.len() as f32) < target.min(MAX_ENEMIES as f32) {
                 let k = self.pick_kind();
                 self.spawn_at_ring(k);
             }
@@ -136,7 +141,7 @@ impl World {
 
         if self.time >= self.next_horde && self.boss.is_none() {
             self.next_horde = self.time + 60.0;
-            let n = ((28.0 + m * 4.0) * self.diff.at(self.time).count) as usize;
+            let n = (((28.0 + m * 4.0) * self.diff.at(self.time).count) as usize).min(self.enemy_room());
             let kind = if m > 6.0 { EnemyKind::Ghoul } else { EnemyKind::Hollow };
             let r = self.spawn_ring_dist() * 0.85;
             let (at, _, _) = self.random_hero_pos();
@@ -152,7 +157,7 @@ impl World {
             self.next_swarm = self.time + 50.0;
             let (at, _, _) = self.random_hero_pos();
             let base = clamp_world(at + rand_dir() * self.spawn_ring_dist(), 120.0);
-            for _ in 0..((14.0 + m) * self.diff.at(self.time).count) as usize {
+            for _ in 0..(((14.0 + m) * self.diff.at(self.time).count) as usize).min(self.enemy_room()) {
                 let e = self.make_enemy(EnemyKind::Moth, base + rand_dir() * gen_range(0.0, 60.0));
                 self.enemies.push(e);
             }

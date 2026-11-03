@@ -551,3 +551,63 @@ fn packets_from_another_version_are_noticed() {
     }
     assert_eq!(host.stats.foreign_version, Some(5));
 }
+
+/// Three hours of endless night with four heroes, then absurd numbers, all through snapshots.
+/// Slow; `cargo test --release huge -- --ignored --nocapture`, ideally with overflow checks on.
+#[test]
+#[ignore]
+fn huge_numbers_and_endless_hours() {
+    let mut host = world_with(4, PRESETS[3].1);
+    host.record_net = true;
+    host.endless = true;
+    let mut client = World::new(host.diff, None);
+    client.is_client = true;
+    let mut enc = snapshot::Encoder::default();
+    let mut dec = snapshot::Decoder::default();
+    let mut tick = 0;
+    let mut max_bytes = 0;
+    let peaks = simulate(&mut host, 3.0 * 3600.0, true, |w, f| {
+        if f % 30 == 0 {
+            tick += 1;
+            let ev = snapshot::begin_round(w);
+            let data = enc.encode(w, &ev, &snapshot::View::of(w, 1, vec2(1920.0, 1080.0)), tick, dec.ack);
+            max_bytes = max_bytes.max(data.len());
+            assert!(dec.decode(&mut client, &data, 1, 1.0), "decode failed at t {}", w.time);
+        }
+        if f % 9000 == 0 {
+            for e in &w.enemies {
+                assert!(e.hp.is_finite() && e.pos.is_finite() && e.max_hp.is_finite(), "enemy numbers broke at t {}: {:?}", w.time, (e.hp, e.max_hp));
+            }
+            for h in &w.heroes {
+                assert!(h.stats.max_hp.is_finite() && h.dmg_total.is_finite(), "hero numbers broke at t {}", w.time);
+            }
+        }
+    });
+    println!(
+        "3 h endless: t={:.0}s level={} kills={} bosses={} souls={} max snapshot {} B {:?}",
+        host.time, host.level, host.kills, host.bosses_killed, host.heroes[1].p.souls, max_bytes, peaks
+    );
+    assert_bounded(&peaks);
+    // Level-up pauses use up frames without game time, so a little less than three hours pass.
+    assert!(host.time >= 2.5 * 3600.0, "the vigil stopped at {}", host.time);
+
+    // Absurd values must arrive as they are, not cut off.
+    let h = &mut host.heroes[1];
+    h.p.souls = 9_000_000_000;
+    h.banked = 7_000_000_000;
+    h.dmg_total = 3.0e12;
+    host.kills = u32::MAX - 5;
+    host.net_nums.push(DmgNum { pos: host.heroes[1].p.pos, val: 250_000.0, life: 0.7, crit: true });
+    tick += 1;
+    let ev = snapshot::begin_round(&mut host);
+    let data = enc.encode(&host, &ev, &snapshot::View::of(&host, 1, vec2(1920.0, 1080.0)), tick, dec.ack);
+    client.show_numbers = true;
+    client.nums.clear();
+    assert!(dec.decode(&mut client, &data, 1, 1.0));
+    let ch = client.heroes.iter().find(|h| h.slot == 1).unwrap();
+    assert_eq!(ch.p.souls, 9_000_000_000, "carried souls were cut off");
+    assert_eq!(ch.banked, 7_000_000_000, "banked souls were cut off");
+    assert!((ch.dmg_total - 3.0e12).abs() / 3.0e12 < 1e-6, "damage total was cut off: {}", ch.dmg_total);
+    assert_eq!(client.kills, u32::MAX - 5);
+    assert!(client.nums.iter().any(|n| n.val >= 250_000.0), "a big hit showed a capped number: {:?}", client.nums.iter().map(|n| n.val).collect::<Vec<_>>());
+}

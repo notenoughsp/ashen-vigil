@@ -22,6 +22,9 @@ use std::collections::VecDeque;
 use std::f32::consts::TAU;
 
 pub const VICTORY_TIME: f32 = 30.0 * 60.0;
+/// Most foes alive at once. Hordes and swarms grow with time, so without a ceiling an
+/// endless night would pile up thousands.
+pub const MAX_ENEMIES: usize = 1600;
 pub const BOSS_INTERVAL: f32 = 5.0 * 60.0;
 pub const RESUME_DELAY: f32 = 2.5;
 pub const MAX_HEROES: usize = 4;

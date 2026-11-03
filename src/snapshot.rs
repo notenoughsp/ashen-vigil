@@ -142,6 +142,11 @@ fn read_rgb(r: &mut Reader) -> Color {
     Color::from_rgba(r.u8(), r.u8(), r.u8(), 255)
 }
 
+/// A duration or factor in thousandths, up to 65 s.
+fn ms(v: f32) -> u16 {
+    (v * 1000.0).clamp(0.0, 65535.0) as u16
+}
+
 fn frac(v: f32, scale: f32) -> u8 {
     (v * scale).clamp(0.0, 255.0) as u8
 }
@@ -188,7 +193,7 @@ fn hero_slow(h: &Hero) -> Vec<u8> {
     w.u8(class_to_u8(h.class));
     w.u8(h.p.revives as u8);
     w.u8(h.rerolls as u8);
-    w.u32(h.banked as u32);
+    w.u64(h.banked);
     for v in h.stats.to_array() {
         w.f32(v);
     }
@@ -220,7 +225,7 @@ fn read_hero_slow(data: &[u8], h: &mut Hero, predicted: bool) -> bool {
     h.class = class_from_u8(r.u8());
     h.p.revives = r.u8() as u32;
     h.rerolls = r.u8() as u32;
-    h.banked = r.u32() as u64;
+    h.banked = r.u64();
     let mut f = [0.0f32; 17];
     for v in f.iter_mut() {
         *v = r.f32();
@@ -266,11 +271,11 @@ fn write_hero_fast(w: &mut Writer, h: &Hero, viewer: bool) {
         w.f32(v);
     }
     w.u8(h.p.moving as u8 | (h.downed as u8) << 1 | (h.connected as u8) << 2 | (h.picked as u8) << 3);
-    w.u32(h.p.souls as u32);
+    w.u64(h.p.souls);
     for b in h.buffs {
         w.f32(b);
     }
-    w.f32(h.dmg_total as f32);
+    w.f64(h.dmg_total);
     w.f32(h.dmg_minute);
     if viewer {
         for d in h.dmg_weapon {
@@ -310,11 +315,11 @@ fn read_hero_fast(r: &mut Reader, h: &mut Hero, predicted: bool) {
     h.connected = bits & 4 != 0;
     h.picked = bits & 8 != 0;
     h.p.hp = hp;
-    h.p.souls = r.u32() as u64;
+    h.p.souls = r.u64();
     for b in h.buffs.iter_mut() {
         *b = r.f32();
     }
-    h.dmg_total = r.f32() as f64;
+    h.dmg_total = r.f64();
     h.dmg_minute = r.f32();
     if predicted {
         for d in h.dmg_weapon.iter_mut() {
@@ -496,9 +501,9 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         let (pos, vel, r, age, area) = (p.pos, p.vel, p.r, p.age, p.area);
         e.pos(pos);
         e.vel(vel);
-        e.w.u8(r.min(255.0) as u8);
-        e.w.u8(frac(age, 50.0));
-        e.w.u8(frac(area, 50.0));
+        e.w.u16(r.clamp(0.0, 65535.0) as u16);
+        e.w.u16(ms(age));
+        e.w.u16(ms(area));
     }
 
     let bullets: Vec<usize> = (0..w.ebullets.len()).filter(|&i| e.in_range(w.ebullets[i].pos) && view.sees(w.ebullets[i].pos, w.ebullets[i].r)).collect();
@@ -570,8 +575,8 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         let f = &w.fx[i];
         let (pos, life, max_life, kind) = (f.pos, f.life, f.max_life, f.kind);
         e.pos(pos);
-        e.w.u8(frac(life, 100.0));
-        e.w.u8(frac(max_life, 100.0));
+        e.w.u16(ms(life));
+        e.w.u16(ms(max_life));
         match kind {
             FxKind::Slash { ang, radius, evo, owner } => {
                 e.w.u8(0);
@@ -610,8 +615,8 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         let (pos, r, life, max_life, hex) = (pl.pos, pl.r, pl.life, pl.max_life, pl.hex);
         e.pos(pos);
         e.w.u16(r as u16);
-        e.w.u8(frac(life, 50.0));
-        e.w.u8(frac(max_life, 50.0));
+        e.w.u16(ms(life));
+        e.w.u16(ms(max_life));
         e.w.bool(hex);
     }
     e.w.u8(w.waves.len().min(255) as u8);
@@ -627,9 +632,9 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         let (pos, r, delay, max_delay, after) = (p.pos, p.r, p.delay, p.max_delay, p.after);
         e.pos(pos);
         e.w.u8(r.min(255.0) as u8);
-        e.w.u8(frac(delay, 100.0));
-        e.w.u8(frac(max_delay, 100.0));
-        e.w.u8(frac(after, 100.0));
+        e.w.u16(ms(delay));
+        e.w.u16(ms(max_delay));
+        e.w.u16(ms(after));
     }
     e.w.u8(w.telegraphs.len().min(255) as u8);
     for i in 0..w.telegraphs.len().min(255) {
@@ -638,15 +643,15 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         e.pos(a);
         e.pos(b);
         e.w.u16(width as u16);
-        e.w.u8(frac(life, 100.0));
-        e.w.u8(frac(max_life, 100.0));
+        e.w.u16(ms(life));
+        e.w.u16(ms(max_life));
         e.w.bool(line);
     }
     e.w.u8(w.shrines.len().min(255) as u8);
     for i in 0..w.shrines.len().min(255) {
         let (pos, kindle, used) = (w.shrines[i].pos, w.shrines[i].kindle, w.shrines[i].used);
         e.pos(pos);
-        e.w.u8(frac(kindle, 100.0));
+        e.w.u16(ms(kindle));
         e.w.bool(used);
     }
 
@@ -656,7 +661,7 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
             let (pos, kindle, curse, accepted) = (c.pos, c.kindle, c.curse, c.accepted);
             e.w.bool(true);
             e.pos(pos);
-            e.w.u8(frac(kindle, 100.0));
+            e.w.u16(ms(kindle));
             e.w.f32(curse);
             e.w.bool(accepted);
         }
@@ -724,7 +729,7 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
     e.w.u8(nums.len() as u8);
     for n in nums {
         e.pos(n.pos);
-        e.w.u16(n.val.min(65535.0) as u16);
+        e.w.varint(n.val.clamp(0.0, u32::MAX as f32) as u32);
         e.w.bool(n.crit);
     }
     let deaths: Vec<&(Vec2, EnemyKind, bool)> = ev.deaths.iter().filter(|d| view.sees(d.0, 60.0)).take(255).collect();
@@ -870,9 +875,9 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         let kind = PKind::from_u8(k & 15);
         let pos = d.pos();
         let vel = d.vel();
-        let r = d.r.u8() as f32;
-        let age = d.r.u8() as f32 / 50.0;
-        let area = d.r.u8() as f32 / 50.0;
+        let r = d.r.u16() as f32;
+        let age = d.r.u16() as f32 / 1000.0;
+        let area = d.r.u16() as f32 / 1000.0;
         let src = Src { hero: 0, weapon: WeaponKind::Blade };
         w.projs.push(Proj { pos, vel, dir: vel.normalize_or_zero(), r, dmg: 0.0, pierce: 0, life: 1.0, age, kind, evo: k & 16 != 0, area, src, hits: Vec::new(), dead: false });
     }
@@ -912,8 +917,8 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.fx.retain(|f| matches!(f.kind, FxKind::Ghost));
     for _ in 0..d.r.u8() {
         let pos = d.pos();
-        let life = d.r.u8() as f32 / 100.0;
-        let max_life = (d.r.u8() as f32 / 100.0).max(0.01);
+        let life = d.r.u16() as f32 / 1000.0;
+        let max_life = (d.r.u16() as f32 / 1000.0).max(0.01);
         let kind = match d.r.u8() {
             0 => FxKind::Slash { ang: d.r.f32(), radius: d.r.u16() as f32, evo: d.r.bool(), owner: d.r.u8() },
             1 => FxKind::Explosion { r: d.r.u16() as f32, color: read_rgb(&mut d.r) },
@@ -929,8 +934,8 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     for _ in 0..d.r.u8() {
         let pos = d.pos();
         let r = d.r.u16() as f32;
-        let life = d.r.u8() as f32 / 50.0;
-        let max_life = (d.r.u8() as f32 / 50.0).max(0.02);
+        let life = d.r.u16() as f32 / 1000.0;
+        let max_life = (d.r.u16() as f32 / 1000.0).max(0.02);
         let hex = d.r.bool();
         let src = Src { hero: 0, weapon: WeaponKind::Hex };
         w.pools.push(FirePool { pos, r, life, max_life, dps: 0.0, tick: 0.0, src, hex });
@@ -946,9 +951,9 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     for _ in 0..d.r.u8() {
         let pos = d.pos();
         let r = d.r.u8() as f32;
-        let delay = d.r.u8() as f32 / 100.0;
-        let max_delay = (d.r.u8() as f32 / 100.0).max(0.01);
-        let after = d.r.u8() as f32 / 100.0;
+        let delay = d.r.u16() as f32 / 1000.0;
+        let max_delay = (d.r.u16() as f32 / 1000.0).max(0.01);
+        let after = d.r.u16() as f32 / 1000.0;
         w.pillars.push(Pillar { pos, r, delay, max_delay, dmg: 0.0, after });
     }
     w.telegraphs.clear();
@@ -956,15 +961,15 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         let a = d.pos();
         let b = d.pos();
         let width = d.r.u16() as f32;
-        let life = d.r.u8() as f32 / 100.0;
-        let max_life = (d.r.u8() as f32 / 100.0).max(0.01);
+        let life = d.r.u16() as f32 / 1000.0;
+        let max_life = (d.r.u16() as f32 / 1000.0).max(0.01);
         let line = d.r.bool();
         w.telegraphs.push(Telegraph { a, b, width, life, max_life, line });
     }
     w.shrines.clear();
     for _ in 0..d.r.u8() {
         let pos = d.pos();
-        let kindle = d.r.u8() as f32 / 100.0;
+        let kindle = d.r.u16() as f32 / 1000.0;
         let used = d.r.bool();
         w.shrines.push(Shrine { pos, life: 10.0, kindle, used });
     }
@@ -972,7 +977,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.blood_moon = d.r.f32();
     w.cursed = if d.r.bool() {
         let pos = d.pos();
-        let kindle = d.r.u8() as f32 / 100.0;
+        let kindle = d.r.u16() as f32 / 1000.0;
         let curse = d.r.f32();
         let accepted = d.r.bool();
         Some(CursedShrine { pos, life: 10.0, kindle, curse, accepted })
@@ -1033,7 +1038,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
 
     for _ in 0..d.r.u8() {
         let pos = d.pos();
-        let val = d.r.u16() as f32;
+        let val = d.r.varint() as f32;
         let crit = d.r.bool();
         if w.show_numbers && w.nums.len() < 250 {
             w.nums.push(DmgNum { pos, val, life: 0.7, crit });

@@ -68,7 +68,11 @@ pub fn mono_width(s: &str, size: f32) -> f32 {
 
 /// 12345 -> "12.3k".
 pub fn short(v: f64) -> String {
-    if v >= 1_000_000.0 {
+    if v >= 1e12 {
+        format!("{:.1}T", v / 1e12)
+    } else if v >= 1e9 {
+        format!("{:.1}B", v / 1e9)
+    } else if v >= 1_000_000.0 {
         format!("{:.1}M", v / 1_000_000.0)
     } else if v >= 10_000.0 {
         format!("{:.0}k", v / 1000.0)

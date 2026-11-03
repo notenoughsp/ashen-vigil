@@ -57,6 +57,8 @@ impl World {
     }
 
     fn summon(&mut self, kind: EnemyKind, around: Vec2, n: u32, r: f32) {
+        // A boss always gets at least a few adds, even on a crowded field.
+        let n = n.min(self.enemy_room().max(4) as u32);
         for k in 0..n {
             let a = k as f32 / n as f32 * TAU;
             let pos = around + Vec2::from_angle(a) * r;

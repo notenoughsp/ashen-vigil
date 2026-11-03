@@ -11,7 +11,7 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs, UdpSocket};
 
 pub const DEFAULT_PORT: u16 = 7777;
 // The last byte is the protocol version; different builds refuse to talk to each other.
-const MAGIC: [u8; 3] = [0xA5, 0x1C, 6];
+const MAGIC: [u8; 3] = [0xA5, 0x1C, 7];
 /// Shown in menus, so players can tell whether they run the same build.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const FRAG_PAYLOAD: usize = 1100;
@@ -80,6 +80,9 @@ impl Writer {
     pub fn f32(&mut self, v: f32) {
         self.0.extend_from_slice(&v.to_le_bytes());
     }
+    pub fn u64(&mut self, v: u64) {
+        self.0.extend_from_slice(&v.to_le_bytes());
+    }
     pub fn f64(&mut self, v: f64) {
         self.0.extend_from_slice(&v.to_le_bytes());
     }
@@ -146,6 +149,15 @@ impl<'a> Reader<'a> {
     }
     pub fn f32(&mut self) -> f32 {
         f32::from_bits(self.u32())
+    }
+    pub fn u64(&mut self) -> u64 {
+        let s = self.take(8);
+        if s.len() < 8 {
+            return 0;
+        }
+        let mut a = [0u8; 8];
+        a.copy_from_slice(s);
+        u64::from_le_bytes(a)
     }
     pub fn f64(&mut self) -> f64 {
         let s = self.take(8);
