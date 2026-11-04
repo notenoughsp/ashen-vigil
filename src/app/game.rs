@@ -12,12 +12,15 @@ impl App {
         self.since_snap = 0.0;
         self.pick_pending = None;
         self.reroll_seq = 0;
+        self.skill_seq = 0;
         self.synced_banked = 0;
         self.level_sel = 0;
     }
 
     fn new_world(&self, diff: Difficulty, remnant: Option<(Vec2, u64)>) -> World {
         let mut w = World::new(diff, remnant);
+        // Clients learn the host's field from the first snapshot.
+        w.biome = Biome::from_u8(self.save.settings.biome);
         w.screen = crate::draw::view_size();
         let st = &self.save.settings;
         w.show_numbers = st.numbers;
@@ -44,7 +47,16 @@ impl App {
         // A client learns the heroes from the first snapshot; its own pick is what it knows.
         let heroes = if names.is_empty() { format!("me as {}", self.class().name()) } else { names.join(", ") };
         let kind = if w.boss_rush { "boss rush" } else { "vigil" };
-        crate::log!("{} started, {}, difficulty {}, heroes: {}, challenges {:03b}", kind, mode, w.diff.preset_name(), heroes, self.save.challenges);
+        crate::log!(
+            "{} started on {}, {}, difficulty {}, heroes: {}, challenges {:03b}, curses {:06b}",
+            kind,
+            w.biome.name(),
+            mode,
+            w.diff.preset_name(),
+            heroes,
+            self.save.challenges,
+            w.curses
+        );
         self.world = Some(w);
         self.screen = Screen::Playing;
         self.audio.music(self.menu_music());
@@ -63,6 +75,7 @@ impl App {
         if self.save.settings.boss_rush {
             w.start_boss_rush();
         }
+        w.lay_curses(self.save.curses);
         if w.remnant.is_some() {
             w.toast("Your remnant still glows where you fell.");
         }
@@ -79,7 +92,8 @@ impl App {
             w.add_hero(p.slot, &p.name, class_from_u8(p.class), p.profile, true);
         }
         w.local = w.heroes.iter().position(|h| h.slot == 0).unwrap_or(0);
-        // The host's challenges hold for everyone.
+        // The host's challenges and curses hold for everyone.
+        w.lay_curses(self.save.curses);
         let challenges = self.save.challenges;
         for h in w.heroes.iter_mut() {
             h.challenges = challenges;
@@ -147,7 +161,7 @@ impl App {
         let total = if w.time < 60.0 && !won { 0 } else { run_marks(w, won) };
         let base = total.saturating_sub(self.endless_paid);
         // Challenges only exist offline and pay extra.
-        let mult = challenge_mult(w.me().challenges);
+        let mult = challenge_mult(w.me().challenges) * curse_mult(w.curses);
         let marks = (base as f32 * mult).round() as u64;
         self.save.marks += marks;
         self.save.best_time = self.save.best_time.max(w.time);
@@ -342,7 +356,11 @@ impl App {
         let mut input = if paused {
             Input::default()
         } else {
-            Input { dir: move_input(), roll: pressed_any(&[key_for(Action::Roll), KeyCode::LeftShift, KeyCode::RightShift]) || pad_pressed(Pad::Roll) }
+            Input {
+                dir: move_input(),
+                roll: pressed_any(&[key_for(Action::Roll), KeyCode::LeftShift, KeyCode::RightShift]) || pad_pressed(Pad::Roll),
+                skill: act_pressed(Action::Skill) || pad_pressed(Pad::Skill),
+            }
         };
         if let Some(i) = self.auto.as_ref().map(|a| a.input()) {
             input = i;
@@ -397,7 +415,9 @@ impl App {
             return;
         }
         let mut pick = [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4].iter().take(n).position(|k| is_key_pressed(*k));
-        if pressed_any(&[KeyCode::Enter, KeyCode::KpEnter]) || pad_pressed(Pad::Confirm) {
+        // Enter or Space takes the highlighted card; the short grace period above keeps a
+        // roll pressed in the fight from picking one by accident.
+        if pressed_any(&[KeyCode::Enter, KeyCode::KpEnter, KeyCode::Space]) || pad_pressed(Pad::Confirm) {
             pick = Some(self.level_sel);
         }
         if clicked() {
@@ -481,7 +501,7 @@ impl App {
                     apply_client_input(w, h, &inp);
                 }
                 let players = host.lobby_players(&name, my_class);
-                host.tick_lobby(dt, now, &players, &w.diff, w.boss_rush, self.save.challenges);
+                host.tick_lobby(dt, now, &players, &w.diff, w.boss_rush, self.save.challenges, w.biome as u8, w.curses);
                 w.update(dt);
                 if host.snapshot_due(dt, w.pause != Pause::Running) {
                     host.send_snapshots(w);
@@ -505,9 +525,11 @@ impl App {
                             self.since_snap = 0.0;
                         }
                         // The host went back to the lobby; follow it from the end screen.
-                        ClientEvent::Lobby { started: false, players, diff, rush, challenges } if w.dead || w.won => {
+                        ClientEvent::Lobby { started: false, players, diff, rush, challenges, biome, curses } if w.dead || w.won => {
+                            self.lobby.curses = curses;
                             self.lobby.rush = rush;
                             self.lobby.challenges = challenges;
+                            self.lobby.biome = biome;
                             self.lobby.players = players;
                             self.lobby.diff = diff;
                             self.follow_host = true;
@@ -525,6 +547,10 @@ impl App {
                 }
                 if self.pick_pending.map(|p| p.0 != w.level_round || w.pause != Pause::Choosing).unwrap_or(false) {
                     self.pick_pending = None;
+                }
+                // A client asks the host for its skill; the host casts it.
+                if w.heroes.get(w.local).is_some_and(|h| h.input.skill) {
+                    self.skill_seq = self.skill_seq.wrapping_add(1);
                 }
                 if w.client_update(dt) {
                     let bucket = w.me().class == Class::BucketKnight;
@@ -547,6 +573,7 @@ impl App {
                         pick_idx,
                         reroll_seq: self.reroll_seq,
                         rolls: me.rolls,
+                        skill_seq: self.skill_seq,
                         ack: self.snap_dec.ack,
                         view: (w.screen.x as u16, w.screen.y as u16),
                     });
@@ -579,6 +606,12 @@ fn apply_client_input(w: &mut World, h: usize, inp: &ClientInput) {
         hero.p.stamina = inp.stamina;
         hero.rolls = inp.rolls;
     }
+    let cast = inp.skill_seq != hero.skill_seq;
+    hero.skill_seq = inp.skill_seq;
+    if cast {
+        w.use_skill(h);
+    }
+    let hero = &mut w.heroes[h];
     if inp.reroll_seq != hero.reroll_seq {
         hero.reroll_seq = inp.reroll_seq;
         w.reroll(h);

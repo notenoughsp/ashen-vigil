@@ -112,7 +112,8 @@ impl World {
                 out.push((h.p.pos, 90.0, Color::new(0.5, 0.1, 0.08, 1.0)));
             } else {
                 let warm = if self.cute { Color::new(1.0, 0.8, 0.9, 1.0) } else { Color::new(1.0, 0.82, 0.62, 1.0) };
-                out.push((h.p.pos, 400.0 * flicker, warm));
+                let reach = if self.cursed_by(Curse::DarkHour) { 0.55 } else { 1.0 };
+                out.push((h.p.pos, 400.0 * flicker * reach, warm));
                 out.push((h.p.pos, 170.0, Color::new(0.45, 0.38, 0.3, 1.0)));
                 if h.buff(Buff::Fury) > 0.0 {
                     out.push((h.p.pos, 120.0, Color::new(0.6, 0.05, 0.05, 1.0)));
@@ -127,6 +128,11 @@ impl World {
         }
         if let Some(cat) = &self.cat {
             out.push((cat.pos + vec2(0.0, -10.0), 26.0, Color::new(0.5, 0.45, 0.1, 1.0)));
+        }
+        for b in self.braziers.iter().filter(|b| b.burn > 0.0) {
+            // Dims in its last ten seconds.
+            let k = (b.burn / 10.0).min(1.0);
+            out.push((b.pos + vec2(0.0, -18.0), 380.0 * flicker * (0.5 + 0.5 * k), Color::new(1.0, 0.6, 0.25, 1.0)));
         }
         for s in &self.shrines {
             let k = if s.used { 0.5 } else { 1.0 };
@@ -186,6 +192,10 @@ impl World {
             match e.kind {
                 EnemyKind::Boss(BossKind::Sovereign) => out.push((e.pos, 280.0, Color::new(0.9, 0.35, 0.1, 1.0))),
                 EnemyKind::Boss(BossKind::Hermit) => out.push((e.pos, 140.0, tint(Color::new(0.3, 0.8, 0.5, 1.0), e.alpha))),
+                EnemyKind::Boss(BossKind::Bride) => out.push((e.pos, 200.0, Color::new(0.25, 0.55, 0.6, 1.0))),
+                EnemyKind::Boss(BossKind::Choir) => out.push((e.pos, 220.0, tint(Color::new(0.55, 0.4, 0.8, 1.0), e.alpha))),
+                EnemyKind::Boss(BossKind::Seraph) => out.push((e.pos, 200.0, Color::new(0.7, 0.6, 0.4, 1.0))),
+                EnemyKind::Banshee => out.push((e.pos, 70.0, tint(Color::new(0.4, 0.5, 0.7, 1.0), e.alpha))),
                 EnemyKind::Boss(_) => out.push((e.pos, 120.0, Color::new(0.5, 0.25, 0.15, 1.0))),
                 EnemyKind::Necromancer => out.push((e.pos, 120.0, Color::new(0.2, 0.6, 0.3, 1.0))),
                 EnemyKind::Cultist if e.fuse > 0.0 || e.flash > 0.0 => out.push((e.pos, 110.0, Color::new(0.8, 0.25, 0.08, 1.0))),
@@ -211,7 +221,14 @@ impl World {
         set_camera(&Camera2D { target: cam.target, zoom: vec2(cam.zoom.x, -cam.zoom.y), render_target: Some(l.target.clone()), ..Default::default() });
         // Under the Blood Moon the darkness itself turns red.
         let k = (self.blood_moon / 3.0).clamp(0.0, 1.0).min(((MOON_LENGTH - self.blood_moon) / 3.0).clamp(0.0, 1.0));
-        let (base, moon) = if self.cute { (AMBIENT_CUTE, Color::new(0.85, 0.5, 0.7, 1.0)) } else { (AMBIENT, Color::new(0.34, 0.08, 0.08, 1.0)) };
+        let field = match self.biome {
+            Biome::Graveyard => AMBIENT,
+            // A greener, mistier night over the water.
+            Biome::Marsh => Color::new(0.22, 0.29, 0.29, 1.0),
+            // The fire never quite goes out.
+            Biome::Cathedral => Color::new(0.33, 0.23, 0.22, 1.0),
+        };
+        let (base, moon) = if self.cute { (AMBIENT_CUTE, Color::new(0.85, 0.5, 0.7, 1.0)) } else { (field, Color::new(0.34, 0.08, 0.08, 1.0)) };
         clear_background(Color::new(base.r + (moon.r - base.r) * k, base.g + (moon.g - base.g) * k, base.b + (moon.b - base.b) * k, 1.0));
         gl_use_material(&l.add);
         for (p, r, c) in lights {

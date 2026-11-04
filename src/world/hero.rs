@@ -111,6 +111,7 @@ pub struct Item {
 pub struct Input {
     pub dir: Vec2,
     pub roll: bool,
+    pub skill: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -194,6 +195,12 @@ pub struct Hero {
     pub aim: Vec2,
     /// The look worn, see `SKINS`; 0 is the class look.
     pub skin: u8,
+    /// Seconds until the class skill can be used again.
+    pub skill_cd: f32,
+    /// Counts the client's skill presses, like `reroll_seq`.
+    pub skill_seq: u8,
+    /// A skill was asked for and is cast in the next update.
+    pub skill_wanted: bool,
 }
 
 impl Hero {
@@ -245,6 +252,9 @@ impl Hero {
             challenges: 0,
             aim: vec2(1.0, 0.0),
             skin: profile.skin,
+            skill_cd: 0.0,
+            skill_seq: 0,
+            skill_wanted: false,
         };
         h.recompute_stats();
         h.p.hp = h.stats.max_hp;
@@ -731,16 +741,22 @@ impl World {
 
     pub(crate) fn update_heroes(&mut self, dt: f32) {
         let arena = self.arena;
+        let famine = self.cursed_by(Curse::Famine);
+        let revive_time = if self.cursed_by(Curse::Brittle) { REVIVE_TIME * 2.0 } else { REVIVE_TIME };
+        let mut skills = Vec::new();
         for h in 0..self.heroes.len() {
             let hero = &mut self.heroes[h];
             hero.p.iframes = (hero.p.iframes - dt).max(0.0);
+            hero.skill_cd = (hero.skill_cd - dt).max(0.0);
             for b in hero.buffs.iter_mut() {
                 *b = (*b - dt).max(0.0);
             }
             if hero.downed {
                 continue;
             }
-            hero.p.hp = (hero.p.hp + hero.stats.regen * dt).min(hero.stats.max_hp);
+            if !famine {
+                hero.p.hp = (hero.p.hp + hero.stats.regen * dt).min(hero.stats.max_hp);
+            }
             hero.leech = (hero.leech + LEECH_RATE * dt).min(LEECH_RATE);
             if hero.remote {
                 // Position and roll come from the client; keep them inside the fog ring.
@@ -753,7 +769,11 @@ impl World {
                 hero.p.pos = clamp_world(hero.p.pos, 24.0);
                 continue;
             }
+            let wants_skill = hero.input.skill;
             let rolled = hero.step_movement(dt, arena);
+            if wants_skill {
+                skills.push(h);
+            }
             let (pos, rolling, rolls, bucket) = (hero.p.pos, hero.p.roll_t > 0.0, hero.rolls, hero.class == Class::BucketKnight);
             if rolled && h == self.local {
                 self.sfx(if bucket { "clang" } else { "roll" }, if bucket { 0.4 } else { 0.5 });
@@ -767,6 +787,9 @@ impl World {
                 self.fx.push(Fx { pos, life: 0.25, max_life: 0.25, kind: FxKind::Ghost });
             }
         }
+        for h in skills {
+            self.use_skill(h);
+        }
         // Reviving fallen companions by standing next to them.
         for h in 0..self.heroes.len() {
             if !self.heroes[h].downed || !self.heroes[h].connected {
@@ -776,7 +799,7 @@ impl World {
             let helped = self.heroes.iter().any(|o| o.alive() && o.p.pos.distance(p) < 45.0);
             let hero = &mut self.heroes[h];
             hero.revive = if helped { hero.revive + dt } else { (hero.revive - dt * 0.5).max(0.0) };
-            if hero.revive >= REVIVE_TIME {
+            if hero.revive >= revive_time {
                 hero.downed = false;
                 hero.revive = 0.0;
                 hero.p.hp = hero.rise_health(0.4);

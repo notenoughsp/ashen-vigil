@@ -77,7 +77,7 @@ impl AutoTest {
     /// Walks in loops and rolls now and then.
     pub fn input(&self) -> Input {
         let t = self.frame as f32 / 60.0 + if self.role == Role::Client { 2.0 } else { 0.0 };
-        Input { dir: vec2(t.cos(), (t * 0.7).sin()).normalize_or_zero(), roll: self.frame.is_multiple_of(97) }
+        Input { dir: vec2(t.cos(), (t * 0.7).sin()).normalize_or_zero(), roll: self.frame.is_multiple_of(97), skill: self.frame.is_multiple_of(211) }
     }
 
     /// Picks a card after a while so the "waiting" screens can be captured.
@@ -320,7 +320,37 @@ impl App {
                 self.start_single();
             }
             1900 => want.push("rush"),
-            1901 => std::process::exit(0),
+            1901 => self.field_showcase(Biome::Marsh, BossKind::Bride),
+            2000 => want.push("marsh"),
+            2001 => self.field_showcase(Biome::Cathedral, BossKind::Penitent),
+            2100 => want.push("cathedral"),
+            2101 => {
+                // Drive the lord into its last phase to hear it.
+                if let Some(e) = self.world.as_mut().and_then(|w| w.enemies.iter_mut().find(|e| e.boss)) {
+                    e.hp = e.max_hp * 0.2;
+                }
+            }
+            2140 => want.push("boss_phase"),
+            2141 => {
+                // An arsenal at work: six weapons, all well levelled, against a crowd.
+                self.save.settings.biome = 0;
+                self.class_idx = 0;
+                self.start_single();
+                let w = self.world.as_mut().unwrap();
+                w.time = 6.0 * 60.0;
+                w.next_boss = f32::MAX;
+                let kinds = [WeaponKind::Lanterns, WeaponKind::Axe, WeaponKind::Orb, WeaponKind::Spear, WeaponKind::Daggers, WeaponKind::Hex];
+                w.heroes[0].weapons = kinds.iter().map(|k| Weapon { level: 8, ..Weapon::new(*k) }).collect();
+                w.heroes[0].recompute_stats();
+                let p = w.heroes[0].p.pos;
+                for i in 0..60 {
+                    let kind = [EnemyKind::Hollow, EnemyKind::Ghoul, EnemyKind::Wraith, EnemyKind::Banshee][i % 4];
+                    let e = w.make_enemy(kind, p + Vec2::from_angle(i as f32 * 0.41) * (160.0 + (i % 6) as f32 * 35.0));
+                    w.enemies.push(e);
+                }
+            }
+            2170 => want.push("arsenal"),
+            2171 => std::process::exit(0),
             _ => {}
         }
         want
@@ -334,44 +364,92 @@ impl App {
         for (i, class) in ALL_CLASSES.iter().enumerate() {
             let slot = i as u8;
             let idx = w.add_hero(slot, class.name(), *class, Profile::default(), false);
-            w.heroes[idx].p.pos = vec2(-440.0 + i as f32 * 110.0, -230.0);
+            w.heroes[idx].p.pos = vec2(-440.0 + i as f32 * 110.0, 40.0);
             w.heroes[idx].p.facing = vec2(1.0, 0.0);
         }
-        w.local = 0;
+        // The camera follows the local hero, so the middle one keeps everything in view.
+        w.local = 4;
         let kinds = [
             EnemyKind::Hollow,
             EnemyKind::Ghoul,
             EnemyKind::Moth,
+            EnemyKind::Leech,
             EnemyKind::Archer,
             EnemyKind::Bloat,
             EnemyKind::Wraith,
+            EnemyKind::Banshee,
             EnemyKind::Cultist,
+            EnemyKind::Gargoyle,
             EnemyKind::Shieldbearer,
             EnemyKind::Necromancer,
             EnemyKind::Knight,
         ];
         for (i, k) in kinds.iter().enumerate() {
-            let mut e = w.make_enemy(*k, vec2(-480.0 + i as f32 * 105.0, -70.0));
+            let mut e = w.make_enemy(*k, vec2(-600.0 + i as f32 * 100.0, -340.0));
             if *k == EnemyKind::Knight {
                 e.elite = true;
                 e.r *= 1.6;
             }
             w.enemies.push(e);
         }
-        for (i, (k, r)) in [(BossKind::Gravewarden, 44.0), (BossKind::Matriarch, 38.0), (BossKind::Hermit, 34.0), (BossKind::Sovereign, 52.0)].iter().enumerate() {
-            let mut e = w.make_enemy(EnemyKind::Boss(*k), vec2(-450.0 + i as f32 * 300.0, 170.0));
+        // All ten lords in two rows.
+        for (i, k) in ALL_LORDS.iter().enumerate() {
+            let at = vec2(-640.0 + (i % 5) as f32 * 320.0, if i < 5 { -170.0 } else { 260.0 });
+            let mut e = w.make_enemy(EnemyKind::Boss(*k), at);
             e.boss = true;
-            e.r = *r;
+            e.r = EnemyKind::Boss(*k).radius(false);
             w.enemies.push(e);
         }
         // Heroes face right; the enemies below them look up at the nearest one.
-        w.cam = vec2(0.0, -20.0);
+        w.cam = vec2(0.0, 40.0);
         // A finished world draws but no longer simulates.
         w.won = true;
         w.time = 12.3;
         self.save.settings.lighting = false;
         self.world = Some(w);
         self.screen = Screen::Playing;
+    }
+
+    /// A vigil on another field: its floor and props, its foes, braziers alight, a skill in
+    /// use, and one of its lords.
+    fn field_showcase(&mut self, biome: Biome, lord: BossKind) {
+        self.save.settings.boss_rush = false;
+        self.save.settings.biome = biome as u8;
+        self.save.settings.lighting = true;
+        self.save.challenges = 0;
+        self.save.curses = 0;
+        self.class_idx = self.classes().iter().position(|c| *c == Class::Arbalist).unwrap_or(0);
+        self.start_single();
+        let w = self.world.as_mut().unwrap();
+        arm(w, 0);
+        w.time = 9.0 * 60.0;
+        w.next_boss = f32::MAX;
+        let p = vec2(900.0, 700.0);
+        w.heroes[0].p.pos = p;
+        w.cam = p;
+        // The braziers nearest the hero, alight.
+        let mut near: Vec<usize> = (0..w.braziers.len()).collect();
+        near.sort_by(|a, b| w.braziers[*a].pos.distance(p).total_cmp(&w.braziers[*b].pos.distance(p)));
+        for i in near.into_iter().take(2) {
+            w.braziers[i].burn = BRAZIER_BURN;
+            w.heroes[0].p.pos = w.braziers[i].pos + vec2(150.0, 60.0);
+        }
+        let p = w.heroes[0].p.pos;
+        w.cam = p;
+        let kinds: &[EnemyKind] = match biome {
+            Biome::Marsh => &[EnemyKind::Leech, EnemyKind::Ghoul, EnemyKind::Bloat, EnemyKind::Leech, EnemyKind::Wraith],
+            _ => &[EnemyKind::Gargoyle, EnemyKind::Banshee, EnemyKind::Cultist, EnemyKind::Knight, EnemyKind::Shieldbearer],
+        };
+        for i in 0..40 {
+            let at = p + Vec2::from_angle(i as f32 * 0.43) * (220.0 + (i % 5) as f32 * 40.0);
+            let e = w.make_enemy(kinds[i % kinds.len()], at);
+            w.enemies.push(e);
+        }
+        // The lord of the field, already fighting.
+        w.bosses_spawned = biome.lords().iter().position(|k| *k == lord).unwrap_or(0) as u32;
+        w.next_boss = w.time;
+        w.heroes[0].skill_cd = 0.0;
+        w.use_skill(0);
     }
 
     /// Every skin on a hero, frozen, plus a hero carrying the last flame for the HUD.
@@ -404,7 +482,8 @@ impl App {
         w.won = true;
         w.time = 12.3;
         w.cute = cute;
-        self.save.settings.lighting = true;
+        // Flat light, so every skin shows its colours.
+        self.save.settings.lighting = false;
         self.world = Some(w);
         self.screen = Screen::Playing;
     }

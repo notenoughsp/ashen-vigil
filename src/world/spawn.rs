@@ -8,7 +8,8 @@ impl World {
         let m = self.time / 60.0;
         let coop = 1.0 + 0.35 * (self.heroes.len().max(1) - 1) as f32;
         let cursed = self.cursed.as_ref().map(|c| c.curse > 0.0).unwrap_or(false);
-        (1.0 + m * 0.2 + (m / 10.0).powi(2) * 0.6) * self.diff.at(self.time).hp * coop * if cursed { 1.3 } else { 1.0 }
+        let dark = if self.cursed_by(Curse::DarkHour) { 1.15 } else { 1.0 };
+        (1.0 + m * 0.2 + (m / 10.0).powi(2) * 0.6) * self.diff.at(self.time).hp * coop * dark * if cursed { 1.3 } else { 1.0 }
     }
 
     pub(crate) fn make_enemy(&mut self, kind: EnemyKind, pos: Vec2) -> Enemy {
@@ -26,6 +27,9 @@ impl World {
             EnemyKind::Cultist => (12.0, 130.0, 6.0, 2.0),
             EnemyKind::Shieldbearer => (90.0, 40.0, 16.0, 6.0),
             EnemyKind::Necromancer => (60.0, 50.0, 10.0, 10.0),
+            EnemyKind::Leech => (5.0, 135.0, 4.0, 0.5),
+            EnemyKind::Gargoyle => (70.0, 55.0, 14.0, 5.0),
+            EnemyKind::Banshee => (30.0, 70.0, 9.0, 3.0),
             EnemyKind::Boss(_) => (1000.0, 80.0, 25.0, 0.0),
         };
         let r = kind.radius(false);
@@ -38,7 +42,7 @@ impl World {
             knock: Vec2::ZERO,
             hp: hp * hp_scale,
             max_hp: hp * hp_scale,
-            speed: speed * gen_range(0.9, 1.1) * self.diff.at(self.time).speed,
+            speed: speed * gen_range(0.9, 1.1) * self.diff.at(self.time).speed * if self.cursed_by(Curse::Frenzy) { 1.25 } else { 1.0 },
             dmg: dmg * dmg_scale,
             r,
             xp,
@@ -87,9 +91,15 @@ impl World {
             (EnemyKind::Cultist, 6.0, 2.5),
             (EnemyKind::Shieldbearer, 10.0, 2.0),
             (EnemyKind::Necromancer, 14.0, 0.8),
+            (EnemyKind::Leech, 3.0, 3.0),
+            (EnemyKind::Banshee, 7.0, 1.6),
+            (EnemyKind::Gargoyle, 9.0, 2.0),
         ] {
+            // Some foes feel at home on some fields and arrive earlier there.
+            let w = self.biome.weight(kind);
+            let from = if w > 1.0 { from * 0.5 } else { from };
             if m >= from {
-                table.push((kind, weight));
+                table.push((kind, weight * w));
             }
         }
         let total: f32 = table.iter().map(|t| t.1).sum();
@@ -172,7 +182,7 @@ impl World {
         }
 
         if self.time >= self.next_elite {
-            self.next_elite = self.time + 70.0;
+            self.next_elite = self.time + if self.cursed_by(Curse::EliteTide) { 24.0 } else { 70.0 };
             let kind = match m as u32 {
                 0..=3 => EnemyKind::Hollow,
                 4..=7 => EnemyKind::Bloat,
@@ -233,20 +243,35 @@ impl World {
     }
 
     fn spawn_boss(&mut self) {
-        let order = [BossKind::Gravewarden, BossKind::Matriarch, BossKind::Hermit, BossKind::Sovereign];
         let n = self.bosses_spawned;
         // The last hour always belongs to the Sovereign; past dawn the lords take turns again.
         // A boss rush has no last hour: its lords simply follow each other.
         let finale = self.time >= VICTORY_TIME - 1.0 && !self.endless && !self.boss_rush;
-        let kind = if finale { BossKind::Sovereign } else { order[(n % 4) as usize] };
-        let lap = if finale { 1.5 } else { (n / 4) as f32 };
-        self.bosses_spawned += 1;
-        let (hp, speed, dmg) = match kind {
-            BossKind::Gravewarden => (3200.0, 85.0, 25.0),
-            BossKind::Matriarch => (5200.0, 160.0, 20.0),
-            BossKind::Hermit => (7800.0, 0.0, 22.0),
-            BossKind::Sovereign => (11500.0, 100.0, 32.0),
+        // A rush meets every lord in turn; a vigil the five of its field, then the Sovereign.
+        let kind = if finale {
+            BossKind::Sovereign
+        } else if self.boss_rush {
+            ALL_LORDS[n as usize % ALL_LORDS.len()]
+        } else {
+            self.biome.lords()[n as usize % 5]
         };
+        let lap = if finale { 1.5 } else { (n / 5) as f32 };
+        self.bosses_spawned += 1;
+        let (speed, dmg) = match kind {
+            BossKind::Gravewarden => (85.0, 25.0),
+            BossKind::Matriarch => (160.0, 20.0),
+            BossKind::Hermit => (0.0, 22.0),
+            BossKind::Sovereign => (100.0, 32.0),
+            BossKind::Bride => (70.0, 22.0),
+            BossKind::BogMother => (60.0, 26.0),
+            BossKind::Penitent => (75.0, 28.0),
+            BossKind::Choir => (0.0, 20.0),
+            BossKind::Seraph => (120.0, 24.0),
+            BossKind::Hound => (190.0, 22.0),
+        };
+        // Health follows the hour, not the lord: whoever comes at 5:00 is the first test.
+        const SLOT_HP: [f32; 5] = [3200.0, 5200.0, 6500.0, 7800.0, 9500.0];
+        let hp = if finale { 11500.0 } else { SLOT_HP[n as usize % 5] };
         let r = EnemyKind::Boss(kind).radius(false);
         // The fog ring must fit inside the walls.
         let center = clamp_world(self.center(), 620.0);
@@ -271,7 +296,8 @@ impl World {
         let id = e.id;
         self.enemies.push(e);
         self.boss_started = self.time;
-        self.boss = Some(BossAi { id, kind, state: 0, t: 2.0, aim: vec2(1.0, 0.0), spin: 0.0, count: 0, shot: 0.0, phase2: false });
+        self.boss = Some(BossAi { id, kind, state: 0, t: 2.0, aim: vec2(1.0, 0.0), spin: 0.0, count: 0, shot: 0.0, phase2: false, phase3: false });
+        self.say(kind.lines()[0], boss_voice(kind));
         self.boss_kind = Some(kind);
         self.boss_bar_lag = 1.0;
         self.arena = Some((center, 560.0));
@@ -287,5 +313,21 @@ impl World {
         self.sfx("roar", 1.0);
         self.shake = 12.0;
         self.events.push(Event::BossStart);
+    }
+}
+
+/// The colour of a lord's words.
+pub fn boss_voice(kind: BossKind) -> Color {
+    match kind {
+        BossKind::Gravewarden => Color::from_rgba(220, 190, 150, 255),
+        BossKind::Matriarch => Color::from_rgba(230, 220, 180, 255),
+        BossKind::Hermit => Color::from_rgba(150, 230, 170, 255),
+        BossKind::Sovereign => Color::from_rgba(255, 150, 70, 255),
+        BossKind::Bride => Color::from_rgba(150, 210, 230, 255),
+        BossKind::BogMother => Color::from_rgba(170, 200, 110, 255),
+        BossKind::Penitent => Color::from_rgba(210, 190, 170, 255),
+        BossKind::Choir => Color::from_rgba(230, 200, 255, 255),
+        BossKind::Seraph => Color::from_rgba(200, 205, 215, 255),
+        BossKind::Hound => Color::from_rgba(230, 220, 220, 255),
     }
 }

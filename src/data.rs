@@ -512,6 +512,23 @@ impl Class {
     }
 }
 
+impl Class {
+    /// The class's active skill: name, what it does, and seconds between uses.
+    pub fn skill(self) -> (&'static str, &'static str, f32) {
+        match self {
+            Class::Wanderer => ("Rally", "A shockwave hurls foes back; you are untouchable for a moment.", 14.0),
+            Class::GraveHunter => ("Fan of Knives", "Twenty-four piercing daggers in every direction.", 10.0),
+            Class::CinderAdept => ("Meteor", "A falling star strikes the nearest foe and burns all around it.", 16.0),
+            Class::BellAcolyte => ("Sanctuary", "Heals every hero nearby and wards them for a moment.", 18.0),
+            Class::Reaper => ("Harvest", "One vast sweep of the scythe; every soul reaped mends you.", 12.0),
+            Class::Hexblade => ("Hex Field", "A great sigil burns into the ground around you.", 14.0),
+            Class::BloodKnight => ("Blood Rite", "Fury for six seconds and a quarter of your health back.", 20.0),
+            Class::Arbalist => ("Bolt Storm", "Thirty-six quarrels fly out in every direction.", 12.0),
+            Class::BucketKnight => ("CLANG", "A deafening clang stuns every foe around you.", 15.0),
+        }
+    }
+}
+
 pub fn class_from_u8(v: u8) -> Class {
     ALL_CLASSES.get(v as usize).copied().unwrap_or(Class::Wanderer)
 }
@@ -997,6 +1014,53 @@ pub fn challenge_mult(bits: u8) -> f32 {
     1.0 + 0.25 * bits.count_ones() as f32
 }
 
+// ---------------------------------------------------------------- curses
+
+/// Curses laid on a whole vigil, for everyone in it; each adds 20% Ashen Marks.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Curse {
+    Frenzy,
+    Famine,
+    Volatile,
+    EliteTide,
+    DarkHour,
+    Brittle,
+}
+
+pub const ALL_CURSES: [Curse; 6] = [Curse::Frenzy, Curse::Famine, Curse::Volatile, Curse::EliteTide, Curse::DarkHour, Curse::Brittle];
+
+impl Curse {
+    pub fn bit(self) -> u8 {
+        1 << self as u8
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Curse::Frenzy => "Frenzy",
+            Curse::Famine => "Famine",
+            Curse::Volatile => "Volatile",
+            Curse::EliteTide => "Elite Tide",
+            Curse::DarkHour => "The Dark Hour",
+            Curse::Brittle => "Brittle",
+        }
+    }
+
+    pub fn desc(self) -> &'static str {
+        match self {
+            Curse::Frenzy => "Foes move 25% faster.",
+            Curse::Famine => "No health regeneration; draughts and bread heal half.",
+            Curse::Volatile => "Slain foes sometimes burst into bullets.",
+            Curse::EliteTide => "Elites come three times as often.",
+            Curse::DarkHour => "Your light reaches half as far; foes are 15% tougher.",
+            Curse::Brittle => "No embers, and raising a companion takes twice as long.",
+        }
+    }
+}
+
+pub fn curse_mult(bits: u8) -> f32 {
+    1.0 + 0.2 * (bits & 63).count_ones() as f32
+}
+
 // ---------------------------------------------------------------- achievements
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1068,9 +1132,11 @@ pub enum Achievement {
     Impatient,
     Partygoer,
     Gauntlet,
+    Accursed,
+    Lamplighter,
 }
 
-pub const ALL_ACHIEVEMENTS: [Achievement; 67] = [
+pub const ALL_ACHIEVEMENTS: [Achievement; 69] = [
     Achievement::FirstLight,
     Achievement::Gravebreaker,
     Achievement::Dawnbringer,
@@ -1138,6 +1204,8 @@ pub const ALL_ACHIEVEMENTS: [Achievement; 67] = [
     Achievement::Impatient,
     Achievement::Partygoer,
     Achievement::Gauntlet,
+    Achievement::Accursed,
+    Achievement::Lamplighter,
 ];
 
 impl Achievement {
@@ -1215,6 +1283,8 @@ impl Achievement {
             Impatient => "Impatient",
             Partygoer => "Partygoer",
             Gauntlet => "The Gauntlet",
+            Accursed => "Accursed",
+            Lamplighter => "Lamplighter",
         }
     }
 
@@ -1288,6 +1358,8 @@ impl Achievement {
             Impatient => "Ask for dawn in the main menu.",
             Partygoer => "Start a party in the main menu.",
             Gauntlet => "Defeat all twelve lords of a boss rush.",
+            Accursed => "Keep a vigil until dawn under three curses.",
+            Lamplighter => "Have ten braziers burning at once.",
         }
     }
 
@@ -1311,6 +1383,8 @@ impl Achievement {
             LongNight | AshAndBone => 40,
             Singularity => 60,
             Gauntlet => 50,
+            Accursed => 50,
+            Lamplighter => 20,
             ThinTheHerd | Polished => 5,
             FullArsenal | Packrat | GentleDawn | Purrfect | Dressed | Dizzy | Impatient | Partygoer => 10,
             HalfNight | Ascendant => 15,

@@ -8,10 +8,12 @@ use crate::ui::{ui_h, ui_w, BLOOD as BLOOD_RED, EMBER, GOLD, TEAL, UI_SCALES};
 const MENU_ITEMS: [&str; 8] = ["Start", "Online Lobby", "Reliquary", "Wardrobe", "Records", "Options", "Credits", "Exit"];
 /// Columns of the soul upgrades in the Reliquary.
 const SHOP_COLS: usize = 3;
-/// Ash Shrine rows: class, mode, the challenges, begin.
+/// Ash Shrine rows: class, mode, field, the challenges, begin.
 const HUB_MODE_ROW: usize = 1;
-const HUB_CHALLENGE_ROW: usize = 2;
-const HUB_ROWS: usize = HUB_CHALLENGE_ROW + ALL_CHALLENGES.len() + 1;
+const HUB_BIOME_ROW: usize = 2;
+const HUB_CHALLENGE_ROW: usize = 3;
+const HUB_CURSE_ROW: usize = HUB_CHALLENGE_ROW + ALL_CHALLENGES.len();
+const HUB_ROWS: usize = HUB_CURSE_ROW + ALL_CURSES.len() + 1;
 
 /// One row on the options screen.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -108,7 +110,21 @@ impl Opt {
 const PAGES: [(&str, &[Opt]); 4] = [
     (
         "Controls",
-        &[Opt::Bind(0), Opt::Bind(1), Opt::Bind(2), Opt::Bind(3), Opt::Bind(4), Opt::Bind(5), Opt::Bind(6), Opt::Bind(7), Opt::Bind(8), Opt::Bind(9), Opt::ResetBinds, Opt::Back],
+        &[
+            Opt::Bind(0),
+            Opt::Bind(1),
+            Opt::Bind(2),
+            Opt::Bind(3),
+            Opt::Bind(4),
+            Opt::Bind(5),
+            Opt::Bind(6),
+            Opt::Bind(7),
+            Opt::Bind(8),
+            Opt::Bind(9),
+            Opt::Bind(10),
+            Opt::ResetBinds,
+            Opt::Back,
+        ],
     ),
     ("General", &[Opt::Name, Opt::Music, Opt::Sfx, Opt::Numbers, Opt::Meter, Opt::Overlay, Opt::Shake, Opt::UiScale, Opt::Markers, Opt::Cute, Opt::Back]),
     (
@@ -715,7 +731,18 @@ impl App {
             self.toggle_boss_rush();
             return;
         }
-        let on_challenge = (HUB_CHALLENGE_ROW..HUB_ROWS - 1).contains(&self.hub_sel);
+        if self.hub_sel == HUB_BIOME_ROW && (confirm() || left(false) || right(false) || mouse.left || mouse.right) {
+            self.cycle_biome(if left(false) || mouse.right { -1 } else { 1 });
+            return;
+        }
+        let toggle = confirm() || left(false) || right(false) || mouse.left || mouse.right;
+        if (HUB_CURSE_ROW..HUB_ROWS - 1).contains(&self.hub_sel) && toggle {
+            self.save.curses ^= ALL_CURSES[self.hub_sel - HUB_CURSE_ROW].bit();
+            self.save.store();
+            self.audio.play("select", 0.6);
+            return;
+        }
+        let on_challenge = (HUB_CHALLENGE_ROW..HUB_CURSE_ROW).contains(&self.hub_sel);
         if on_challenge && (confirm() || left(false) || right(false) || mouse.left || mouse.right) {
             let ch = ALL_CHALLENGES[self.hub_sel - HUB_CHALLENGE_ROW];
             self.save.challenges ^= ch.bit();
@@ -752,6 +779,11 @@ impl App {
             if rush { "Twelve lords, one after another, no warning. Thin hordes, level-ups after every lord." } else { "Hold out until dawn at 30:00. A lord every five minutes." };
         ui.text_r(about, x + w - 14.0, y + 23.0, 16.0, DIM);
         y += 38.0;
+        let biome = Biome::from_u8(self.save.settings.biome);
+        ui.row(x, y, w, 34.0, self.hub_sel == HUB_BIOME_ROW);
+        ui.text(&format!("<  {}  >", biome.name()), x + 14.0, y + 23.0, 20.0, PALE);
+        ui.text_r(biome.desc(), x + w - 14.0, y + 23.0, 16.0, DIM);
+        y += 38.0;
         for (i, ch) in ALL_CHALLENGES.iter().enumerate() {
             let on = self.save.challenges & ch.bit() != 0;
             ui.row(x, y, w, 28.0, self.hub_sel == HUB_CHALLENGE_ROW + i);
@@ -762,6 +794,19 @@ impl App {
             ui.text(ch.name(), x + 36.0, y + 20.0, 17.0, if on { PALE } else { DIM });
             ui.text(ch.desc(), x + 245.0, y + 20.0, 15.0, DIM);
             ui.text_r("+25% marks", x + w - 14.0, y + 20.0, 15.0, if on { EMBER } else { DIM });
+            y += 31.0;
+        }
+        for (i, cu) in ALL_CURSES.iter().enumerate() {
+            let on = self.save.curses & cu.bit() != 0;
+            let col = Color::new(0.75, 0.45, 1.0, 1.0);
+            ui.row(x, y, w, 28.0, self.hub_sel == HUB_CURSE_ROW + i);
+            draw_poly_lines(x + 20.5, y + 14.5, 4, 8.0, 45.0, 1.5, if on { col } else { DIM });
+            if on {
+                draw_poly(x + 20.5, y + 14.5, 4, 4.5, 45.0, col);
+            }
+            ui.text(&format!("Curse: {}", cu.name()), x + 36.0, y + 20.0, 17.0, if on { PALE } else { DIM });
+            ui.text(cu.desc(), x + 245.0, y + 20.0, 15.0, DIM);
+            ui.text_r("+20% marks", x + w - 14.0, y + 20.0, 15.0, if on { col } else { DIM });
             y += 31.0;
         }
         y += 10.0;

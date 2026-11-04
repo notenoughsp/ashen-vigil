@@ -52,13 +52,14 @@ impl World {
                     gained_xp += v * hero.stats.growth;
                 }
                 PickKind::Draught => {
-                    let amount = 40.0 * self.heroes[h].draught_mult();
+                    let amount = 40.0 * self.heroes[h].draught_mult() * if self.cursed_by(Curse::Famine) { 0.5 } else { 1.0 };
                     self.heroes[h].heal(amount);
                     self.sfx_at("kindle", 0.4, self.heroes[h].p.pos);
                     self.toast(&format!("Ashen Draught: +{:.0} health", amount));
                 }
                 PickKind::Bread => {
-                    self.heroes[h].heal(60.0);
+                    let amount = if self.cursed_by(Curse::Famine) { 30.0 } else { 60.0 };
+                    self.heroes[h].heal(amount);
                     self.sfx("kindle", 0.4);
                     self.toast(&format!("{} eats grave bread: +60 health", self.heroes[h].name.clone()));
                 }

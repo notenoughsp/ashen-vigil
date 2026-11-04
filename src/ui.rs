@@ -311,9 +311,20 @@ impl<'a> Ui<'a> {
             bx += 76.0;
         }
 
+        // The class skill: its key, its name, and a bar that fills as it cools down.
+        let (skill, _, cd) = me.class.skill();
+        let key = if using_pad() { "X" } else { key_label(Action::Skill) };
+        let ready = me.skill_cd <= 0.0;
+        let frac = if ready { 1.0 } else { 1.0 - (me.skill_cd / cd).clamp(0.0, 1.0) };
+        let col = if ready { Color::new(1.0, 0.8, 0.45, 0.75 + 0.25 * (w.time * 4.0).sin()) } else { DIM };
+        draw_rectangle(22.0, 145.0, 150.0, 14.0, Color::new(0.0, 0.0, 0.0, 0.6));
+        draw_rectangle(22.0, 155.0, 150.0 * frac, 4.0, if ready { GOLD } else { Color::new(0.45, 0.4, 0.35, 1.0) });
+        let label = if ready { format!("[{}] {}", key, skill) } else { format!("[{}] {}  {:.0}s", key, skill, me.skill_cd.ceil()) };
+        mono(&label, 25.0, 154.0, 13.0, col);
+
         // Companions.
         if w.heroes.len() > 1 {
-            let mut y = 162.0;
+            let mut y = 172.0;
             // Bars line up just past the longest name.
             let bar_x = w.heroes.iter().filter(|h| h.slot != me.slot).map(|h| 36.0 + self.width(&h.name, 15.0) + 10.0).fold(140.0, f32::max);
             for h in w.heroes.iter().filter(|h| h.slot != me.slot) {
@@ -356,6 +367,11 @@ impl<'a> Ui<'a> {
         }
 
         let mut marks: Vec<(Vec2, Color, String)> = Vec::new();
+        // The nearest cold brazier, so players find them.
+        let me_pos = w.me().p.pos;
+        if let Some(b) = w.braziers.iter().filter(|b| b.burn <= 0.0).min_by(|a, b| a.pos.distance_squared(me_pos).total_cmp(&b.pos.distance_squared(me_pos))) {
+            marks.push((b.pos, Color::new(1.0, 0.75, 0.45, 0.7), "Brazier".into()));
+        }
         if let Some(c) = w.cursed.as_ref().filter(|c| !c.accepted) {
             marks.push((c.pos, Color::new(0.75, 0.4, 1.0, 0.9), "Cursed shrine".into()));
         }
@@ -435,6 +451,15 @@ impl<'a> Ui<'a> {
             if !small.is_empty() {
                 self.text_c(small, sw * 0.5, cy + 34.0, 20.0, a(PALE, al * 0.9));
             }
+        }
+        if let Some((line, c, life)) = &w.quote {
+            // A lord's words, under the banner line, fading in and out.
+            let al = (life / 0.6).min(1.0).min((4.5 - life) / 0.3).clamp(0.0, 1.0);
+            let text = format!("\u{201c}{}\u{201d}", line);
+            let y = sh * 0.38 + 74.0;
+            let tw = self.width(&text, 24.0);
+            draw_rectangle(sw * 0.5 - tw * 0.5 - 18.0, y - 26.0, tw + 36.0, 36.0, Color::new(0.0, 0.0, 0.0, 0.45 * al));
+            self.text_c(&text, sw * 0.5, y, 24.0, a(*c, al));
         }
         if me.downed && !w.dead {
             self.spaced_c("FALLEN", sw * 0.5, sh * 0.6, 34.0, 8.0, a(BLOOD, 0.9));
@@ -526,7 +551,7 @@ impl<'a> Ui<'a> {
         y += ch + 10.0;
         let reroll_key = if using_pad() { "Y" } else { key_label(Action::Reroll) };
         let reroll = if me.rerolls > 0 { format!("   {}: reroll ({})", reroll_key, me.rerolls) } else { String::new() };
-        self.text_c(&format!("{}{}", hint("1-4, W/S + Enter, or click", "Stick + A"), reroll), sw * 0.5, y + 24.0, 16.0, DIM);
+        self.text_c(&format!("{}{}", hint("1-4, W/S + Enter or Space, or click", "Stick + A"), reroll), sw * 0.5, y + 24.0, 16.0, DIM);
         if w.heroes.len() > 1 {
             let others: Vec<String> = w.heroes.iter().filter(|h| h.slot != me.slot).map(|h| format!("{} {}", h.name, if h.picked { "(ready)" } else { "(choosing)" })).collect();
             self.text_c(&others.join("     "), sw * 0.5, y + 50.0, 16.0, DIM);

@@ -11,6 +11,29 @@ A dark-fantasy survivors-like in Rust ([macroquad](https://macroquad.rs)). Hold 
 | ![A boss fight](docs/boss.jpg) | ![Four players online](docs/coop.jpg) |
 | ![Blood Moon and the merchant](docs/events.jpg) | ![The summary after a vigil](docs/summary.jpg) |
 
+## Gallery
+
+**Foes and lords.** Thirteen kinds of foe across the top, the ten lords below them, the nine classes in the middle.
+
+![Every foe and every lord](docs/bestiary.jpg)
+
+**Three fields.** The Sunken Marsh with the Drowned Bride, and the Burning Cathedral with the Iron Penitent. Braziers burn where someone lit them; the lords announce themselves.
+
+| | |
+|---|---|
+| ![The Sunken Marsh](docs/marsh.jpg) | ![The Burning Cathedral](docs/cathedral.jpg) |
+| ![A lord in its last phase](docs/boss_phase.jpg) | ![Six weapons at work](docs/arsenal.jpg) |
+
+**Skins and the Wardrobe.** Eighteen looks for every class.
+
+![Every skin](docs/skins.jpg)
+
+| | |
+|---|---|
+| ![The Wardrobe](docs/wardrobe.jpg) | ![Level-up cards](docs/levelup.jpg) |
+| ![The main menu](docs/menu.jpg) | ![The Ash Shrine with mode, field, challenges and curses](docs/shrine.jpg) |
+| ![Soul upgrades in the Reliquary](docs/upgrades.jpg) | |
+
 ## Build from source
 
 With [Rust](https://rustup.rs) installed: `cargo run --release`. On Windows the scripts below do the rest. Releases are built by CI: pushing a tag like `v0.1.2` publishes a new release (small fixes raise the last number by one) with the exe.
@@ -37,7 +60,8 @@ The host simulates the world and sends each player a snapshot 30 times a second,
 |---|---|---|
 | WASD / arrows | left stick / d-pad | move |
 | Space / Shift | A / RB | roll (costs stamina, invulnerable while rolling) |
-| 1-4, W/S + Enter | stick + A | pick level-up |
+| E | X | class skill (see below) |
+| 1-4, W/S + Enter / Space | stick + A | pick level-up |
 | R | Y | reroll level-up (needs Insight) |
 | Tab (hold) | | damage per weapon |
 | Esc / P | Start | pause; Q / Select in pause abandons the vigil |
@@ -57,7 +81,12 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 
 - **Souls** are both experience and currency. Carried souls are lost on death and left as a **remnant** where you fell; reach it in the next vigil to reclaim them. Die again first and they are gone.
 - **Ash Shrines** appear at 2:30, 7:30, 12:30 ... Stand in one for 1.5 s to heal, bank your carried souls and repel nearby foes.
-- **The Ash Shrine** (Start) is where you pick a class, the mode and challenges, and begin.
+- **The Ash Shrine** (Start) is where you pick a class, the mode, the field, challenges and curses, and begin.
+- **Fields**: The Graveyard (archers and the restless), The Sunken Marsh (black water, leeches, ghouls and bloated things) and The Burning Cathedral (zealots, knights and gargoyles). Each has its own floor, props, light, foes and its own five lords; the Sovereign always ends the night. Online the host chooses.
+- **Lords**: ten in all. The Gravewarden, Pale Matriarch, Tolling Hermit and Ashen Sovereign, joined by the Drowned Bride (walls of water with one gap, a spiral of pillars), the Bog Mother (leaps, mud and ghouls), the Iron Penitent (a whirling flail, a lashing chain, three crushing steps), the Hollow Choir (a sweeping beam of voices and notes that follow you), the Stone Seraph (dives from the dark, drops stones) and the Pale Hound (zig-zag lunges and a howl that calls the pack). Every lord speaks when it arrives, when it grows desperate and as it falls; five of them rise once more at a quarter of their health with a new trick.
+- **Class skills** on E (X): Rally, Fan of Knives, Meteor, Sanctuary, Harvest, Hex Field, Blood Rite, Bolt Storm and CLANG, one per class, growing with your level. The HUD shows when it is ready.
+- **Curses** (at the Ash Shrine, or by the host for everyone): Frenzy, Famine, Volatile, Elite Tide, The Dark Hour, Brittle. Each adds 20% Ashen Marks.
+- **Braziers** stand all over every field. Stand by a cold one for a moment to light it: for two minutes it lights the dark, mends heroes near it and sets foes alight; it scatters a few souls when it catches. The nearest cold one is marked at the screen edge.
 - **Boss Rush** (a mode at the Ash Shrine, or the host's choice in the lobby): twelve lords, one after another with a three-second breather and no warning. Every lord is stronger than the last, the hordes are thin, you start with six level-ups and get three more per fallen lord. After the twelfth you can go on into an endless rush.
 - **The Reliquary** in the main menu has two pages. **Soul Upgrades** spends banked souls on 33 permanent upgrades (health, might, armor, regeneration, area, crit, pickup range, experience, damage to elites and bosses, dodging, less damage taken, cheaper rolls, merchant discounts, stronger draughts, extra projectiles, an extra weapon slot, an extra item slot and more). **Relics and Unlocks** spends **Ashen Marks**, earned at the end of every vigil, win or lose (time survived, bosses, level, kills, difficulty), on new classes, weapons and items and on twelve relics.
 - **The Wardrobe** in the main menu sells 18 hero skins for souls. A skin changes the hero's look in every class and is seen online too; your scarf keeps your player colour.
@@ -71,11 +100,11 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Mouse**: hover and click work in every menu and on the level-up cards; right click turns a value or class back.
 - **Level-up cards** show weapon and item icons and point out a card that fuses with or evolves something you carry. The HUD shows the same icons for weapons and items.
 - **Volume** moves in 1% steps; hold the key or use the mouse wheel to go faster.
-- **Achievements**: 67, each paying Ashen Marks once, on three pages under Records. There are secrets to find, too.
+- **Achievements**: 69, each paying Ashen Marks once, on three pages under Records. There are secrets to find, too.
 - **Logs**: every start writes a log to `%APPDATA%\AshenVigil\logs\` (the newest ten are kept), including crashes with their cause. A player who joined someone's vigil sends their log to the host at the end of each vigil and on a crash; the host keeps the last twenty under `logs\players\`. The log holds the game's own events and settings, not the Windows user name.
 - **First vigil**: a few tips appear during your first vigil.
 - **Boss strength** grows 17% per minute past 5:00, so later lords still take a while; a fight that lasts over three minutes lifts the fog ring. Past dawn the four lords take turns.
-- **Bosses** every 5 minutes, announced five seconds ahead, inside a fog ring you cannot leave: The Gravewarden, Pale Matriarch, The Tolling Hermit, Ashen Sovereign. All attacks are telegraphed. Each boss enters a second phase at half health. The finale at 30:00 is always the Sovereign.
+- **Bosses** every 5 minutes, announced five seconds ahead, inside a fog ring you cannot leave; which lords come depends on the field. All attacks are telegraphed. Each boss enters a second phase at half health. The finale at 30:00 is always the Sovereign.
 - **Enemy projectiles** are large and red. Your weapons destroy them: blades and sweeps cut them, projectiles and explosions shoot them down.
 - **Relics on the map** appear every 30-45 s near a player and vanish after a minute (marked on the screen edge): Bloodstone (+50% might), Quicksilver (weapons 40% faster), Aegis Ash (untouchable), a free item upgrade, a pyre bomb that burns everything around it, and grave bread (+60 health).
 - **Coffers** drop from bosses and gold-ringed elites. A weapon at level 10 plus its paired item evolves when you open a coffer.
@@ -83,7 +112,7 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Enemy projectiles** can be shot down, but they grow tougher along with the foes: a weak hit dents a late one, a strong one breaks it.
 - **Markers** for things off screen sit well inside the screen edge; Options > General sets how far.
 - **Damage meter** (top right): damage this vigil and in the last minute per player; hold Tab for your weapons.
-- **Late foes**: Cultists (from 6:00) light a fuse and explode, Shieldbearers (from 10:00) block most damage from the front, Necromancers (from 14:00) keep their distance and raise the dead.
+- **Late foes**: Cultists (from 6:00) light a fuse and explode, Shieldbearers (from 10:00) block most damage from the front, Necromancers (from 14:00) keep their distance and raise the dead. Leeches come in swarms, Banshees keep away and wail rings of slow bullets, Gargoyles creep up and then lunge; each field favours its own.
 - **Blood Moon** at 8:00 and 18:00 for a minute: red sky, more and harder-hitting foes, double souls.
 - **Cursed shrines** at 4:00, 13:00 and 22:00: stand in one to accept its trial, 40 s of tougher, denser foes, then a relic and a soul hoard.
 - **The merchant** at 6:00, 16:00 and 26:00 stays 75 s and sells a draught, a relic and a coffer for souls; prices rise with time.

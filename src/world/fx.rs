@@ -145,6 +145,12 @@ impl World {
                     self.banner = None;
                 }
             }
+            if let Some(q) = &mut self.quote {
+                q.2 -= dt;
+                if q.2 <= 0.0 {
+                    self.quote = None;
+                }
+            }
         }
         // Drifting embers around the camera.
         let embers = self.particles.iter().filter(|p| p.glow && p.vel.y < -5.0 && p.size < 2.0).count();

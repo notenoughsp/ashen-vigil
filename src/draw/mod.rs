@@ -377,6 +377,71 @@ impl World {
         }
     }
 
+    /// Braziers in the look of the field, cold or burning, with the kindling ring.
+    fn draw_braziers(&self) {
+        let t = self.time;
+        for (i, b) in self.braziers.iter().enumerate() {
+            if !self.on_screen(b.pos, 420.0) {
+                continue;
+            }
+            let p = b.pos;
+            let lit = b.burn > 0.0;
+            let fl = 0.85 + 0.15 * (t * 9.0 + i as f32).sin();
+            if lit {
+                draw_circle(p.x, p.y, BRAZIER_REACH, Color::new(1.0, 0.55, 0.2, 0.035));
+                draw_circle_lines(p.x, p.y, BRAZIER_REACH, 1.5, Color::new(1.0, 0.6, 0.25, 0.18));
+            }
+            draw_ellipse(p.x, p.y + 6.0, 20.0, 6.0, 0.0, rgba(0, 0, 0, 120));
+            let iron = rgba(46, 42, 40, 255);
+            let top = match self.biome {
+                Biome::Graveyard => {
+                    // A bowl on three legs.
+                    for dx in [-10.0, 0.0, 10.0] {
+                        draw_line(p.x + dx, p.y + 4.0, p.x + dx * 0.4, p.y - 14.0, 2.5, iron);
+                    }
+                    draw_ellipse(p.x, p.y - 16.0, 15.0, 6.0, 0.0, rgba(60, 54, 50, 255));
+                    draw_ellipse(p.x, p.y - 18.0, 12.0, 4.0, 0.0, rgba(24, 20, 18, 255));
+                    p + vec2(0.0, -20.0)
+                }
+                Biome::Marsh => {
+                    // A lantern hung from a crooked pole.
+                    draw_line(p.x, p.y + 4.0, p.x - 2.0, p.y - 46.0, 3.0, rgba(50, 40, 30, 255));
+                    draw_line(p.x - 2.0, p.y - 46.0, p.x + 12.0, p.y - 44.0, 2.0, rgba(50, 40, 30, 255));
+                    let lamp = p + vec2(12.0 + (t * 1.3 + i as f32).sin() * 1.5, -34.0);
+                    draw_line(p.x + 12.0, p.y - 44.0, lamp.x, lamp.y - 6.0, 1.0, iron);
+                    draw_rectangle(lamp.x - 5.0, lamp.y - 6.0, 10.0, 12.0, iron);
+                    draw_rectangle(lamp.x - 3.5, lamp.y - 4.5, 7.0, 9.0, if lit { rgba(255, 190, 90, 255) } else { rgba(30, 30, 26, 255) });
+                    lamp
+                }
+                Biome::Cathedral => {
+                    // A tall candelabrum with three candles.
+                    draw_line(p.x, p.y + 4.0, p.x, p.y - 40.0, 3.0, rgba(90, 70, 40, 255));
+                    draw_line(p.x - 12.0, p.y - 34.0, p.x + 12.0, p.y - 34.0, 2.5, rgba(90, 70, 40, 255));
+                    for dx in [-12.0, 0.0, 12.0] {
+                        draw_rectangle(p.x + dx - 2.0, p.y - 44.0 + if dx == 0.0 { -6.0 } else { 0.0 }, 4.0, 10.0, rgba(210, 200, 170, 255));
+                    }
+                    p + vec2(0.0, -48.0)
+                }
+            };
+            if lit {
+                let flames: &[f32] = if self.biome == Biome::Cathedral { &[-12.0, 0.0, 12.0] } else { &[0.0] };
+                for dx in flames {
+                    let base = top + vec2(*dx, if self.biome == Biome::Cathedral && *dx != 0.0 { 6.0 } else { 0.0 });
+                    let h = if self.biome == Biome::Graveyard { 16.0 } else { 7.0 };
+                    draw_circle(base.x, base.y - h * 0.4, h * 0.9 * fl, Color::new(1.0, 0.5, 0.15, 0.2));
+                    draw_triangle(base + vec2(-h * 0.4, 0.0), base + vec2(h * 0.4, 0.0), base + vec2((t * 8.0 + dx).sin() * 2.0, -h * fl), rgba(255, 140, 40, 230));
+                    draw_triangle(base + vec2(-h * 0.2, 0.0), base + vec2(h * 0.2, 0.0), base + vec2(0.0, -h * 0.6 * fl), rgba(255, 230, 150, 255));
+                }
+            } else {
+                draw_circle(top.x, top.y, 2.0, Color::new(1.0, 0.4, 0.1, 0.3 + 0.2 * (t * 2.0 + i as f32).sin()));
+            }
+            if b.kindle > 0.0 && !lit {
+                let k = (b.kindle / BRAZIER_KINDLE).clamp(0.0, 1.0);
+                draw_arc(p.x, p.y, 40, 34.0, -90.0, 3.0, 360.0 * k, rgba(255, 190, 110, 255));
+            }
+        }
+    }
+
     fn draw_shrines(&self) {
         for s in &self.shrines {
             let p = s.pos;
@@ -448,6 +513,9 @@ impl World {
             EnemyKind::Cultist => (p + vec2(fx * r * 0.39, -r * 0.8), r * 0.1, rgba(255, 200, 80, 255)),
             EnemyKind::Shieldbearer => (p + vec2(-dir.x * r * 0.15, -r * 0.85) + dir * r * 0.12, r * 0.12, rgba(255, 90, 40, 255)),
             EnemyKind::Necromancer => (p + vec2(fx * r * 0.1, -r * 0.85 + (t * 2.0).sin() * r * 0.15), r * 0.12, rgba(120, 255, 140, 255)),
+            EnemyKind::Leech => return None,
+            EnemyKind::Gargoyle => (p + vec2(fx * r * 0.32, -r * 0.77), r * 0.14, rgba(255, 150, 60, 255)),
+            EnemyKind::Banshee => (p + vec2(fx * r * 0.05, -r * 0.77 + (t * 2.4).sin() * r * 0.15), r * 0.12, rgba(200, 220, 255, 255)),
             EnemyKind::Boss(_) => return None,
         })
     }
@@ -531,6 +599,7 @@ impl World {
             self.draw_hero_light();
         }
         self.draw_shrines();
+        self.draw_braziers();
         self.draw_events();
         self.draw_fx_under();
         self.draw_auras();

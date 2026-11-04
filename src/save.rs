@@ -13,6 +13,7 @@ pub enum Action {
     Left,
     Right,
     Roll,
+    Skill,
     Reroll,
     Pause,
     Weapons,
@@ -20,8 +21,8 @@ pub enum Action {
     Mute,
 }
 
-pub const ACTIONS: [Action; 10] =
-    [Action::Up, Action::Down, Action::Left, Action::Right, Action::Roll, Action::Reroll, Action::Pause, Action::Weapons, Action::Numbers, Action::Mute];
+pub const ACTIONS: [Action; 11] =
+    [Action::Up, Action::Down, Action::Left, Action::Right, Action::Roll, Action::Skill, Action::Reroll, Action::Pause, Action::Weapons, Action::Numbers, Action::Mute];
 
 impl Action {
     pub fn label(self) -> &'static str {
@@ -31,6 +32,7 @@ impl Action {
             Action::Left => "Move left",
             Action::Right => "Move right",
             Action::Roll => "Roll",
+            Action::Skill => "Class skill",
             Action::Reroll => "Reroll level-up",
             Action::Pause => "Pause",
             Action::Weapons => "Damage per weapon (hold)",
@@ -46,6 +48,7 @@ impl Action {
             Action::Left => KeyCode::A,
             Action::Right => KeyCode::D,
             Action::Roll => KeyCode::Space,
+            Action::Skill => KeyCode::E,
             Action::Reroll => KeyCode::R,
             Action::Pause => KeyCode::P,
             Action::Weapons => KeyCode::Tab,
@@ -61,6 +64,7 @@ impl Action {
             Action::Left => "left",
             Action::Right => "right",
             Action::Roll => "roll",
+            Action::Skill => "skill",
             Action::Reroll => "reroll",
             Action::Pause => "pause",
             Action::Weapons => "weapons",
@@ -203,6 +207,8 @@ pub struct Settings {
     pub marker_inset: u8,
     /// The next vigil (alone, or hosted) is a boss rush.
     pub boss_rush: bool,
+    /// The field to keep the vigil on, see `world::ALL_BIOMES`.
+    pub biome: u8,
     /// The soft variant: pink instead of blood, hearts instead of bullets, blushing foes.
     pub cute: bool,
 }
@@ -242,6 +248,7 @@ impl Default for Settings {
             ui_scale: 0,
             marker_inset: 12,
             boss_rush: false,
+            biome: 0,
             cute: false,
         }
     }
@@ -279,6 +286,8 @@ pub struct Save {
     pub best_damage: f64,
     /// Challenge bits chosen at the Ash Shrine.
     pub challenges: u8,
+    /// Curse bits chosen at the Ash Shrine, see `Curse`.
+    pub curses: u8,
     pub readonly: bool,
     pub settings: Settings,
 }
@@ -305,6 +314,7 @@ impl Default for Save {
             best_level: 0,
             best_damage: 0.0,
             challenges: 0,
+            curses: 0,
             readonly: false,
             settings: Settings::default(),
         }
@@ -417,11 +427,13 @@ impl Save {
                 "shrine_levels" => s.shrine_levels = v.parse().unwrap_or(0),
                 "won_classes" => s.won_classes = v.parse().unwrap_or(0),
                 "boss_rush" => st.boss_rush = flag(v),
+                "biome" => st.biome = v.parse::<u8>().unwrap_or(0).min(2),
                 "marker_inset" => st.marker_inset = v.parse::<u8>().unwrap_or(12).min(MAX_MARKER_INSET),
                 "best_kills" => s.best_kills = v.parse().unwrap_or(0),
                 "best_level" => s.best_level = v.parse().unwrap_or(0),
                 "best_damage" => s.best_damage = v.parse().unwrap_or(0.0),
                 "challenges" => s.challenges = v.parse().unwrap_or(0),
+                "curses" => s.curses = v.parse::<u8>().unwrap_or(0) & 63,
                 "run" => {
                     if let Some(r) = parse_run(v) {
                         s.runs.push(r);
@@ -534,7 +546,7 @@ impl Save {
             out += &format!("remnant={:.0},{:.0},{}\n", p.x, p.y, n);
         }
         out += &format!("name={}\nlast_ip={}\nui_scale={}\n", st.name, st.last_ip, st.ui_scale);
-        out += &format!("cute={}\ncute_found={}\nboss_rush={}\n", b(st.cute), b(self.cute_found), b(st.boss_rush));
+        out += &format!("cute={}\ncute_found={}\nboss_rush={}\nbiome={}\ncurses={}\n", b(st.cute), b(self.cute_found), b(st.boss_rush), st.biome, self.curses);
         out += &format!(
             "skins={}\nskin={}\nshrine_levels={}\nwon_classes={}\nmarker_inset={}\n",
             self.skins, self.profile.skin, self.shrine_levels, self.won_classes, st.marker_inset

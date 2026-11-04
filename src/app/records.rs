@@ -109,6 +109,7 @@ impl App {
         check(past_dawn >= 1800.0, Achievement::Eternal);
         check(past_dawn >= 3600.0, Achievement::Nightless);
         check(me.dmg_total >= 1.0e6, Achievement::MillionCuts);
+        check(w.braziers.iter().filter(|b| b.burn > 0.0).count() >= 10, Achievement::Lamplighter);
         check(me.dmg_total >= 1.0e9, Achievement::Unmaking);
         check(w.time >= 300.0 && me.first_hurt > 300.0, Achievement::Ghost);
         for a in earned {
@@ -191,8 +192,12 @@ impl App {
         let class = me.class;
         let cute = w.cute;
         let rush = w.boss_rush;
+        let cursed = w.curses.count_ones();
         if won && rush {
             self.unlock(Achievement::Gauntlet);
+        }
+        if won && !rush && cursed >= 3 {
+            self.unlock(Achievement::Accursed);
         }
         // The dawn achievements belong to the vigil, not to the boss rush.
         let won = won && !rush;

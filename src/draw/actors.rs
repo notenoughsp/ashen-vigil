@@ -971,6 +971,76 @@ impl World {
                 ball(top, r * 0.25, c(rgba(200, 196, 176, 255)), false);
                 eyes(top, r * 0.08, 1.0, with_alpha(rgba(120, 255, 140, 255), a));
             }
+            EnemyKind::Leech => {
+                // A blind, segmented worm that wriggles toward warmth.
+                let ang = dir.to_angle();
+                let body = c(rgba(96, 22, 34, 255));
+                for k in (0..5).rev() {
+                    let back = -dir * (k as f32 * r * 0.38);
+                    let wig = dir.perp() * (t * 12.0 + k as f32 * 1.2).sin() * r * 0.25 * (k as f32 / 4.0);
+                    let rr = r * (0.62 - k as f32 * 0.08);
+                    ball(p + back + wig, rr, if k % 2 == 0 { body } else { shade(body, 0.8) }, k == 0);
+                }
+                // A round mouth ringed with teeth.
+                let mouth = p + dir * r * 0.4;
+                draw_circle(mouth.x, mouth.y, r * 0.3, c(rgba(40, 4, 8, 255)));
+                for k in 0..6 {
+                    let tip = mouth + Vec2::from_angle(ang + k as f32 / 6.0 * TAU) * r * 0.25;
+                    draw_circle(tip.x, tip.y, 0.8, c(rgba(230, 210, 190, 255)));
+                }
+            }
+            EnemyKind::Gargoyle => {
+                // A crouching stone devil with folded wings; it springs when it lunges.
+                let stone = c(rgba(104, 102, 98, 255));
+                let lunging = e.fuse > 0.0;
+                let spread = if lunging { 1.0 } else { 0.55 + 0.1 * (t * 2.0).sin() };
+                for s in [-1.0, 1.0] {
+                    let root = p + vec2(s * r * 0.35, -r * 0.5);
+                    let tip = root + vec2(s * r * 1.3 * spread, -r * 0.7);
+                    let low = root + vec2(s * r * 1.1 * spread, r * 0.5);
+                    draw_triangle(root, tip, low, c(rgba(78, 76, 74, 255)));
+                    draw_line(root.x, root.y, tip.x, tip.y, 1.2, c(rgba(60, 58, 56, 255)));
+                    for k in 1..3 {
+                        let rib = root.lerp(tip, 0.33 * k as f32);
+                        let end = root.lerp(low, 0.33 * k as f32 + 0.2);
+                        draw_line(rib.x, rib.y, end.x, end.y, 0.8, c(rgba(60, 58, 56, 255)));
+                    }
+                }
+                for s in [-1.0, 1.0] {
+                    limb(p + vec2(s * r * 0.3, r * 0.3), p + vec2(s * r * 0.55, r * 0.95), r * 0.22, shade(stone, 0.85), true);
+                }
+                blob(p, r * 0.6, r * 0.7, 0.0, stone, true);
+                // Cracks in the stone.
+                draw_line(p.x - r * 0.2, p.y - r * 0.3, p.x + r * 0.05, p.y + r * 0.2, 1.0, c(rgba(50, 48, 46, 255)));
+                let head = p + vec2(fx * r * 0.2, -r * 0.75);
+                ball(head, r * 0.42, stone, true);
+                for s in [-1.0, 1.0] {
+                    draw_triangle(head + vec2(s * r * 0.2, -r * 0.25), head + vec2(s * r * 0.05, -r * 0.3), head + vec2(s * r * 0.35, -r * 0.75), c(rgba(80, 78, 76, 255)));
+                }
+                draw_line(head.x + fx * r * 0.05, head.y + r * 0.2, head.x + fx * r * 0.35, head.y + r * 0.2, 1.2, c(rgba(30, 28, 28, 255)));
+                eyes(head + vec2(fx * r * 0.12, -r * 0.02), r * 0.14, r * 0.08, with_alpha(rgba(255, 150, 60, 255), a));
+            }
+            EnemyKind::Banshee => {
+                // A pale woman of mist with streaming hair, mouth open in a wail.
+                let p = p + vec2(0.0, (t * 2.4).sin() * r * 0.15);
+                let mist = Color::new(0.78, 0.84, 0.95, 0.55 * a);
+                rag(p + vec2(-r * 0.55, -r * 0.4), p + vec2(r * 0.55, -r * 0.4), r * 1.5, (t * 1.8).sin() * r * 0.4, flashed(mist, fl), e.phase, false);
+                for k in 0..5 {
+                    let base = p + vec2(-r * 0.45 + k as f32 * r * 0.22, -r * 0.9);
+                    let tip = base + vec2(-fx * r * 0.9 + (t * 3.0 + k as f32).sin() * r * 0.2, r * 0.3 + k as f32 * r * 0.1);
+                    draw_line(base.x, base.y, tip.x, tip.y, 2.0, Color::new(0.85, 0.88, 0.95, 0.5 * a));
+                }
+                for s in [-1.0, 1.0] {
+                    let hand = p + vec2(s * r * 0.9, -r * 0.1 + (t * 3.0 + s).sin() * r * 0.15);
+                    draw_line(p.x + s * r * 0.3, p.y - r * 0.4, hand.x, hand.y, r * 0.12, Color::new(0.85, 0.9, 1.0, 0.6 * a));
+                }
+                let head = p + vec2(fx * r * 0.05, -r * 0.75);
+                ball(head, r * 0.36, flashed(Color::new(0.88, 0.9, 0.96, 0.85 * a), fl), false);
+                draw_circle(head.x - r * 0.12, head.y - r * 0.02, r * 0.08, Color::new(0.05, 0.05, 0.1, a));
+                draw_circle(head.x + r * 0.12, head.y - r * 0.02, r * 0.08, Color::new(0.05, 0.05, 0.1, a));
+                let wail = 0.12 + 0.05 * (t * 9.0).sin();
+                draw_ellipse(head.x, head.y + r * 0.2, r * 0.1, r * wail, 0.0, Color::new(0.05, 0.05, 0.1, a));
+            }
             EnemyKind::Boss(_) => {}
         }
     }
@@ -989,6 +1059,9 @@ impl World {
             EnemyKind::Cultist => rgba(110, 22, 22, 255),
             EnemyKind::Shieldbearer => rgba(86, 64, 42, 255),
             EnemyKind::Necromancer => rgba(60, 80, 56, 255),
+            EnemyKind::Leech => rgba(96, 22, 34, 255),
+            EnemyKind::Gargoyle => rgba(104, 102, 98, 255),
+            EnemyKind::Banshee => Color::new(0.8, 0.85, 0.95, 0.6),
             _ => rgba(66, 70, 82, 255),
         };
         let col = with_alpha(flashed(col, e.flash), e.alpha);
@@ -1144,6 +1217,220 @@ impl World {
                 draw_line(bell.x - r * 0.1, bell.y - r * 0.18, bell.x - r * 0.2, bell.y + r * 0.2, 2.0, c(rgba(240, 220, 150, 255)));
                 let clap = (t * 3.0).cos() * r * 0.06;
                 draw_circle(bell.x + clap, bell.y + r * 0.36, r * 0.07, c(rgba(110, 86, 40, 255)));
+            }
+            BossKind::Bride => {
+                // A drowned bride in a sodden veil, floating above black water.
+                let p = p + vec2(0.0, (t * 1.6).sin() * r * 0.06);
+                draw_ellipse(p.x, p.y + r * 0.95, r * 1.3, r * 0.35, 0.0, Color::new(0.1, 0.3, 0.35, 0.3 * a));
+                let dress = c(rgba(196, 206, 200, 235));
+                rag(p + vec2(-r * 0.6, -r * 0.3), p + vec2(r * 0.6, -r * 0.3), r * 1.35, (t * 1.2).sin() * r * 0.15, dress, 2.0, true);
+                rag(p + vec2(-r * 0.4, -r * 0.2), p + vec2(r * 0.4, -r * 0.2), r * 1.1, (t * 1.5).sin() * r * 0.2, c(rgba(150, 170, 168, 220)), 4.0, false);
+                // Weeds and water dripping from the hem.
+                for k in 0..6 {
+                    let x = p.x - r * 0.55 + k as f32 * r * 0.22;
+                    let drip = ((t * 1.4 + k as f32 * 0.7).fract()) * r * 0.4;
+                    draw_line(x, p.y + r * 1.0, x + (k as f32).sin() * 3.0, p.y + r * 1.1 + drip, 1.5, c(rgba(60, 90, 70, 220)));
+                    draw_circle(x, p.y + r * 1.15 + drip, 1.4, Color::new(0.5, 0.75, 0.85, 0.7 * a));
+                }
+                blob(p + vec2(0.0, -r * 0.45), r * 0.42, r * 0.5, 0.0, dress, true);
+                // A bouquet of dead flowers held to the chest.
+                let bq = p + vec2(fx * r * 0.15, -r * 0.3);
+                for (k, col) in [rgba(90, 60, 80, 255), rgba(70, 80, 60, 255), rgba(110, 70, 70, 255)].iter().enumerate() {
+                    ball(bq + vec2((k as f32 - 1.0) * r * 0.13, -((k % 2) as f32) * r * 0.08), r * 0.1, c(*col), false);
+                }
+                for s in [-1.0, 1.0] {
+                    limb(p + vec2(s * r * 0.35, -r * 0.65), bq + vec2(s * r * 0.1, r * 0.05), r * 0.09, c(rgba(200, 214, 214, 255)), true);
+                }
+                let head = p + vec2(fx * r * 0.04, -r * 1.05);
+                ball(head, r * 0.3, c(rgba(200, 216, 218, 255)), true);
+                // Long wet hair and a veil.
+                for k in 0..6 {
+                    let base = head + vec2(-r * 0.25 + k as f32 * r * 0.1, -r * 0.1);
+                    let tip = base + vec2((t * 1.3 + k as f32).sin() * r * 0.1, r * 0.8);
+                    draw_line(base.x, base.y, tip.x, tip.y, 2.0, c(rgba(30, 36, 40, 255)));
+                }
+                draw_triangle(head + vec2(-r * 0.45, r * 0.1), head + vec2(r * 0.45, r * 0.1), head + vec2(0.0, -r * 0.45), Color::new(0.9, 0.95, 0.95, 0.35 * a));
+                draw_circle(head.x - r * 0.1, head.y, r * 0.07, OUTLINE);
+                draw_circle(head.x + r * 0.1, head.y, r * 0.07, OUTLINE);
+                // Black tears.
+                for s in [-1.0, 1.0] {
+                    draw_line(head.x + s * r * 0.1, head.y + r * 0.05, head.x + s * r * 0.11, head.y + r * 0.28, 1.2, c(rgba(20, 30, 40, 255)));
+                }
+            }
+            BossKind::BogMother => {
+                // A vast swamp toad, crowned with reeds, with a dozen eyes.
+                let breathe = 1.0 + (t * 2.0).sin() * 0.04;
+                let skin = c(rgba(72, 92, 54, 255));
+                for s in [-1.0, 1.0] {
+                    limb(p + vec2(s * r * 0.6, r * 0.2), p + vec2(s * r * 1.05, r * 0.85), r * 0.22, shade(skin, 0.8), true);
+                    for k in -1..=1 {
+                        let toe = p + vec2(s * r * 1.05 + k as f32 * r * 0.1, r * 0.95);
+                        draw_circle(toe.x, toe.y, r * 0.07, c(rgba(110, 130, 80, 255)));
+                    }
+                }
+                blob(p, r * 1.05 * breathe, r * 0.8 * breathe, 0.0, skin, true);
+                // Warts and the pale belly.
+                draw_ellipse(p.x, p.y + r * 0.3, r * 0.7, r * 0.38, 0.0, c(rgba(150, 160, 110, 255)));
+                for k in 0..9 {
+                    let a0 = e.phase + k as f32 * 0.7;
+                    let q = p + vec2(a0.cos() * r * 0.75, a0.sin() * r * 0.35 - r * 0.3);
+                    draw_circle(q.x, q.y, r * 0.06, c(rgba(56, 70, 40, 255)));
+                }
+                // Reeds growing out of its back.
+                for k in 0..7 {
+                    let base = p + vec2(-r * 0.6 + k as f32 * r * 0.2, -r * 0.55);
+                    let tip = base + vec2((t * 1.1 + k as f32).sin() * r * 0.15, -r * (0.6 + (k % 3) as f32 * 0.2));
+                    draw_line(base.x, base.y, tip.x, tip.y, 2.0, c(rgba(110, 120, 60, 255)));
+                    if k % 2 == 0 {
+                        draw_ellipse(tip.x, tip.y, r * 0.05, r * 0.14, 0.0, c(rgba(90, 60, 40, 255)));
+                    }
+                }
+                // A wide mouth and many small eyes.
+                let mouth = p + vec2(fx * r * 0.1, r * 0.05);
+                draw_arc(mouth.x, mouth.y - r * 0.2, 24, r * 0.75, 30.0, 3.0, 120.0, c(rgba(30, 20, 20, 255)));
+                for k in 0..6 {
+                    let q = p + vec2(-r * 0.5 + k as f32 * r * 0.2, -r * 0.35 - ((k as f32 - 2.5).abs() * -0.06 + 0.15) * r);
+                    ball(q, r * 0.08, c(rgba(220, 200, 90, 255)), false);
+                    draw_circle(q.x + fx * r * 0.02, q.y, r * 0.035, OUTLINE);
+                }
+            }
+            BossKind::Penitent => {
+                // A hooded giant bound in chains, a spiked flail swinging around it.
+                let robe = c(rgba(70, 58, 50, 255));
+                let iron = c(rgba(90, 92, 100, 255));
+                let s = (t * 2.0).sin() * r * 0.1;
+                for (side, sw) in [(-1.0, s), (1.0, -s)] {
+                    limb(p + vec2(side * r * 0.35, r * 0.4), p + vec2(side * r * 0.4 + sw, r * 0.95), r * 0.27, shade(robe, 0.8), true);
+                }
+                rag(p + vec2(-r * 0.75, -r * 0.5), p + vec2(r * 0.75, -r * 0.5), r * 1.4, -fx * r * 0.15, robe, 3.0, true);
+                blob(p, r * 0.8, r * 0.8, 0.0, robe, true);
+                // Chains wound across the body, an iron cage around the head.
+                for row in 0..3 {
+                    for k in 0..9 {
+                        let q = p + vec2(-r * 0.7 + k as f32 * r * 0.175, -r * 0.45 + row as f32 * r * 0.35 + (k as f32 * 0.8 + row as f32).sin() * 2.0);
+                        draw_circle_lines(q.x, q.y, 2.4, 1.3, iron);
+                    }
+                }
+                let head = p + vec2(fx * r * 0.05, -r * 0.85);
+                draw_triangle(head + vec2(-r * 0.5, r * 0.3), head + vec2(r * 0.5, r * 0.3), head + vec2(-fx * r * 0.2, -r * 0.7), robe);
+                ball(head, r * 0.4, shade(robe, 0.9), true);
+                draw_circle(head.x + fx * r * 0.08, head.y + r * 0.05, r * 0.26, OUTLINE);
+                for k in 0..4 {
+                    let x = head.x - r * 0.3 + k as f32 * r * 0.2;
+                    draw_line(x, head.y - r * 0.35, x, head.y + r * 0.3, 2.0, iron);
+                }
+                eyes(head + vec2(fx * r * 0.08, r * 0.05), r * 0.1, 2.0, with_alpha(rgba(255, 200, 120, 255), a));
+                // The flail: a chain from the fist to a spiked ball circling it.
+                let fist = p + vec2(fx * r * 0.8, -r * 0.1);
+                ball(fist, r * 0.18, iron, true);
+                let ang = t * 3.0;
+                let ballp = fist + Vec2::from_angle(ang) * r * 1.4;
+                chain(fist, ballp, iron);
+                ball(ballp, r * 0.3, c(rgba(70, 70, 78, 255)), true);
+                for k in 0..8 {
+                    let sp = Vec2::from_angle(k as f32 / 8.0 * TAU + ang);
+                    let q = ballp + sp * r * 0.3;
+                    let tip = ballp + sp * r * 0.48;
+                    draw_triangle(q + sp.perp() * r * 0.07, q - sp.perp() * r * 0.07, tip, c(rgba(150, 150, 160, 255)));
+                }
+            }
+            BossKind::Choir => {
+                // Three faces on one floating shroud, mouths open in one long note.
+                let p = p + vec2(0.0, (t * 1.8).sin() * r * 0.1);
+                let shroud = Color::new(0.24, 0.2, 0.32, 0.9 * a);
+                rag(p + vec2(-r * 0.9, -r * 0.4), p + vec2(r * 0.9, -r * 0.4), r * 1.6, (t * 1.4).sin() * r * 0.3, flashed(shroud, fl), 5.0, true);
+                draw_circle(p.x, p.y - r * 0.2, r * 1.3, Color::new(0.7, 0.5, 1.0, 0.06 * a));
+                for (k, &(dx, dy, size)) in [(-0.55f32, -0.55f32, 0.32f32), (0.0, -0.85, 0.38), (0.55, -0.55, 0.32)].iter().enumerate() {
+                    let head = p + vec2(dx * r, dy * r + (t * 3.0 + k as f32).sin() * r * 0.05);
+                    ball(head, r * size, flashed(Color::new(0.86, 0.84, 0.9, a), fl), true);
+                    draw_circle(head.x - r * size * 0.35, head.y - r * size * 0.1, r * size * 0.18, OUTLINE);
+                    draw_circle(head.x + r * size * 0.35, head.y - r * size * 0.1, r * size * 0.18, OUTLINE);
+                    let sing = 0.3 + 0.1 * (t * 6.0 + k as f32 * 2.0).sin();
+                    draw_ellipse(head.x, head.y + r * size * 0.4, r * size * 0.22, r * size * sing, 0.0, OUTLINE);
+                    // A thorn crown on the middle face.
+                    if k == 1 {
+                        for j in 0..5 {
+                            let a0 = -PI * 0.5 + (j as f32 - 2.0) * 0.35;
+                            let q = head + Vec2::from_angle(a0) * r * size;
+                            let tip = head + Vec2::from_angle(a0) * r * size * 1.5;
+                            draw_line(q.x, q.y, tip.x, tip.y, 1.5, c(rgba(200, 170, 90, 255)));
+                        }
+                    }
+                }
+                // Notes rising from the song.
+                for k in 0..3 {
+                    let f = (t * 0.5 + k as f32 / 3.0).fract();
+                    let q = p + vec2((k as f32 - 1.0) * r * 0.6 + (t * 2.0 + k as f32).sin() * r * 0.2, -r * 1.2 - f * r * 1.2);
+                    draw_circle(q.x, q.y, r * 0.07, Color::new(0.9, 0.8, 1.0, (1.0 - f) * a));
+                    draw_line(q.x + r * 0.06, q.y, q.x + r * 0.06, q.y - r * 0.25, 1.2, Color::new(0.9, 0.8, 1.0, (1.0 - f) * a));
+                }
+            }
+            BossKind::Seraph => {
+                // A broken stone angel with great wings and a cracked halo.
+                let stone = c(rgba(150, 148, 142, 255));
+                let beat = (t * 2.5).sin() * 0.15;
+                for s in [-1.0, 1.0] {
+                    for k in 0..4 {
+                        let root = p + vec2(s * r * 0.3, -r * 0.5);
+                        let a0 = -PI * 0.5 + s * (0.9 + k as f32 * 0.35 + beat);
+                        let tip = root + Vec2::from_angle(a0) * r * (1.6 - k as f32 * 0.2);
+                        let back = root + Vec2::from_angle(a0 + s * 0.35) * r * (1.3 - k as f32 * 0.2);
+                        draw_triangle(root, tip, back, c(rgba(130 - k * 8, 128 - k * 8, 124 - k * 8, 255)));
+                    }
+                }
+                rag(p + vec2(-r * 0.5, -r * 0.3), p + vec2(r * 0.5, -r * 0.3), r * 1.2, 0.0, shade(stone, 0.9), 6.0, true);
+                blob(p + vec2(0.0, -r * 0.35), r * 0.45, r * 0.55, 0.0, stone, true);
+                // Cracks and a missing arm; the other holds a broken sword.
+                for (a0, b0) in [(vec2(-0.2, -0.6), vec2(0.1, -0.1)), (vec2(0.15, -0.4), vec2(0.3, 0.1))] {
+                    draw_line(p.x + a0.x * r, p.y + a0.y * r, p.x + b0.x * r, p.y + b0.y * r, 1.2, c(rgba(70, 68, 66, 255)));
+                }
+                let hand = p + vec2(fx * r * 0.6, -r * 0.2);
+                limb(p + vec2(fx * r * 0.35, -r * 0.6), hand, r * 0.13, stone, true);
+                let tip = hand + vec2(fx * r * 0.3, -r * 0.9);
+                draw_line(hand.x, hand.y, tip.x, tip.y, 5.0, OUTLINE);
+                draw_line(hand.x, hand.y, tip.x, tip.y, 3.5, c(rgba(170, 170, 176, 255)));
+                let head = p + vec2(fx * r * 0.05, -r * 1.05);
+                ball(head, r * 0.3, stone, true);
+                draw_line(head.x - r * 0.15, head.y, head.x + r * 0.15, head.y, 1.5, c(rgba(60, 58, 56, 255)));
+                // The halo, cracked and flickering.
+                let fl2 = 0.7 + 0.3 * (t * 7.0).sin();
+                draw_arc(head.x, head.y - r * 0.45, 24, r * 0.35, 200.0, 3.0, 290.0, Color::new(1.0, 0.85, 0.5, fl2 * a));
+            }
+            BossKind::Hound => {
+                // A huge pale hound, ribs showing, running low; seen from the side like the
+                // heroes, so it reads as a hound from every direction.
+                let fwd = vec2(fx, 0.0);
+                let ang = fwd.to_angle();
+                let side = vec2(0.0, 0.35);
+                let fur = c(rgba(200, 196, 190, 255));
+                let run = t * 12.0;
+                for k in 0..4 {
+                    let front = k < 2;
+                    let sgn = if k % 2 == 0 { 1.0 } else { -1.0 };
+                    let ph = (run + if k == 0 || k == 3 { 0.0 } else { PI }).sin();
+                    let root = p + fwd * if front { r * 0.5 } else { -r * 0.55 } + side * sgn * r * 0.3;
+                    let foot = root + fwd * ph * r * 0.35 + vec2(0.0, r * 0.6);
+                    limb(root, foot, r * 0.15, shade(fur, 0.85), true);
+                }
+                blob(p, r * 1.0, r * 0.5, ang, fur, true);
+                for k in 0..5 {
+                    let q = p + fwd * (r * 0.4 - k as f32 * r * 0.2);
+                    draw_line(q.x - side.x * r * 0.3, q.y - side.y * r * 0.3 - r * 0.1, q.x + side.x * r * 0.3, q.y + side.y * r * 0.3 - r * 0.1, 1.0, c(rgba(140, 134, 128, 255)));
+                }
+                // A tail and a long skull-like head with burning eyes.
+                let tail = p - fwd * r * 1.0;
+                let tip = tail - fwd * r * 0.6 + vec2(0.0, -r * 0.3 + (t * 8.0).sin() * r * 0.15);
+                draw_line(tail.x, tail.y, tip.x, tip.y, 3.0, fur);
+                let head = p + fwd * r * 1.0 - vec2(0.0, r * 0.15);
+                blob(head, r * 0.45, r * 0.3, ang, fur, true);
+                let snout = head + fwd * r * 0.4;
+                ball(snout, r * 0.18, c(rgba(180, 176, 170, 255)), false);
+                draw_line(snout.x, snout.y + r * 0.05, snout.x - fwd.x * r * 0.25, snout.y + r * 0.1, 1.2, c(rgba(110, 10, 12, 255)));
+                for s in [-1.0, 1.0] {
+                    let ear = head - fwd * r * 0.15 + side * s * r * 0.2;
+                    draw_triangle(ear, ear - fwd * r * 0.1 + vec2(0.0, -r * 0.35), ear + side * s * r * 0.12, fur);
+                }
+                eyes(head + fwd * r * 0.12 - vec2(0.0, r * 0.08), r * 0.12, r * 0.07, with_alpha(rgba(255, 60, 40, 255), a));
             }
             BossKind::Sovereign => {
                 let fl2 = (t * 9.0).sin();

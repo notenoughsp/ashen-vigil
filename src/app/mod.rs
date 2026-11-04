@@ -62,6 +62,8 @@ pub struct Lobby {
     /// The host chose a boss rush, and these challenge bits.
     pub rush: bool,
     pub challenges: u8,
+    pub biome: u8,
+    pub curses: u8,
     pub started: bool,
     pub ts: Option<TsStatus>,
     pub ts_job: Option<JoinHandle<TsStatus>>,
@@ -124,6 +126,7 @@ pub struct App {
     since_snap: f32,
     pick_pending: Option<(u16, u8)>,
     reroll_seq: u8,
+    skill_seq: u8,
     synced_banked: u64,
     /// Complete snapshots received this vigil (for the network tests).
     snapshots: u32,
@@ -193,6 +196,8 @@ impl App {
                 diff: Difficulty::default(),
                 rush: false,
                 challenges: 0,
+                biome: 0,
+                curses: 0,
                 started: false,
                 ts: None,
                 ts_job: None,
@@ -231,6 +236,7 @@ impl App {
             since_snap: 0.0,
             pick_pending: None,
             reroll_seq: 0,
+            skill_seq: 0,
             synced_banked: 0,
             snapshots: 0,
             intensity: 0.0,

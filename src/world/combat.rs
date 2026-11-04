@@ -71,6 +71,14 @@ impl World {
             let e = &self.enemies[i];
             (e.pos, e.kind, e.xp, e.elite, e.boss, e.r)
         };
+        if self.cursed_by(Curse::Volatile) && !boss && chance(0.2) {
+            // Volatile: the body bursts into a few slow bullets.
+            let dmg = 6.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
+            let off = gen_range(0.0, TAU);
+            for k in 0..4 {
+                self.enemy_bullet(pos, Vec2::from_angle(off + k as f32 * TAU / 4.0) * 120.0, 5.0, dmg, 0.0, 2.5);
+            }
+        }
         if let Some(h) = self.heroes.get_mut(src.hero) {
             let ls = h.stats.lifesteal.min(h.leech);
             h.leech -= ls;
@@ -118,6 +126,9 @@ impl World {
                 h.downed = false;
                 h.p.hp = h.rise_health(0.4);
                 h.p.iframes = 2.0;
+            }
+            if let Some(k) = self.boss_kind {
+                self.say(k.lines()[3], super::spawn::boss_voice(k));
             }
             if self.boss_rush {
                 // The next lord follows after a breather, and the heroes grow to meet it.
@@ -531,6 +542,7 @@ impl World {
         let mut arrows: Vec<(Vec2, Vec2)> = Vec::new();
         let mut blasts: Vec<usize> = Vec::new();
         let mut raises: Vec<Vec2> = Vec::new();
+        let mut wails: Vec<Vec2> = Vec::new();
         let mut burns: Vec<(usize, f32, Src)> = Vec::new();
         let (anchor, anchor_facing, anchor_moving) = self.random_hero_pos();
         for (i, e) in self.enemies.iter_mut().enumerate() {
@@ -587,6 +599,36 @@ impl World {
                     }
                 }
                 EnemyKind::Moth => Vec2::from_angle(dir.to_angle() + (t * 5.0 + e.phase).sin() * 0.9),
+                EnemyKind::Leech => Vec2::from_angle(dir.to_angle() + (t * 9.0 + e.phase).sin() * 0.5),
+                EnemyKind::Gargoyle => {
+                    // Creeps closer, then springs: `fuse` counts down the lunge.
+                    e.timer -= dt;
+                    if e.fuse > 0.0 {
+                        e.fuse -= dt;
+                        dir * 4.5
+                    } else if e.timer <= 0.0 && d < 380.0 {
+                        e.timer = gen_range(3.0, 4.5);
+                        e.fuse = 0.4;
+                        dir * 4.5
+                    } else {
+                        dir
+                    }
+                }
+                EnemyKind::Banshee => {
+                    e.alpha = 0.7 + 0.25 * (t * 2.5 + e.phase).sin();
+                    e.timer -= dt;
+                    if e.timer <= 0.0 && d < 560.0 {
+                        e.timer = 3.4;
+                        wails.push(e.pos);
+                    }
+                    if d > 360.0 {
+                        dir
+                    } else if d < 250.0 {
+                        -dir
+                    } else {
+                        vec2(-dir.y, dir.x) * 0.5
+                    }
+                }
                 EnemyKind::Wraith => {
                     e.alpha = 0.55 + 0.35 * (t * 3.0 + e.phase).sin();
                     Vec2::from_angle(dir.to_angle() + (t * 2.0 + e.phase).sin() * 0.4)
@@ -638,6 +680,15 @@ impl World {
         }
         for at in raises {
             self.raise_dead(at);
+        }
+        for at in wails {
+            // A wail: a slow ring with gaps, easy to read, hard to ignore in numbers.
+            let dmg = 7.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
+            let off = gen_range(0.0, TAU);
+            for k in 0..8 {
+                self.enemy_bullet(at, Vec2::from_angle(off + k as f32 / 8.0 * TAU) * 110.0, 6.0, dmg, 0.0, 4.0);
+            }
+            self.sfx_gap_at("chime", 0.3, 0.2, at);
         }
 
         // Soft separation so hordes don't collapse into one blob.

@@ -297,6 +297,8 @@ fn write_hero_fast(w: &mut Writer, h: &Hero, viewer: bool) {
     }
     w.f32(h.aim.x);
     w.f32(h.aim.y);
+    // The skill cooldown in quarter seconds, for the HUD.
+    w.u8((h.skill_cd * 4.0).ceil().clamp(0.0, 255.0) as u8);
     // Only lanterns (orbit angle) and the chime (pulse) show their timers.
     for wp in &h.weapons {
         for part in wp.parts() {
@@ -344,6 +346,7 @@ fn read_hero_fast(r: &mut Reader, h: &mut Hero, predicted: bool) {
         }
     }
     h.aim = vec2(r.f32(), r.f32());
+    h.skill_cd = r.u8() as f32 / 4.0;
     for wp in h.weapons.iter_mut() {
         for part in wp.parts() {
             match part.kind {
@@ -447,6 +450,8 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
     e.w.f32(countdown);
     e.w.u16(w.level_round);
     e.w.u8(w.dead as u8 | (w.won as u8) << 1 | (w.endless as u8) << 2 | (w.grave_found as u8) << 3 | (w.boss_rush as u8) << 4);
+    e.w.u8(w.biome as u8);
+    e.w.u8(w.curses);
     e.w.u16(w.bosses_killed as u16);
     // Tenths of a second until the next lord while the warning shows.
     e.w.u8((w.boss_warning * 10.0).ceil().clamp(0.0, 255.0) as u8);
@@ -491,7 +496,8 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         let id = en.id as u16;
         e.w.varint(id.wrapping_sub(last_id) as u32);
         last_id = id;
-        let code = en.kind.to_u8() | (en.elite as u8) << 4 | (en.boss as u8) << 5;
+        // Five bits of kind (there are more than sixteen), then elite and boss.
+        let code = en.kind.to_u8() | (en.elite as u8) << 5 | (en.boss as u8) << 6;
         // A lit cultist bomb blinks through the flash bit.
         let blink = en.fuse > 0.0 && (en.fuse * 12.0) as i32 % 2 == 0;
         let live = (en.burn > 0.0) as u8 | ((en.flash > 0.0 || blink) as u8) << 1;
@@ -677,6 +683,11 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         e.w.bool(used);
     }
 
+    e.w.u8(w.braziers.len().min(255) as u8);
+    for b in w.braziers.iter().take(255) {
+        e.w.u8((b.burn / 2.0).ceil().clamp(0.0, 255.0) as u8);
+        e.w.u8((b.kindle / BRAZIER_KINDLE * 255.0).clamp(0.0, 255.0) as u8);
+    }
     e.w.f32(w.blood_moon);
     match &w.cursed {
         Some(c) => {
@@ -735,6 +746,15 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
             e.w.bool(true);
             e.w.str(big);
             e.w.str(small);
+            rgb(&mut e.w, *c);
+            e.w.f32(*life);
+        }
+        None => e.w.bool(false),
+    }
+    match &w.quote {
+        Some((text, c, life)) => {
+            e.w.bool(true);
+            e.w.str(text);
             rgb(&mut e.w, *c);
             e.w.f32(*life);
         }
@@ -800,6 +820,8 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.endless = flags & 4 != 0;
     w.grave_found = flags & 8 != 0;
     w.boss_rush = flags & 16 != 0;
+    w.biome = Biome::from_u8(d.r.u8());
+    w.curses = d.r.u8() & 63;
     w.bosses_killed = d.r.u16() as u32;
     w.boss_warning = d.r.u8() as f32 / 10.0;
     if w.endless {
@@ -866,8 +888,8 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             (code, x.clamp(-32000, 32000) as i16, y.clamp(-32000, 32000) as i16)
         };
         next.enemies.insert(id, (code, x, y));
-        let kind = EnemyKind::from_u8(code & 15);
-        let elite = code & 16 != 0;
+        let kind = EnemyKind::from_u8(code & 31);
+        let elite = code & 32 != 0;
         let pos = vec2(x as f32, y as f32);
         let alpha = if kind.has_alpha() { d.r.u8() as f32 / 255.0 } else { 1.0 };
         let id = id as u32;
@@ -893,7 +915,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             burn_src: Src { hero: 0, weapon: WeaponKind::Blade },
             timer: 0.0,
             elite,
-            boss: code & 32 != 0,
+            boss: code & 64 != 0,
             dead: false,
             phase: (id % 628) as f32 / 100.0,
             alpha,
@@ -1009,6 +1031,14 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         w.shrines.push(Shrine { pos, life: 10.0, kindle, used });
     }
 
+    let n = d.r.u8() as usize;
+    for i in 0..n {
+        let (burn, kindle) = (d.r.u8() as f32 * 2.0, d.r.u8() as f32 / 255.0 * BRAZIER_KINDLE);
+        if let Some(b) = w.braziers.get_mut(i) {
+            b.burn = burn;
+            b.kindle = kindle;
+        }
+    }
     w.blood_moon = d.r.f32();
     w.cursed = if d.r.bool() {
         let pos = d.pos();
@@ -1044,12 +1074,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         None
     };
     w.boss_kind = if d.r.bool() {
-        let k = match d.r.u8() {
-            0 => BossKind::Gravewarden,
-            1 => BossKind::Matriarch,
-            2 => BossKind::Hermit,
-            _ => BossKind::Sovereign,
-        };
+        let k = BossKind::from_u8(d.r.u8());
         w.boss_hp = (d.r.f32(), d.r.f32());
         Some(k)
     } else {
@@ -1061,6 +1086,14 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         let c = read_rgb(&mut d.r);
         let life = d.r.f32();
         Some((big, small, c, life))
+    } else {
+        None
+    };
+    w.quote = if d.r.bool() {
+        let text = d.r.str();
+        let c = read_rgb(&mut d.r);
+        let life = d.r.f32();
+        Some((text, c, life))
     } else {
         None
     };

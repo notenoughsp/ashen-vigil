@@ -4,12 +4,15 @@
 //! a `World` too, but only fills it from snapshots and predicts its own hero's movement.
 
 mod boss;
+mod braziers;
 mod combat;
 mod events;
 mod fx;
 mod hero;
 mod pickups;
 mod spawn;
+pub use braziers::*;
+mod skills;
 mod weapons;
 
 pub use events::*;
@@ -82,7 +85,84 @@ pub enum BossKind {
     Matriarch,
     Hermit,
     Sovereign,
+    Bride,
+    BogMother,
+    Penitent,
+    Choir,
+    Seraph,
+    Hound,
 }
+
+/// The field a vigil is kept on: its floor, its props, its foes and its lords.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Biome {
+    #[default]
+    Graveyard,
+    Marsh,
+    Cathedral,
+}
+
+pub const ALL_BIOMES: [Biome; 3] = [Biome::Graveyard, Biome::Marsh, Biome::Cathedral];
+
+impl Biome {
+    pub fn name(self) -> &'static str {
+        match self {
+            Biome::Graveyard => "The Graveyard",
+            Biome::Marsh => "The Sunken Marsh",
+            Biome::Cathedral => "The Burning Cathedral",
+        }
+    }
+
+    pub fn desc(self) -> &'static str {
+        match self {
+            Biome::Graveyard => "Old stones, older dead. Archers and the restless.",
+            Biome::Marsh => "Black water and reeds. Leeches, ghouls and bloated things.",
+            Biome::Cathedral => "Pews and pillars in flame. Zealots, knights and gargoyles.",
+        }
+    }
+
+    pub fn from_u8(v: u8) -> Biome {
+        ALL_BIOMES.get(v as usize).copied().unwrap_or_default()
+    }
+
+    /// The lords at 5, 10, 15, 20 and 25 minutes; the Sovereign always ends the night.
+    pub fn lords(self) -> [BossKind; 5] {
+        use BossKind::*;
+        match self {
+            Biome::Graveyard => [Gravewarden, Hound, Matriarch, Hermit, Seraph],
+            Biome::Marsh => [Hound, BogMother, Matriarch, Bride, Gravewarden],
+            Biome::Cathedral => [Seraph, Choir, Hermit, Penitent, Bride],
+        }
+    }
+
+    /// How much more (or less) often a kind of foe shows up here.
+    pub fn weight(self, kind: EnemyKind) -> f32 {
+        use EnemyKind::*;
+        match (self, kind) {
+            (Biome::Graveyard, Hollow | Archer | Necromancer | Moth) => 1.5,
+            (Biome::Graveyard, Leech) => 0.4,
+            (Biome::Marsh, Ghoul | Bloat | Leech) => 1.8,
+            (Biome::Marsh, Archer | Gargoyle) => 0.4,
+            (Biome::Cathedral, Cultist | Knight | Gargoyle | Banshee | Shieldbearer) => 1.7,
+            (Biome::Cathedral, Ghoul | Leech) => 0.5,
+            _ => 1.0,
+        }
+    }
+}
+
+/// Every lord; a boss rush meets them in this order, the Sovereign last.
+pub const ALL_LORDS: [BossKind; 10] = [
+    BossKind::Gravewarden,
+    BossKind::Hound,
+    BossKind::Matriarch,
+    BossKind::BogMother,
+    BossKind::Bride,
+    BossKind::Hermit,
+    BossKind::Seraph,
+    BossKind::Choir,
+    BossKind::Penitent,
+    BossKind::Sovereign,
+];
 
 impl BossKind {
     pub fn name(self) -> &'static str {
@@ -91,6 +171,12 @@ impl BossKind {
             BossKind::Matriarch => "Pale Matriarch",
             BossKind::Hermit => "The Tolling Hermit",
             BossKind::Sovereign => "Ashen Sovereign",
+            BossKind::Bride => "The Drowned Bride",
+            BossKind::BogMother => "The Bog Mother",
+            BossKind::Penitent => "The Iron Penitent",
+            BossKind::Choir => "The Hollow Choir",
+            BossKind::Seraph => "The Stone Seraph",
+            BossKind::Hound => "The Pale Hound",
         }
     }
 
@@ -100,7 +186,44 @@ impl BossKind {
             BossKind::Matriarch => "Mother of the Gloom Moths",
             BossKind::Hermit => "He Who Rings the Last Hour",
             BossKind::Sovereign => "Last Lord of the Cinder Throne",
+            BossKind::Bride => "Still Waiting at the Altar of the Deep",
+            BossKind::BogMother => "She Who Swallows the Lost",
+            BossKind::Penitent => "Chained to a Sin Without End",
+            BossKind::Choir => "Three Voices, No Throat",
+            BossKind::Seraph => "Fallen Guardian of the Bell Tower",
+            BossKind::Hound => "The Hunger That Follows Footsteps",
         }
+    }
+
+    /// What it says when it arrives, at its second phase, at its third, and as it falls.
+    pub fn lines(self) -> [&'static str; 4] {
+        match self {
+            BossKind::Gravewarden => ["Another body for the earth.", "The graves are hungry tonight!", "I will bury you myself!", "...the earth... takes me back..."],
+            BossKind::Matriarch => ["Hush, little flame. My children are hungry.", "Feed them! Feed them all!", "", "My children... scatter..."],
+            BossKind::Hermit => ["Can you hear it? The last hour is tolling.", "Every bell rings for you now.", "", "The bell... falls silent..."],
+            BossKind::Sovereign => {
+                ["Kneel. The dawn will not come for you.", "I have burned brighter flames than you!", "Then let the whole world burn with me!", "The throne... is ash..."]
+            }
+            BossKind::Bride => {
+                ["He promised he would come back for me...", "You are not him! You are NOT HIM!", "Then drown with me, and never leave!", "At last... the water is warm..."]
+            }
+            BossKind::BogMother => ["Mmm. Something warm wandered into my mud.", "Down you go, into the dark and the wet!", "", "Back... into the bog..."],
+            BossKind::Penitent => {
+                ["Every link of this chain is a sin. Count them.", "Pain is the only prayer that is answered!", "Break me, and be broken!", "Free... at last... free..."]
+            }
+            BossKind::Choir => ["We sing for the dead. Now we sing for you.", "Louder! LOUDER!", "Our last hymn is your name.", "...and the silence... is beautiful..."],
+            BossKind::Seraph => ["The tower fell. I did not.", "Stone does not tire, little flame.", "", "...crumbling... like the rest..."],
+            BossKind::Hound => ["*sniffing* ...fresh...", "*a howl that shakes the stones*", "", "*a last whimper*"],
+        }
+    }
+
+    /// The lords that grow a third phase at a quarter of their health.
+    pub fn has_third_phase(self) -> bool {
+        matches!(self, BossKind::Gravewarden | BossKind::Sovereign | BossKind::Bride | BossKind::Penitent | BossKind::Choir)
+    }
+
+    pub fn from_u8(v: u8) -> BossKind {
+        ALL_LORDS.iter().copied().find(|k| *k as u8 == v).unwrap_or(BossKind::Gravewarden)
     }
 }
 
@@ -119,6 +242,12 @@ pub enum EnemyKind {
     Shieldbearer,
     /// Keeps away and raises the dead around it.
     Necromancer,
+    /// Small, fast, comes in swarms.
+    Leech,
+    /// A stone statue that lunges at its prey.
+    Gargoyle,
+    /// Keeps away and wails rings of slow bullets.
+    Banshee,
     Boss(BossKind),
 }
 
@@ -135,7 +264,12 @@ impl EnemyKind {
             EnemyKind::Cultist => 11,
             EnemyKind::Shieldbearer => 12,
             EnemyKind::Necromancer => 13,
-            EnemyKind::Boss(b) => 7 + b as u8,
+            EnemyKind::Leech => 20,
+            EnemyKind::Gargoyle => 21,
+            EnemyKind::Banshee => 22,
+            // The first four lords keep their old numbers.
+            EnemyKind::Boss(b) if (b as u8) < 4 => 7 + b as u8,
+            EnemyKind::Boss(b) => 10 + b as u8,
         }
     }
 
@@ -151,10 +285,12 @@ impl EnemyKind {
             11 => EnemyKind::Cultist,
             12 => EnemyKind::Shieldbearer,
             13 => EnemyKind::Necromancer,
-            7 => EnemyKind::Boss(BossKind::Gravewarden),
-            8 => EnemyKind::Boss(BossKind::Matriarch),
-            9 => EnemyKind::Boss(BossKind::Hermit),
-            _ => EnemyKind::Boss(BossKind::Sovereign),
+            20 => EnemyKind::Leech,
+            21 => EnemyKind::Gargoyle,
+            22 => EnemyKind::Banshee,
+            7..=10 => EnemyKind::Boss(BossKind::from_u8(v - 7)),
+            14..=19 => EnemyKind::Boss(BossKind::from_u8(v - 10)),
+            _ => EnemyKind::Hollow,
         }
     }
 
@@ -171,10 +307,19 @@ impl EnemyKind {
             EnemyKind::Cultist => 10.0,
             EnemyKind::Shieldbearer => 17.0,
             EnemyKind::Necromancer => 13.0,
+            EnemyKind::Leech => 7.0,
+            EnemyKind::Gargoyle => 14.0,
+            EnemyKind::Banshee => 12.0,
             EnemyKind::Boss(BossKind::Gravewarden) => 44.0,
             EnemyKind::Boss(BossKind::Matriarch) => 38.0,
             EnemyKind::Boss(BossKind::Hermit) => 34.0,
             EnemyKind::Boss(BossKind::Sovereign) => 52.0,
+            EnemyKind::Boss(BossKind::Bride) => 36.0,
+            EnemyKind::Boss(BossKind::BogMother) => 50.0,
+            EnemyKind::Boss(BossKind::Penitent) => 46.0,
+            EnemyKind::Boss(BossKind::Choir) => 36.0,
+            EnemyKind::Boss(BossKind::Seraph) => 40.0,
+            EnemyKind::Boss(BossKind::Hound) => 34.0,
         };
         if elite {
             r * 1.6
@@ -185,7 +330,7 @@ impl EnemyKind {
 
     /// Only these fade in and out, so only they send an alpha.
     pub fn has_alpha(self) -> bool {
-        matches!(self, EnemyKind::Wraith | EnemyKind::Boss(BossKind::Hermit))
+        matches!(self, EnemyKind::Wraith | EnemyKind::Banshee | EnemyKind::Boss(BossKind::Hermit | BossKind::Choir | BossKind::Seraph | BossKind::BogMother))
     }
 
     /// What comes out when it is cut.
@@ -195,6 +340,9 @@ impl EnemyKind {
             EnemyKind::Wraith => Color::from_rgba(70, 110, 190, 255),
             EnemyKind::Bloat => Color::from_rgba(90, 110, 30, 255),
             EnemyKind::Archer => Color::from_rgba(110, 100, 90, 255),
+            EnemyKind::Gargoyle => Color::from_rgba(110, 108, 104, 255),
+            EnemyKind::Banshee => Color::from_rgba(150, 170, 200, 255),
+            EnemyKind::Leech => Color::from_rgba(90, 10, 20, 255),
             _ => Color::from_rgba(120, 8, 10, 255),
         }
     }
@@ -446,6 +594,8 @@ pub struct BossAi {
     pub count: u32,
     pub shot: f32,
     pub phase2: bool,
+    /// At a quarter of its health, for the lords that have one.
+    pub phase3: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -554,6 +704,9 @@ pub struct World {
     pub nums: Vec<DmgNum>,
     pub pickups: Vec<Pickup>,
     pub shrines: Vec<Shrine>,
+    pub braziers: Vec<Brazier>,
+    /// Braziers lit this vigil, for the records.
+    pub braziers_lit: u32,
     pub remnant: Option<Remnant>,
     pub cat: Option<Cat>,
     /// Seconds of Blood Moon left; 0 when the sky is normal.
@@ -571,6 +724,8 @@ pub struct World {
     pub boss_warning: f32,
     /// Lord after lord with only a short breather, no warning, and thin hordes.
     pub boss_rush: bool,
+    /// Curse bits on this vigil, see `Curse`.
+    pub curses: u8,
     /// Vigil time when the endless night began (at dawn, or after the last lord of a rush).
     pub endless_since: f32,
     next_shrine: f32,
@@ -585,6 +740,9 @@ pub struct World {
     pub events: Vec<Event>,
     pub sounds: Vec<(&'static str, f32, f64, Option<Vec2>)>,
     pub banner: Option<(String, String, Color, f32)>,
+    /// A lord's words: what is said, in its colour, and how long it stays.
+    pub quote: Option<(String, Color, f32)>,
+    pub biome: Biome,
     pub toasts: Vec<(String, f32)>,
     pub(crate) grid: Grid,
     qbuf: Vec<usize>,
@@ -671,6 +829,8 @@ impl World {
             nums: Vec::new(),
             pickups: Vec::new(),
             shrines: Vec::new(),
+            braziers: brazier_spots().into_iter().map(|pos| Brazier { pos, burn: 0.0, kindle: 0.0 }).collect(),
+            braziers_lit: 0,
             remnant: remnant.map(|(p, n)| Remnant { pos: clamp_world(p.clamp_length_max(1400.0), 80.0), souls: n }),
             blood_moon: 0.0,
             moons_survived: 0,
@@ -685,6 +845,7 @@ impl World {
             next_boss: BOSS_INTERVAL,
             boss_warning: 0.0,
             boss_rush: false,
+            curses: 0,
             endless_since: 0.0,
             next_shrine: 150.0,
             next_elite: 75.0,
@@ -698,6 +859,8 @@ impl World {
             events: Vec::new(),
             sounds: Vec::new(),
             banner: None,
+            quote: None,
+            biome: Biome::Graveyard,
             toasts: Vec::new(),
             grid: Grid::new(),
             qbuf: Vec::new(),
@@ -734,6 +897,20 @@ impl World {
     }
 
     /// Applies the "Head Start" relic: the vigil opens with a level-up.
+    pub fn cursed_by(&self, c: Curse) -> bool {
+        self.curses & c.bit() != 0
+    }
+
+    /// Lays curses on the vigil; Brittle takes the embers at once.
+    pub fn lay_curses(&mut self, bits: u8) {
+        self.curses = bits & 63;
+        if self.cursed_by(Curse::Brittle) {
+            for h in self.heroes.iter_mut() {
+                h.p.revives = 0;
+            }
+        }
+    }
+
     /// Turns this vigil into a boss rush: the first lord comes almost at once, and the
     /// heroes get a few level-ups to meet it.
     pub fn start_boss_rush(&mut self) {
@@ -807,6 +984,13 @@ impl World {
 
     pub fn banner(&mut self, big: &str, small: &str, color: Color, secs: f32) {
         self.banner = Some((big.to_string(), small.to_string(), color, secs));
+    }
+
+    /// A lord speaks; empty lines say nothing.
+    pub fn say(&mut self, line: &str, color: Color) {
+        if !line.is_empty() {
+            self.quote = Some((line.to_string(), color, 4.5));
+        }
     }
 
     fn alive_positions(&self) -> Vec<Vec2> {
@@ -972,6 +1156,7 @@ impl World {
         self.update_heroes(dt);
         self.update_spawns(dt);
         self.grid.rebuild(&self.enemies);
+        self.cast_skills();
         self.update_weapons(dt);
         self.update_projs(dt);
         self.update_hazards(dt);
@@ -979,6 +1164,7 @@ impl World {
         self.update_boss(dt);
         self.update_pickups(dt);
         self.update_shrines(dt);
+        self.update_braziers(dt);
         self.update_cat(dt);
         self.update_secrets(dt);
         self.update_events(dt);

@@ -50,7 +50,7 @@ fn simulate(w: &mut World, secs: f32, immortal: bool, mut on_frame: impl FnMut(&
         }
         for (i, h) in w.heroes.iter_mut().enumerate() {
             let t = f as f32 * dt + i as f32;
-            h.input = Input { dir: vec2(t.cos(), (t * 0.7).sin()).normalize_or_zero(), roll: f % (40 + i as u32) == 0 };
+            h.input = Input { dir: vec2(t.cos(), (t * 0.7).sin()).normalize_or_zero(), roll: f % (40 + i as u32) == 0, skill: f % (300 + i as u32) == 0 };
             if immortal {
                 // Full health alone isn't enough: one Abyss boss hit can exceed it.
                 h.p.hp = h.stats.max_hp;
@@ -343,7 +343,7 @@ fn map_events_come_and_go() {
     let mut saw_moon = false;
     let mut saw_curse = false;
     let mut saw_merchant = false;
-    let mut kinds = [false; 16];
+    let mut kinds = [false; 32];
     let peaks = simulate(&mut w, 1200.0, true, |w, _| {
         saw_moon |= w.blood_moon > 0.0;
         saw_curse |= w.cursed.is_some();
@@ -356,7 +356,7 @@ fn map_events_come_and_go() {
     assert_bounded(&peaks);
     assert!(saw_moon && saw_curse && saw_merchant, "moon {} curse {} merchant {}", saw_moon, saw_curse, saw_merchant);
     assert!(w.moons_survived >= 1, "the Blood Moon never ended");
-    for k in [EnemyKind::Cultist, EnemyKind::Shieldbearer, EnemyKind::Necromancer] {
+    for k in [EnemyKind::Cultist, EnemyKind::Shieldbearer, EnemyKind::Necromancer, EnemyKind::Leech, EnemyKind::Banshee, EnemyKind::Gargoyle] {
         assert!(kinds[k.to_u8() as usize], "{:?} never spawned", k);
     }
 }
@@ -1284,4 +1284,127 @@ fn last_flame_perf_report() {
     });
     assert_bounded(&peaks);
     println!("last flame x4, full horde: avg {:.2} ms, worst {:.2} ms per update; peaks {:?}", peaks.avg_update_ms, peaks.worst_update_ms, peaks);
+}
+
+#[test]
+fn every_lord_fights_through_all_its_phases() {
+    for (k, lord) in ALL_LORDS.iter().enumerate() {
+        macroquad::rand::srand(100 + k as u64);
+        let mut w = world_with(2, PRESETS[2].1);
+        w.time = 5.0 * 60.0;
+        w.next_boss = w.time;
+        w.boss_rush = true;
+        w.bosses_spawned = k as u32;
+        simulate(&mut w, 1.0, true, |_, _| {});
+        assert_eq!(w.boss_kind, Some(*lord), "the wrong lord came");
+        assert!(w.quote.is_some(), "{:?} said nothing on arrival", lord);
+        // Fight a while in each phase: full health, then half, then a fifth.
+        for frac in [1.0, 0.45, 0.2] {
+            if let Some(e) = w.enemies.iter_mut().find(|e| e.boss) {
+                e.hp = e.max_hp * frac;
+            }
+            // Keep it alive in this phase: the test heroes may hit hard.
+            let peaks = simulate(&mut w, 25.0, true, |w, _| {
+                if let Some(e) = w.enemies.iter_mut().find(|e| e.boss) {
+                    e.hp = e.hp.max(e.max_hp * frac * 0.8);
+                }
+                check_invariants(w, "lord fight");
+            });
+            assert_bounded(&peaks);
+        }
+        let ai = w.boss.as_ref().expect("the lord vanished");
+        assert!(ai.phase2, "{:?} never reached its second phase", lord);
+        assert_eq!(ai.phase3, lord.has_third_phase(), "{:?} third phase", lord);
+        assert!(lord.lines().iter().all(|l| l.len() < 70), "{:?} has a line too long for the screen", lord);
+    }
+}
+
+#[test]
+fn each_field_has_its_own_lords_and_foes() {
+    for b in ALL_BIOMES {
+        let lords = b.lords();
+        assert!(!lords.contains(&BossKind::Sovereign), "the Sovereign belongs to the finale");
+        let mut sorted: Vec<u8> = lords.iter().map(|k| *k as u8).collect();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 5, "{:?} repeats a lord", b);
+    }
+    // Every lord shows up on some field.
+    for lord in ALL_LORDS.iter().filter(|l| **l != BossKind::Sovereign) {
+        assert!(ALL_BIOMES.iter().any(|b| b.lords().contains(lord)), "{:?} never comes", lord);
+    }
+    let mut w = world_with(1, PRESETS[1].1);
+    w.biome = Biome::Marsh;
+    w.time = 5.0 * 60.0;
+    w.next_boss = w.time;
+    simulate(&mut w, 1.0, true, |_, _| {});
+    assert_eq!(w.boss_kind, Some(Biome::Marsh.lords()[0]));
+}
+
+#[test]
+fn every_class_skill_fires_and_cools_down() {
+    for class in ALL_CLASSES {
+        let mut w = World::new(PRESETS[1].1, None);
+        w.screen = vec2(1920.0, 1080.0);
+        w.add_hero(0, "S", class, Profile { unlocks: u64::MAX, ..Profile::default() }, false);
+        for k in 0..30 {
+            let e = w.make_enemy(EnemyKind::Hollow, Vec2::from_angle(k as f32 * 0.21) * (80.0 + k as f32 * 6.0));
+            w.enemies.push(e);
+        }
+        w.heroes[0].input.skill = true;
+        simulate(&mut w, 0.2, true, |w, _| w.heroes[0].input.skill = true);
+        let cd = class.skill().2;
+        assert!(w.heroes[0].skill_cd > cd * 0.3, "{:?}: no cooldown after the skill", class);
+        // Pressing again does nothing until it is ready.
+        let before = w.heroes[0].skill_cd;
+        w.use_skill(0);
+        simulate(&mut w, 0.1, true, |_, _| {});
+        assert!(w.heroes[0].skill_cd < before, "{:?}: cast again while cooling down", class);
+    }
+}
+
+#[test]
+fn braziers_light_up_and_burn_out() {
+    let mut w = world_with(1, PRESETS[1].1);
+    assert!(w.braziers.len() >= 25, "only {} braziers", w.braziers.len());
+    let at = w.braziers[0].pos;
+    w.heroes[0].p.pos = at + vec2(20.0, 0.0);
+    simulate(&mut w, BRAZIER_KINDLE + 0.3, true, |w, _| w.heroes[0].p.pos = at + vec2(20.0, 0.0));
+    assert!(w.braziers[0].burn > 0.0, "standing by it did not light it");
+    // It heals the hero standing by it...
+    w.heroes[0].p.hp = 10.0;
+    w.heroes[0].stats.regen = 0.0;
+    simulate(&mut w, 2.0, false, |w, _| {
+        w.enemies.clear();
+        w.heroes[0].p.pos = at + vec2(20.0, 0.0);
+    });
+    assert!(w.heroes[0].p.hp > 12.0, "the brazier did not mend the hero: {}", w.heroes[0].p.hp);
+    // ...and sets fire to a foe that comes close.
+    let e = w.make_enemy(EnemyKind::Knight, at + vec2(80.0, 0.0));
+    w.enemies.push(e);
+    w.update_braziers(0.1);
+    assert!(w.enemies.last().is_some_and(|e| e.burn > 0.0), "the foe did not catch fire");
+    w.braziers[0].burn = 0.5;
+    w.heroes[0].p.pos = at + vec2(500.0, 0.0);
+    simulate(&mut w, 1.0, true, |_, _| {});
+    assert_eq!(w.braziers[0].burn, 0.0, "it never burned out");
+}
+
+#[test]
+fn curses_take_hold() {
+    let mut calm = world_with(1, PRESETS[1].1);
+    let mut cursed = world_with(1, PRESETS[1].1);
+    cursed.lay_curses(Curse::Frenzy.bit() | Curse::DarkHour.bit() | Curse::Brittle.bit() | Curse::Famine.bit());
+    let a = calm.make_enemy(EnemyKind::Hollow, Vec2::ZERO);
+    let b = cursed.make_enemy(EnemyKind::Hollow, Vec2::ZERO);
+    assert!(b.max_hp > a.max_hp * 1.1, "the Dark Hour should toughen foes");
+    assert!(b.speed > a.speed * 1.05 || b.speed / a.speed > 1.1, "Frenzy should speed foes up");
+    assert_eq!(cursed.heroes[0].p.revives, 0, "Brittle leaves no embers");
+    // Famine: no regeneration.
+    cursed.heroes[0].stats.regen = 5.0;
+    cursed.heroes[0].p.hp = 10.0;
+    cursed.enemies.clear();
+    simulate(&mut cursed, 2.0, false, |w, _| w.enemies.clear());
+    assert!(cursed.heroes[0].p.hp <= 10.0 + 0.01, "Famine still let the hero regenerate");
+    assert!(curse_mult(cursed.curses) > 1.79);
 }

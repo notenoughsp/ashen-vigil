@@ -499,7 +499,7 @@ struct Theme {
     arp: bool,
 }
 
-const THEMES: [Theme; 4] = [
+const THEMES: [Theme; 10] = [
     // The Gravewarden: slow and heavy, grinding minor second.
     Theme { bpm: 108.0, root: 55.0, clash: 1.0595, cutoff: 380.0, kicks: 0b1000_1000_1000_1010, toms: 0b0000_0010_0000_0001, bells: false, arp: false },
     // Pale Matriarch: restless, fluttering.
@@ -508,6 +508,18 @@ const THEMES: [Theme; 4] = [
     Theme { bpm: 84.0, root: 49.0, clash: 1.335, cutoff: 600.0, kicks: 0b1000_0000_1000_0000, toms: 0b0000_0000_0000_1000, bells: true, arp: false },
     // Ashen Sovereign: fast, driving, everything at once.
     Theme { bpm: 146.0, root: 43.65, clash: 1.0595, cutoff: 1100.0, kicks: 0b1010_1010_1010_1011, toms: 0b0001_0001_0001_0101, bells: true, arp: true },
+    // The Drowned Bride: a slow, sad waltz under water.
+    Theme { bpm: 90.0, root: 51.91, clash: 1.1892, cutoff: 500.0, kicks: 0b1000_0000_0000_1000, toms: 0b0000_1000_1000_0000, bells: true, arp: true },
+    // The Bog Mother: low and wet, a heavy croak of a beat.
+    Theme { bpm: 98.0, root: 41.2, clash: 1.0595, cutoff: 320.0, kicks: 0b1001_0000_1001_0010, toms: 0b0000_0100_0000_0100, bells: false, arp: false },
+    // The Iron Penitent: marching chains.
+    Theme { bpm: 120.0, root: 46.25, clash: std::f32::consts::SQRT_2, cutoff: 800.0, kicks: 0b1000_1000_1000_1000, toms: 0b0010_0010_0010_0011, bells: true, arp: false },
+    // The Hollow Choir: an organ that never breathes.
+    Theme { bpm: 76.0, root: 55.0, clash: 1.4983, cutoff: 1000.0, kicks: 0b1000_0000_0000_0000, toms: 0b0000_0000_1000_0000, bells: true, arp: true },
+    // The Stone Seraph: wide and high, bells in the tower.
+    Theme { bpm: 112.0, root: 58.27, clash: 1.335, cutoff: 900.0, kicks: 0b1000_0010_1000_0000, toms: 0b0000_1000_0000_1010, bells: true, arp: false },
+    // The Pale Hound: a racing heartbeat.
+    Theme { bpm: 158.0, root: 49.0, clash: 1.0595, cutoff: 700.0, kicks: 0b1010_1000_1010_1000, toms: 0b0000_0010_0000_0011, bells: false, arp: true },
 ];
 
 /// How many endless stages there are; each lasts `ENDLESS_STAGE` seconds, the last one stays.
@@ -824,24 +836,8 @@ pub fn music_roughness() -> Vec<(&'static str, f32)> {
         let d: f32 = s.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum();
         d / e * 1000.0
     };
-    const NAMES: [&str; 17] = [
-        "dusk",
-        "midnight",
-        "witching",
-        "lullaby",
-        "combat",
-        "boss 1",
-        "boss 2",
-        "boss 3",
-        "boss 4",
-        "endless 1",
-        "endless 2",
-        "endless 3",
-        "endless 4",
-        "endless 5",
-        "endless 6",
-        "endless 7",
-        "endless 8",
-    ];
-    NAMES.iter().enumerate().map(|(i, n)| (*n, rough(&music_track(i)))).collect()
+    let mut names: Vec<String> = ["dusk", "midnight", "witching", "lullaby", "combat"].iter().map(|s| s.to_string()).collect();
+    names.extend((1..=THEMES.len()).map(|i| format!("boss {}", i)));
+    names.extend((1..=ENDLESS_STAGES).map(|i| format!("endless {}", i)));
+    names.into_iter().enumerate().map(|(i, n)| (&*Box::leak(n.into_boxed_str()), rough(&music_track(i)))).collect()
 }
