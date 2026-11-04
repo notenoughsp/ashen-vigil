@@ -22,6 +22,12 @@ thread_local! {
     static UI_SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
     /// Off-screen markers sit this share of the shorter screen side inside the edge.
     static MARKER_INSET: std::cell::Cell<f32> = const { std::cell::Cell::new(0.12) };
+    static HURT_FLASH: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// Takes the hurt flash setting; called every frame.
+pub fn set_hurt_flash(on: bool) {
+    HURT_FLASH.with(|h| h.set(on));
 }
 
 /// Takes the marker setting (percent); called every frame.
@@ -452,7 +458,7 @@ impl<'a> Ui<'a> {
                 self.text_c(small, sw * 0.5, cy + 34.0, 20.0, a(PALE, al * 0.9));
             }
         }
-        if let Some((line, c, life)) = &w.quote {
+        if let Some((line, c, life)) = w.quote.as_ref().filter(|_| w.boss_lines) {
             // A lord's words, under the banner line, fading in and out.
             let al = (life / 0.6).min(1.0).min((4.5 - life) / 0.3).clamp(0.0, 1.0);
             let text = format!("\u{201c}{}\u{201d}", line);
@@ -491,7 +497,7 @@ impl<'a> Ui<'a> {
                 DrawTextureParams { dest_size: Some(vec2(sw, sh)), ..Default::default() },
             );
         }
-        if me.p.iframes > 0.3 && me.p.roll_t <= 0.0 && !me.downed {
+        if HURT_FLASH.with(|h| h.get()) && me.p.iframes > 0.3 && me.p.roll_t <= 0.0 && !me.downed {
             draw_rectangle(0.0, 0.0, sw, sh, Color::new(hurt.0 * 0.8, hurt.1, hurt.2, 0.12));
         }
     }
@@ -567,22 +573,6 @@ impl<'a> Ui<'a> {
         self.text_c("The vigil resumes", sw * 0.5, sh * 0.52, 24.0, PALE);
         // Fixed font size: changing it every frame would rebuild the glyph cache constantly.
         self.text_c(&n.to_string(), sw * 0.5, sh * 0.52 + 76.0 + (1.0 - k) * 8.0, 72.0, a(GOLD, 0.4 + 0.6 * k));
-    }
-
-    pub fn paused(&self, online: bool) {
-        let (sw, sh) = (ui_w(), ui_h());
-        draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.6));
-        self.spaced_c(if online { "MENU" } else { "PAUSED" }, sw * 0.5, sh * 0.4, 40.0, 6.0, PALE);
-        if online {
-            self.text_c("The world does not wait for you online.", sw * 0.5, sh * 0.4 + 34.0, 18.0, EMBER);
-        }
-        self.text_c(hint("Esc: resume     Q: leave the vigil", "Start or B: resume     Select: leave the vigil"), sw * 0.5, sh * 0.4 + 62.0, 18.0, DIM);
-        let keys = if using_pad() {
-            "Y: reroll     LB (hold): damage per weapon".to_string()
-        } else {
-            format!("{}: mute     {}: damage numbers     F3: performance overlay     F11: fullscreen", key_label(Action::Mute), key_label(Action::Numbers))
-        };
-        self.text_c(&keys, sw * 0.5, sh * 0.4 + 88.0, 16.0, DIM);
     }
 
     /// Who dealt how much: this vigil and the last minute. Tab shows our weapons.

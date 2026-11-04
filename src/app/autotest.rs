@@ -243,6 +243,18 @@ impl App {
             380 => want.push("cute"),
             381 => self.save.settings.cute = false,
             420 => want.push("run"),
+            421 => self.screen = Screen::Paused,
+            424 => want.push("pause"),
+            425 => {
+                self.screen = Screen::Options;
+                self.options_in_game = true;
+                self.opt_page = 1;
+            }
+            428 => want.push("options_ingame"),
+            429 => {
+                self.options_in_game = false;
+                self.screen = Screen::Playing;
+            }
             430 => {
                 let w = self.world.as_mut().unwrap();
                 w.time = w.next_boss - 4.0;
@@ -265,7 +277,7 @@ impl App {
                 self.save.settings.boss_rush = true;
                 self.save.challenges = Challenge::GlassCannon.bit() | Challenge::OneWeapon.bit();
                 self.screen = Screen::Hub;
-                self.hub_sel = 2;
+                self.hub_sel = 3;
             }
             1530 => want.push("hub"),
             1531 => {
@@ -738,6 +750,18 @@ impl App {
                 let au = self.auto.as_ref().unwrap();
                 if f == s + 230 {
                     want.push("run");
+                }
+                // A client looks at the options for a while: the vigil and the link go on.
+                if f == s + 300 && self.screen == Screen::Playing {
+                    self.screen = Screen::Options;
+                    self.options_in_game = true;
+                }
+                if f == s + 420 && self.screen == Screen::Options {
+                    let snaps = self.snapshots;
+                    println!("[client_] options open for 2 s, {} snapshots so far", snaps);
+                    want.push("options_online");
+                    self.options_in_game = false;
+                    self.screen = Screen::Playing;
                 }
                 if w.pause == Pause::Choosing && !w.me().picked && !au.has("levelup") {
                     want.push("levelup");

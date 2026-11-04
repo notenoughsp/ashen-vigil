@@ -95,6 +95,19 @@ pub struct App {
     /// Reliquary page: 0 soul upgrades, 1 relics and unlocks.
     relic_page: usize,
     wardrobe_sel: usize,
+    /// The selected button of the pause menu.
+    pause_sel: usize,
+    /// The options were opened from the pause menu: Back returns there.
+    options_in_game: bool,
+    /// "Leave the vigil" was chosen once and waits for a second confirm.
+    leave_armed: bool,
+    /// The sound was turned off by us because the window lost focus.
+    muted_away: bool,
+    /// The lord's words last heard and how long they had left, to speak each new line once.
+    heard_quote: Option<(String, f32)>,
+    discord: crate::discord::Discord,
+    /// Unix seconds when the current vigil began, for Discord's clock.
+    vigil_since: i64,
     /// A tiny world for drawing heroes in the wardrobe.
     preview: Option<World>,
     /// "party" was typed in the main menu: the embers change colour.
@@ -212,6 +225,14 @@ impl App {
             relic_sel: 0,
             relic_page: 0,
             wardrobe_sel: 0,
+            pause_sel: 0,
+            options_in_game: false,
+            leave_armed: false,
+            muted_away: false,
+            heard_quote: None,
+            // The self-test never talks to Discord.
+            discord: if auto.is_some() { crate::discord::Discord::off() } else { crate::discord::Discord::start() },
+            vigil_since: 0,
             preview: None,
             party: false,
             last_rolls: 0,
@@ -316,6 +337,71 @@ impl App {
         }
     }
 
+    /// What Discord shows: where the player is and, in a vigil, which kind and how far.
+    fn presence(&self) -> crate::discord::Presence {
+        use crate::discord::Presence;
+        let menus = |s: &str| Presence { details: s.to_string(), state: String::new(), since: None, party: None };
+        match self.screen {
+            Screen::Lobby => {
+                let n = self.lobby.players.len().max(1) as u32;
+                let state = match self.lobby.state {
+                    LobbyState::Hosting => "Hosting",
+                    LobbyState::Joined => "Waiting for the host",
+                    LobbyState::Joining(_) => "Joining",
+                    LobbyState::Browse => "Looking for a vigil",
+                };
+                Presence { details: "In the online lobby".into(), state: state.into(), since: None, party: (n > 1).then_some((n, 4)) }
+            }
+            Screen::Playing | Screen::Paused | Screen::Dead { .. } | Screen::Victory { .. } | Screen::Options if self.world.as_ref().is_some_and(|w| !w.heroes.is_empty()) => {
+                let w = self.world.as_ref().expect("checked above");
+                let online = self.online();
+                let kind = match (w.boss_rush, w.endless) {
+                    (true, true) => "Endless boss rush",
+                    (true, false) => "Boss Rush",
+                    (false, true) => "Endless night",
+                    (false, false) => "Vigil",
+                };
+                let details = if online { format!("{}, online", kind) } else { format!("{} on {}", kind, w.biome.name()) };
+                let state = match self.screen {
+                    Screen::Dead { .. } => format!("Fell at level {}", w.level),
+                    Screen::Victory { .. } if w.boss_rush => "Felled every lord".to_string(),
+                    Screen::Victory { .. } => "Kept the vigil until dawn".to_string(),
+                    _ if w.boss_rush && !w.endless => format!("Lord {} of {}, level {}", (w.bosses_killed + 1).min(RUSH_LORDS), RUSH_LORDS, w.level),
+                    _ if w.boss_kind.is_some() => format!("Fighting {}", w.boss_kind.map(|k| k.name()).unwrap_or("")),
+                    _ => format!("Level {}, {} felled", w.level, w.kills / 100 * 100),
+                };
+                let party = online.then_some((w.heroes.iter().filter(|h| h.connected).count() as u32, 4));
+                Presence { details, state, since: Some(self.vigil_since), party }
+            }
+            Screen::Hub => menus("At the Ash Shrine"),
+            Screen::Wardrobe => menus("In the Wardrobe"),
+            _ => menus("In the menus"),
+        }
+    }
+
+    /// Speaks a lord's words aloud when they appear, on the host and on clients alike (clients
+    /// get the words in snapshots). A line said again shows again with its time renewed.
+    fn speak_quotes(&mut self) {
+        let in_vigil = match self.screen {
+            Screen::Playing | Screen::Paused | Screen::Dead { .. } | Screen::Victory { .. } => true,
+            Screen::Options => self.options_in_game,
+            _ => false,
+        };
+        let quote = self.world.as_ref().filter(|w| in_vigil && w.boss_lines).and_then(|w| w.quote.as_ref()).map(|(line, _, life)| (line.clone(), *life));
+        let fresh = match (&quote, &self.heard_quote) {
+            (Some((line, life)), Some((old, old_life))) => line != old || *life > old_life + 0.5,
+            (Some(_), None) => true,
+            _ => false,
+        };
+        if fresh {
+            if let Some(key) = quote.as_ref().and_then(|(line, _)| crate::voice::line_key(line)) {
+                crate::log!("a lord speaks: {}", key);
+                self.audio.speak(&key);
+            }
+        }
+        self.heard_quote = quote;
+    }
+
     fn set_note(&mut self, text: &str, secs: f32) {
         self.note = Some((text.to_string(), secs));
     }
@@ -327,6 +413,26 @@ impl App {
         }
         set_binds(self.save.settings.binds);
         crate::ui::set_marker_inset(self.save.settings.marker_inset);
+        let presence = if self.save.settings.discord { Some(self.presence()) } else { None };
+        self.discord.set(presence);
+        crate::ui::set_hurt_flash(self.save.settings.hurt_flash);
+        crate::draw::set_brightness(self.save.settings.brightness as f32 / 100.0);
+        if let Some(w) = self.world.as_mut() {
+            w.boss_lines = self.save.settings.boss_lines;
+        }
+        self.speak_quotes();
+        // Quiet while another window has the focus, if wanted; the player's own mute stays theirs.
+        let away = self.auto.is_none() && self.save.settings.mute_unfocused && !game::window_focused();
+        if away && !self.muted_away && !self.audio.muted {
+            self.audio.toggle_mute();
+            self.muted_away = true;
+        } else if !away && self.muted_away {
+            // Only undo the mute this did itself.
+            if self.audio.muted {
+                self.audio.toggle_mute();
+            }
+            self.muted_away = false;
+        }
         self.t += dt;
         // The main menu listens for secret words, so M must stay a letter there.
         let typing = matches!(self.screen, Screen::Options | Screen::Lobby | Screen::Menu);
@@ -348,7 +454,13 @@ impl App {
         }
         match self.screen {
             Screen::Menu => self.update_menu(),
-            Screen::Options => self.update_options(),
+            Screen::Options => {
+                self.update_options();
+                // Online the vigil goes on while someone looks at the options.
+                if self.options_in_game && self.online() {
+                    self.step_game(dt, Input::default(), false);
+                }
+            }
             Screen::Hub => self.update_hub(),
             Screen::Reliquary => self.update_reliquary(),
             Screen::Wardrobe => self.update_wardrobe(),
@@ -448,7 +560,13 @@ impl App {
                 self.draw_menu(&ui);
             }
             Screen::Options => {
-                self.backdrop(dt, 80.0);
+                if self.options_in_game && self.world.is_some() {
+                    // Over the paused vigil, so it is clear the game is still there.
+                    self.draw_game(&ui);
+                    draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.02, 0.02, 0.03, 0.82));
+                } else {
+                    self.backdrop(dt, 80.0);
+                }
                 self.draw_options(&ui);
             }
             Screen::Lobby => {
@@ -477,9 +595,16 @@ impl App {
             }
             _ => self.draw_game(&ui),
         }
-        if let Some((n, life)) = &self.note {
+        // Tips from the vigil wait while the pause menu or the options are open.
+        let menu_over_vigil = self.screen == Screen::Paused || (self.screen == Screen::Options && self.options_in_game);
+        if let Some((n, life)) = self.note.as_ref().filter(|_| !menu_over_vigil) {
             // In the main menu the last row reaches low on small screens; keep notes below it.
-            let y = if self.screen == Screen::Menu { sh - 92.0 } else { sh * 0.82 };
+            let y = match self.screen {
+                Screen::Menu => sh - 92.0,
+                // Below the Ash Shrine's last button, above the key hints.
+                Screen::Hub => sh - 58.0,
+                _ => sh * 0.82,
+            };
             ui.text_c(n, sw * 0.5, y, 20.0, Color::new(1.0, 0.75, 0.4, life.min(1.0)));
         }
         self.draw_popups(&ui, dt);
@@ -520,7 +645,7 @@ impl App {
             }
         }
         match self.screen {
-            Screen::Paused => ui.paused(self.online()),
+            Screen::Paused => self.draw_pause(ui),
             Screen::Dead { t, lost, .. } => self.draw_summary(ui, w, t, lost),
             Screen::Victory { t, .. } => self.draw_summary(ui, w, t, 0),
             _ => {}

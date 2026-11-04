@@ -64,7 +64,7 @@ The host simulates the world and sends each player a snapshot 30 times a second,
 | 1-4, W/S + Enter / Space | stick + A | pick level-up |
 | R | Y | reroll level-up (needs Insight) |
 | Tab (hold) | | damage per weapon |
-| Esc / P | Start | pause; Q / Select in pause abandons the vigil |
+| Esc / P | Start | pause menu: resume, options, sound, leave the vigil |
 | Esc | B | back in menus; LB / RB switch option pages |
 | N | | toggle damage numbers |
 | M | | mute |
@@ -75,7 +75,7 @@ Any XInput controller works (Xbox layout shown); it is picked up when plugged in
 
 ## Options
 
-Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (name, volumes, damage numbers and meter, overlay, screen shake, interface size, how far inside the screen edge off-screen markers sit), **Graphics** (resolution, fullscreen, VSync, FPS limit 30-240 or unlimited, 90 by default, anti-aliasing, dynamic lighting and its quality, model detail, particles, blood, fog, film grain) and **Difficulty**. VSync and anti-aliasing apply after a restart. Above 1080p the view of the field stays 1080 units tall, so every resolution sees the same area; the interface grows with it (Interface size: Auto, or 100-200%). A single-player vigil pauses when the window loses focus.
+Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (name, volumes, damage numbers and meter, overlay, screen shake, interface size, how far inside the screen edge off-screen markers sit), **Graphics** (resolution, fullscreen, VSync, FPS limit 30-240 or unlimited, 90 by default, anti-aliasing, dynamic lighting and its quality, model detail, particles, blood, fog, film grain) and **Difficulty**. VSync and anti-aliasing apply after a restart. Above 1080p the view of the field stays 1080 units tall, so every resolution sees the same area; the interface grows with it (Interface size: Auto, or 100-200%). Options can be changed during a vigil from the pause menu (Resume, Options, Sound, Leave). More options: pause or mute when the window loses focus, flash when hit, brightness, lords speak, and a Discord status that shows friends whether you are in the menus, the lobby, a vigil or a boss rush, alone or online.
 
 ## Systems
 
@@ -83,7 +83,7 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Ash Shrines** appear at 2:30, 7:30, 12:30 ... Stand in one for 1.5 s to heal, bank your carried souls and repel nearby foes.
 - **The Ash Shrine** (Start) is where you pick a class, the mode, the field, challenges and curses, and begin.
 - **Fields**: The Graveyard (archers and the restless), The Sunken Marsh (black water, leeches, ghouls and bloated things) and The Burning Cathedral (zealots, knights and gargoyles). Each has its own floor, props, light, foes and its own five lords; the Sovereign always ends the night. Online the host chooses.
-- **Lords**: ten in all. The Gravewarden, Pale Matriarch, Tolling Hermit and Ashen Sovereign, joined by the Drowned Bride (walls of water with one gap, a spiral of pillars), the Bog Mother (leaps, mud and ghouls), the Iron Penitent (a whirling flail, a lashing chain, three crushing steps), the Hollow Choir (a sweeping beam of voices and notes that follow you), the Stone Seraph (dives from the dark, drops stones) and the Pale Hound (zig-zag lunges and a howl that calls the pack). Every lord speaks when it arrives, when it grows desperate and as it falls; five of them rise once more at a quarter of their health with a new trick.
+- **Lords**: ten in all. The Gravewarden, Pale Matriarch, Tolling Hermit and Ashen Sovereign, joined by the Drowned Bride (walls of water with one gap, a spiral of pillars), the Bog Mother (leaps, mud and ghouls), the Iron Penitent (a whirling flail, a lashing chain, three crushing steps), the Hollow Choir (a sweeping beam of voices and notes that follow you), the Stone Seraph (dives from the dark, drops stones) and the Pale Hound (zig-zag lunges and a howl that calls the pack). The lords speak aloud: most of them when they arrive, when they grow desperate and as they fall, the Pale Hound sniffs, howls and whimpers; five of them rise once more at a quarter of their health with a new trick.
 - **Class skills** on E (X): Rally, Fan of Knives, Meteor, Sanctuary, Harvest, Hex Field, Blood Rite, Bolt Storm and CLANG, one per class, growing with your level. The HUD shows when it is ready.
 - **Curses** (at the Ash Shrine, or by the host for everyone): Frenzy, Famine, Volatile, Elite Tide, The Dark Hour, Brittle. Each adds 20% Ashen Marks.
 - **Braziers** stand all over every field. Stand by a cold one for a moment to light it: for two minutes it lights the dark, mends heroes near it and sets foes alight; it scatters a few souls when it catches. The nearest cold one is marked at the screen edge.
@@ -146,6 +146,7 @@ All graphics are drawn from primitives and music plus most sounds are synthesize
 
 - `font.ttf`: [Cinzel](https://github.com/google/fonts/tree/main/ofl/cinzel) by Natanael Gama, SIL Open Font License
 - `sfx/`: slash, knife, hit, die, roll, hurt, clang, bell, select from Kenney's [RPG Audio](https://kenney.nl/assets/rpg-audio) and [Impact Sounds](https://kenney.nl/assets/impact-sounds), CC0
+- `voice/`: the lords' lines, spoken with [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (Apache-2.0) and reshaped into each lord's voice by `src/voice.rs`; the Hound is synthesized. The model is not part of the game.
 
 License texts are in `assets/licenses/`.
 

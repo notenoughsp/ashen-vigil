@@ -668,7 +668,11 @@ async fn load_override(dir: &str, name: &str) -> Option<Sound> {
             }
         }
     }
-    let bytes = if dir == "sfx" { crate::embedded::sfx(name) } else { None }?;
+    let bytes = match dir {
+        "sfx" => crate::embedded::sfx(name),
+        "voice" => crate::embedded::voice(name),
+        _ => None,
+    }?;
     load_sound_from_bytes(bytes).await.ok()
 }
 
@@ -694,6 +698,10 @@ pub struct Audio {
     combat: Sound,
     endless: Vec<Sound>,
     bosses: Vec<Sound>,
+    /// The lords' spoken lines by key, e.g. "bride_1".
+    voices: HashMap<&'static str, Sound>,
+    /// The line being spoken, cut off when the next one starts.
+    speaking: Option<&'static str>,
     current: Music,
     intensity: f32,
     pub sfx_vol: f32,
@@ -745,7 +753,14 @@ impl Audio {
         let combat = take(1).remove(0);
         let bosses = take(THEMES.len());
         let endless = take(ENDLESS_STAGES as usize);
-        Audio { sfx, acts, lullaby, combat, endless, bosses, current: Music::Silence, intensity: 0.0, sfx_vol: 0.55, music_vol: 0.4, muted: false }
+        let mut voices = HashMap::new();
+        for (name, _) in crate::embedded::VOICE {
+            if let Some(s) = load_override("voice", name).await {
+                voices.insert(name, s);
+            }
+        }
+        crate::log!("{} of {} lord lines loaded", voices.len(), crate::embedded::VOICE.len());
+        Audio { sfx, acts, lullaby, combat, endless, bosses, voices, speaking: None, current: Music::Silence, intensity: 0.0, sfx_vol: 0.55, music_vol: 0.4, muted: false }
     }
 
     /// Plays a sound unless it already played within `gap` seconds.
@@ -765,6 +780,20 @@ impl Audio {
 
     pub fn play(&mut self, name: &str, vol: f32) {
         self.play_gap(name, vol, 0.03);
+    }
+
+    /// A lord speaks a line (see `voice::line_key`); the line before it falls silent.
+    pub fn speak(&mut self, key: &str) {
+        if let Some(prev) = self.speaking.take().and_then(|k| self.voices.get(k)) {
+            stop_sound(prev);
+        }
+        if self.muted {
+            return;
+        }
+        if let Some((name, snd)) = self.voices.get_key_value(key) {
+            play_sound(snd, PlaySoundParams { looped: false, volume: (self.sfx_vol * 1.6).min(1.0) });
+            self.speaking = Some(*name);
+        }
     }
 
     fn loops(&self) -> impl Iterator<Item = &Sound> {

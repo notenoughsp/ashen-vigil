@@ -69,7 +69,7 @@ impl App {
     }
 
     /// Steps through the difficulty presets; the host's choice applies to everyone.
-    fn cycle_difficulty(&mut self, dir: i32) {
+    pub(super) fn cycle_difficulty(&mut self, dir: i32) {
         let st = &mut self.save.settings;
         let now = PRESETS.iter().position(|(_, d)| *d == st.diff).map(|i| i as i32).unwrap_or(if dir > 0 { -1 } else { 0 });
         st.diff = PRESETS[(now + dir).rem_euclid(PRESETS.len() as i32) as usize].1;

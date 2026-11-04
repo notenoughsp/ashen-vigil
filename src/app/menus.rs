@@ -11,7 +11,8 @@ const SHOP_COLS: usize = 3;
 /// Ash Shrine rows: class, mode, field, the challenges, begin.
 const HUB_MODE_ROW: usize = 1;
 const HUB_BIOME_ROW: usize = 2;
-const HUB_CHALLENGE_ROW: usize = 3;
+const HUB_DIFF_ROW: usize = 3;
+const HUB_CHALLENGE_ROW: usize = 4;
 const HUB_CURSE_ROW: usize = HUB_CHALLENGE_ROW + ALL_CHALLENGES.len();
 const HUB_ROWS: usize = HUB_CURSE_ROW + ALL_CURSES.len() + 1;
 
@@ -30,6 +31,12 @@ enum Opt {
     Bind(u8),
     ResetBinds,
     Markers,
+    PauseUnfocused,
+    MuteUnfocused,
+    HurtFlash,
+    BossLines,
+    Discord,
+    Brightness,
     Resolution,
     Fullscreen,
     Vsync,
@@ -66,6 +73,12 @@ impl Opt {
             Opt::Bind(i) => ACTIONS[i as usize].label(),
             Opt::ResetBinds => "Reset to defaults",
             Opt::Markers => "Off-screen markers",
+            Opt::PauseUnfocused => "Pause when not in focus",
+            Opt::MuteUnfocused => "Mute when not in focus",
+            Opt::HurtFlash => "Flash when hit",
+            Opt::BossLines => "Lords speak",
+            Opt::Discord => "Discord status",
+            Opt::Brightness => "Brightness",
             Opt::Resolution => "Resolution",
             Opt::Fullscreen => "Fullscreen",
             Opt::Vsync => "VSync",
@@ -92,6 +105,12 @@ impl Opt {
         Some(match self {
             Opt::Resolution => "Window size. Fullscreen always uses the monitor's resolution.",
             Opt::Markers => "How far inside the screen edge the arrows to things off screen sit.",
+            Opt::PauseUnfocused => "A single-player vigil pauses when you switch to another window. Online the world never waits.",
+            Opt::MuteUnfocused => "No sound while another window has the focus.",
+            Opt::HurtFlash => "The screen edge flashes red when your hero is hit.",
+            Opt::BossLines => "The lords' words on arrival, at each phase and as they fall.",
+            Opt::Discord => "Friends on Discord see what you are playing: menus, lobby, vigil or boss rush.",
+            Opt::Brightness => "How dark the night is away from the fires.",
             Opt::Vsync => "Syncs to the monitor refresh. Takes effect after a restart.",
             Opt::Bind(_) => "Enter, then press the new key. Arrow keys, Shift and Esc always work too.",
             Opt::Cute => "Pink instead of blood, hearts instead of bullets, and everyone blushes.",
@@ -126,7 +145,27 @@ const PAGES: [(&str, &[Opt]); 4] = [
             Opt::Back,
         ],
     ),
-    ("General", &[Opt::Name, Opt::Music, Opt::Sfx, Opt::Numbers, Opt::Meter, Opt::Overlay, Opt::Shake, Opt::UiScale, Opt::Markers, Opt::Cute, Opt::Back]),
+    (
+        "General",
+        &[
+            Opt::Name,
+            Opt::Music,
+            Opt::Sfx,
+            Opt::Numbers,
+            Opt::Meter,
+            Opt::Overlay,
+            Opt::Shake,
+            Opt::HurtFlash,
+            Opt::BossLines,
+            Opt::UiScale,
+            Opt::Markers,
+            Opt::PauseUnfocused,
+            Opt::MuteUnfocused,
+            Opt::Discord,
+            Opt::Cute,
+            Opt::Back,
+        ],
+    ),
     (
         "Graphics",
         &[
@@ -142,6 +181,7 @@ const PAGES: [(&str, &[Opt]); 4] = [
             Opt::Gore,
             Opt::Fog,
             Opt::Grain,
+            Opt::Brightness,
             Opt::Back,
         ],
     ),
@@ -476,7 +516,7 @@ impl App {
         } else {
             0
         };
-        if matches!(opt, Opt::Music | Opt::Sfx | Opt::Markers) {
+        if matches!(opt, Opt::Music | Opt::Sfx | Opt::Markers | Opt::Brightness) {
             let held = if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) || pad_stick().x < -0.5 {
                 -1
             } else if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) || pad_stick().x > 0.5 {
@@ -506,7 +546,13 @@ impl App {
                 self.save.settings.name = "Ashen One".into();
             }
             self.save.store();
-            self.screen = Screen::Menu;
+            if std::mem::take(&mut self.options_in_game) && self.world.is_some() {
+                // Back to the paused vigil, with the new options in effect.
+                self.settings_to_world();
+                self.screen = Screen::Paused;
+            } else {
+                self.screen = Screen::Menu;
+            }
         }
     }
 
@@ -530,6 +576,12 @@ impl App {
             Opt::Bind(_) => {}
             Opt::UiScale => st.ui_scale = (st.ui_scale as i32 + dir).rem_euclid(UI_SCALES.len() as i32) as u8,
             Opt::Markers => st.marker_inset = (st.marker_inset as i32 + dir).clamp(0, crate::save::MAX_MARKER_INSET as i32) as u8,
+            Opt::PauseUnfocused => st.pause_unfocused = !st.pause_unfocused,
+            Opt::MuteUnfocused => st.mute_unfocused = !st.mute_unfocused,
+            Opt::HurtFlash => st.hurt_flash = !st.hurt_flash,
+            Opt::BossLines => st.boss_lines = !st.boss_lines,
+            Opt::Discord => st.discord = !st.discord,
+            Opt::Brightness => st.brightness = (st.brightness as i32 + dir * 5).clamp(crate::save::MIN_BRIGHTNESS as i32, crate::save::MAX_BRIGHTNESS as i32) as u8,
             Opt::Cute => st.cute = !st.cute,
             Opt::Resolution => {
                 let i = RESOLUTIONS.iter().position(|r| *r == st.resolution).map(|i| i as i32).unwrap_or(0);
@@ -610,6 +662,12 @@ impl App {
                 0.0 => format!("Auto ({:.0}%)", crate::ui::ui_scale() * 100.0),
                 s => format!("{:.0}%", s * 100.0),
             },
+            Opt::PauseUnfocused => onoff(st.pause_unfocused),
+            Opt::MuteUnfocused => onoff(st.mute_unfocused),
+            Opt::HurtFlash => onoff(st.hurt_flash),
+            Opt::BossLines => onoff(st.boss_lines),
+            Opt::Discord => onoff(st.discord),
+            Opt::Brightness => format!("{}%", st.brightness),
             Opt::Markers => match st.marker_inset {
                 0 => "At the edge".into(),
                 v => format!("{}% inside", v),
@@ -735,6 +793,10 @@ impl App {
             self.cycle_biome(if left(false) || mouse.right { -1 } else { 1 });
             return;
         }
+        if self.hub_sel == HUB_DIFF_ROW && (confirm() || left(false) || right(false) || mouse.left || mouse.right) {
+            self.cycle_difficulty(if left(false) || mouse.right { -1 } else { 1 });
+            return;
+        }
         let toggle = confirm() || left(false) || right(false) || mouse.left || mouse.right;
         if (HUB_CURSE_ROW..HUB_ROWS - 1).contains(&self.hub_sel) && toggle {
             self.save.curses ^= ALL_CURSES[self.hub_sel - HUB_CURSE_ROW].bit();
@@ -784,6 +846,18 @@ impl App {
         ui.text(&format!("<  {}  >", biome.name()), x + 14.0, y + 23.0, 20.0, PALE);
         ui.text_r(biome.desc(), x + w - 14.0, y + 23.0, 16.0, DIM);
         y += 38.0;
+        // The same presets as in the lobby; finer settings stay under Options > Difficulty.
+        let d = self.save.settings.diff;
+        ui.row(x, y, w, 34.0, self.hub_sel == HUB_DIFF_ROW);
+        ui.text(&format!("<  {}  >", d.preset_name()), x + 14.0, y + 23.0, 20.0, PALE);
+        ui.text_r(
+            &format!("Foes {:.0}%  health {:.0}%  damage {:.0}%   souls and marks x{:.2}", d.count * 100.0, d.hp * 100.0, d.dmg * 100.0, d.soul_mult()),
+            x + w - 14.0,
+            y + 23.0,
+            16.0,
+            DIM,
+        );
+        y += 38.0;
         for (i, ch) in ALL_CHALLENGES.iter().enumerate() {
             let on = self.save.challenges & ch.bit() != 0;
             ui.row(x, y, w, 28.0, self.hub_sel == HUB_CHALLENGE_ROW + i);
@@ -813,7 +887,10 @@ impl App {
         ui.row(x, y, w, 34.0, self.hub_sel == HUB_ROWS - 1);
         let begin = if rush { "Begin the Boss Rush" } else { "Begin the Vigil" };
         ui.text_c(&format!("{}  ({})", begin, self.save.settings.diff.preset_name()), cx, y + 24.0, 22.0, EMBER);
-        ui.text_c("Permanent upgrades are bought in the Reliquary.", cx, y + 64.0, 15.0, DIM);
+        // A reminder where there is room for it; small screens need the space for notes.
+        if sh >= 800.0 {
+            ui.text_c("Permanent upgrades are bought in the Reliquary.", cx, y + 64.0, 15.0, DIM);
+        }
         ui.text_c(
             hint("W/S select    A/D change class    Enter toggle / begin    Esc back", "Stick select, left / right class    A toggle / begin    B back"),
             cx,

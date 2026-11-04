@@ -24,6 +24,10 @@ impl World {
         if e.elite || e.boss {
             dmg *= elite_dmg;
         }
+        if e.boss {
+            // No single blow takes more than a sliver of a lord: every fight lasts a while.
+            dmg = dmg.min(e.max_hp * BOSS_HIT_CAP);
+        }
         let dealt = dmg.min(e.hp.max(0.0));
         e.hp -= dmg;
         e.flash = 0.1;

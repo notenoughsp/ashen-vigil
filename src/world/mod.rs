@@ -47,6 +47,8 @@ pub const HEAR_FULL: f32 = 450.0;
 /// ...and silent from here on, about a screen away.
 pub const HEAR_MAX: f32 = 1100.0;
 pub const BOSS_INTERVAL: f32 = 5.0 * 60.0;
+/// The most of a lord's health one hit can take.
+pub const BOSS_HIT_CAP: f32 = 0.025;
 /// Seconds of warning before a lord arrives (not in the boss rush).
 pub const BOSS_WARNING: f32 = 5.0;
 /// Lords to defeat in a boss rush, and the breather between two of them.
@@ -199,20 +201,18 @@ impl BossKind {
     pub fn lines(self) -> [&'static str; 4] {
         match self {
             BossKind::Gravewarden => ["Another body for the earth.", "The graves are hungry tonight!", "I will bury you myself!", "...the earth... takes me back..."],
-            BossKind::Matriarch => ["Hush, little flame. My children are hungry.", "Feed them! Feed them all!", "", "My children... scatter..."],
+            BossKind::Matriarch => ["So many little lights out tonight. My children will feast.", "", "", ""],
             BossKind::Hermit => ["Can you hear it? The last hour is tolling.", "Every bell rings for you now.", "", "The bell... falls silent..."],
             BossKind::Sovereign => {
                 ["Kneel. The dawn will not come for you.", "I have burned brighter flames than you!", "Then let the whole world burn with me!", "The throne... is ash..."]
             }
-            BossKind::Bride => {
-                ["He promised he would come back for me...", "You are not him! You are NOT HIM!", "Then drown with me, and never leave!", "At last... the water is warm..."]
-            }
-            BossKind::BogMother => ["Mmm. Something warm wandered into my mud.", "Down you go, into the dark and the wet!", "", "Back... into the bog..."],
+            BossKind::Bride => ["He promised he would come back for me...", "You are not him!", "Then drown with me, and never leave!", "At last... the water is warm..."],
+            BossKind::BogMother => ["The bog... takes me home...", "", "", ""],
             BossKind::Penitent => {
                 ["Every link of this chain is a sin. Count them.", "Pain is the only prayer that is answered!", "Break me, and be broken!", "Free... at last... free..."]
             }
             BossKind::Choir => ["We sing for the dead. Now we sing for you.", "Louder! LOUDER!", "Our last hymn is your name.", "...and the silence... is beautiful..."],
-            BossKind::Seraph => ["The tower fell. I did not.", "Stone does not tire, little flame.", "", "...crumbling... like the rest..."],
+            BossKind::Seraph => ["The tower fell... I did not.", "Stone does not tire, little flame.", "", "...crumbling... like the rest..."],
             BossKind::Hound => ["*sniffing* ...fresh...", "*a howl that shakes the stones*", "", "*a last whimper*"],
         }
     }
@@ -742,6 +742,8 @@ pub struct World {
     pub banner: Option<(String, String, Color, f32)>,
     /// A lord's words: what is said, in its colour, and how long it stays.
     pub quote: Option<(String, Color, f32)>,
+    /// Whether lords speak at all (a setting; clients hide what the host sends).
+    pub boss_lines: bool,
     pub biome: Biome,
     pub toasts: Vec<(String, f32)>,
     pub(crate) grid: Grid,
@@ -860,6 +862,7 @@ impl World {
             sounds: Vec::new(),
             banner: None,
             quote: None,
+            boss_lines: true,
             biome: Biome::Graveyard,
             toasts: Vec::new(),
             grid: Grid::new(),
@@ -988,7 +991,7 @@ impl World {
 
     /// A lord speaks; empty lines say nothing.
     pub fn say(&mut self, line: &str, color: Color) {
-        if !line.is_empty() {
+        if !line.is_empty() && self.boss_lines {
             self.quote = Some((line.to_string(), color, 4.5));
         }
     }

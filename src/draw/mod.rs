@@ -39,6 +39,19 @@ fn heart(p: Vec2, r: f32, c: Color) {
 /// Above this many enemies on screen, models switch to the cheap version.
 const LOD_ENEMIES: usize = 350;
 
+thread_local! {
+    static BRIGHTNESS: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+}
+
+/// Takes the brightness setting (1.0 is normal); called every frame.
+pub fn set_brightness(k: f32) {
+    BRIGHTNESS.with(|b| b.set(k));
+}
+
+pub(crate) fn brightness() -> f32 {
+    BRIGHTNESS.with(|b| b.get())
+}
+
 /// Pixels per world unit: 1 up to 1080 lines, then the view stays 1080 units tall,
 /// so every resolution sees the same slice of the field.
 pub fn view_scale() -> f32 {

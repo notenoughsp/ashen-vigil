@@ -209,6 +209,18 @@ pub struct Settings {
     pub boss_rush: bool,
     /// The field to keep the vigil on, see `world::ALL_BIOMES`.
     pub biome: u8,
+    /// A single-player vigil pauses when the window loses focus.
+    pub pause_unfocused: bool,
+    /// The sound goes quiet while another window has the focus.
+    pub mute_unfocused: bool,
+    /// The screen flashes when the hero is hit.
+    pub hurt_flash: bool,
+    /// How bright the night is, in percent.
+    pub brightness: u8,
+    /// Lords speak their lines.
+    pub boss_lines: bool,
+    /// Friends on Discord see what you are doing.
+    pub discord: bool,
     /// The soft variant: pink instead of blood, hearts instead of bullets, blushing foes.
     pub cute: bool,
 }
@@ -218,6 +230,9 @@ pub const FPS_CAPS: [u32; 9] = [30, 60, 75, 90, 120, 144, 165, 240, 0];
 pub const MSAA: [u32; 4] = [1, 2, 4, 8];
 /// The farthest off-screen markers can sit from the edge, in percent.
 pub const MAX_MARKER_INSET: u8 = 35;
+/// How dark or bright the night can be made, in percent.
+pub const MIN_BRIGHTNESS: u8 = 70;
+pub const MAX_BRIGHTNESS: u8 = 150;
 
 impl Default for Settings {
     fn default() -> Self {
@@ -249,6 +264,12 @@ impl Default for Settings {
             marker_inset: 12,
             boss_rush: false,
             biome: 0,
+            pause_unfocused: true,
+            mute_unfocused: false,
+            hurt_flash: true,
+            brightness: 100,
+            boss_lines: true,
+            discord: true,
             cute: false,
         }
     }
@@ -428,6 +449,12 @@ impl Save {
                 "won_classes" => s.won_classes = v.parse().unwrap_or(0),
                 "boss_rush" => st.boss_rush = flag(v),
                 "biome" => st.biome = v.parse::<u8>().unwrap_or(0).min(2),
+                "pause_unfocused" => st.pause_unfocused = flag(v),
+                "mute_unfocused" => st.mute_unfocused = flag(v),
+                "hurt_flash" => st.hurt_flash = flag(v),
+                "brightness" => st.brightness = v.parse::<u8>().unwrap_or(100).clamp(MIN_BRIGHTNESS, MAX_BRIGHTNESS),
+                "boss_lines" => st.boss_lines = flag(v),
+                "discord" => st.discord = flag(v),
                 "marker_inset" => st.marker_inset = v.parse::<u8>().unwrap_or(12).min(MAX_MARKER_INSET),
                 "best_kills" => s.best_kills = v.parse().unwrap_or(0),
                 "best_level" => s.best_level = v.parse().unwrap_or(0),
@@ -547,6 +574,15 @@ impl Save {
         }
         out += &format!("name={}\nlast_ip={}\nui_scale={}\n", st.name, st.last_ip, st.ui_scale);
         out += &format!("cute={}\ncute_found={}\nboss_rush={}\nbiome={}\ncurses={}\n", b(st.cute), b(self.cute_found), b(st.boss_rush), st.biome, self.curses);
+        out += &format!(
+            "pause_unfocused={}\nmute_unfocused={}\nhurt_flash={}\nbrightness={}\nboss_lines={}\ndiscord={}\n",
+            b(st.pause_unfocused),
+            b(st.mute_unfocused),
+            b(st.hurt_flash),
+            st.brightness,
+            b(st.boss_lines),
+            b(st.discord)
+        );
         out += &format!(
             "skins={}\nskin={}\nshrine_levels={}\nwon_classes={}\nmarker_inset={}\n",
             self.skins, self.profile.skin, self.shrine_levels, self.won_classes, st.marker_inset

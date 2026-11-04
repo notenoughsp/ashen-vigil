@@ -22,17 +22,19 @@ impl App {
         // Clients learn the host's field from the first snapshot.
         w.biome = Biome::from_u8(self.save.settings.biome);
         w.screen = crate::draw::view_size();
-        let st = &self.save.settings;
-        w.show_numbers = st.numbers;
-        w.gore = st.gore;
-        w.detail_high = st.detail_high;
-        w.particle_mult = [0.35, 0.65, 1.0][st.particles.min(2) as usize];
-        w.fog = st.fog;
-        w.shake_mult = if st.shake { 1.0 } else { 0.0 };
+        apply_settings(&mut w, &self.save.settings);
         w
     }
 
+    /// Hands changed options to the running vigil.
+    pub(super) fn settings_to_world(&mut self) {
+        if let Some(w) = self.world.as_mut() {
+            apply_settings(w, &self.save.settings);
+        }
+    }
+
     fn begin(&mut self, w: World) {
+        self.vigil_since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
         self.reset_run_log();
         self.endless_paid = 0;
         self.endless_record = None;
@@ -331,17 +333,17 @@ impl App {
     pub(super) fn update_playing(&mut self, dt: f32) {
         drain_chars();
         // Alt-Tab pauses a single-player vigil; the self-test runs unfocused on purpose.
-        if self.screen == Screen::Playing && !self.online() && self.auto.is_none() && !window_focused() {
+        if self.screen == Screen::Playing && !self.online() && self.auto.is_none() && self.save.settings.pause_unfocused && !window_focused() {
             self.screen = Screen::Paused;
         }
         self.show_tips();
         let paused = self.screen == Screen::Paused;
-        if is_key_pressed(KeyCode::Escape) || act_pressed(Action::Pause) || pad_pressed(Pad::Pause) || (paused && (pad_pressed(Pad::Back) || clicked())) {
+        if is_key_pressed(KeyCode::Escape) || act_pressed(Action::Pause) || pad_pressed(Pad::Pause) || (paused && pad_pressed(Pad::Back)) {
             self.screen = if paused { Screen::Playing } else { Screen::Paused };
+            self.pause_sel = 0;
             return;
         }
-        if paused && (is_key_pressed(KeyCode::Q) || pad_pressed(Pad::Leave)) {
-            self.abandon();
+        if paused && self.pause_menu() {
             return;
         }
         if paused && !self.online() {
@@ -366,6 +368,79 @@ impl App {
             input = i;
         }
         self.step_game(dt, input, !paused);
+    }
+
+    /// The pause menu's buttons; returns true when one of them took the frame.
+    fn pause_menu(&mut self) -> bool {
+        let n = PAUSE_BUTTONS;
+        if nav(&mut self.pause_sel, n, false) {
+            self.audio.play("select", 0.4);
+        }
+        // Leaving asks twice; moving away from the button takes the question back.
+        if self.pause_sel != 3 {
+            self.leave_armed = false;
+        }
+        let under = hovered(&pause_rows());
+        if let Some(i) = under.filter(|_| mouse_moved()) {
+            if i != self.pause_sel {
+                self.pause_sel = i;
+                self.audio.play("select", 0.3);
+            }
+        }
+        let click = clicked() && under.is_some();
+        if click {
+            self.pause_sel = under.unwrap_or(self.pause_sel);
+        }
+        if !confirm() && !click {
+            return false;
+        }
+        self.audio.play("select", 0.6);
+        match self.pause_sel {
+            0 => self.screen = Screen::Playing,
+            1 => {
+                self.screen = Screen::Options;
+                self.options_in_game = true;
+                self.opt_sel = 0;
+            }
+            2 => self.audio.toggle_mute(),
+            _ if !self.leave_armed => self.leave_armed = true,
+            _ => {
+                self.leave_armed = false;
+                self.abandon();
+            }
+        }
+        true
+    }
+
+    /// The pause menu over the vigil.
+    pub(super) fn draw_pause(&self, ui: &Ui) {
+        let (sw, sh) = (ui_w(), ui_h());
+        // Dark enough that banners and numbers of the vigil behind do not compete.
+        draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.01, 0.01, 0.02, 0.82));
+        let online = self.online();
+        ui.spaced_c(if online { "MENU" } else { "PAUSED" }, sw * 0.5, sh * 0.3, 40.0, 6.0, PALE);
+        if online {
+            ui.text_c("The world does not wait for you online.", sw * 0.5, sh * 0.3 + 34.0, 18.0, crate::ui::EMBER);
+        }
+        let leave = match (self.leave_armed, online) {
+            (true, _) => "Really? Click again to leave",
+            (false, true) => "Leave the vigil",
+            (false, false) => "Give up the vigil",
+        };
+        let sound = if self.audio.muted { "Sound on" } else { "Sound off" };
+        for (i, (label, r)) in ["Resume", "Options", sound, leave].iter().zip(pause_rows()).enumerate() {
+            let on = self.pause_sel == i;
+            ui.row(r.x, r.y, r.w, r.h, on);
+            let col = if i == 3 {
+                crate::ui::BLOOD
+            } else if on {
+                crate::ui::GOLD
+            } else {
+                PALE
+            };
+            ui.text_c(label, sw * 0.5, r.y + 26.0, 22.0, col);
+        }
+        ui.text_c(hint("W/S or mouse to choose, Enter or click to confirm, Esc to resume", "Stick to choose, A to confirm, Start or B to resume"), sw * 0.5, sh - 30.0, 16.0, DIM);
     }
 
     /// Leaves the current vigil from the pause menu.
@@ -591,6 +666,25 @@ impl App {
     }
 }
 
+/// Buttons in the pause menu: resume, options, sound, leave.
+const PAUSE_BUTTONS: usize = 4;
+
+/// Where the pause menu's buttons sit, for drawing and for the mouse.
+fn pause_rows() -> Vec<Rect> {
+    let (sw, sh) = (ui_w(), ui_h());
+    (0..PAUSE_BUTTONS).map(|i| Rect::new(sw * 0.5 - 170.0, sh * 0.3 + 70.0 + i as f32 * 48.0, 340.0, 40.0)).collect()
+}
+
+/// Copies the settings a world keeps for itself.
+fn apply_settings(w: &mut World, st: &crate::save::Settings) {
+    w.show_numbers = st.numbers;
+    w.gore = st.gore;
+    w.detail_high = st.detail_high;
+    w.particle_mult = [0.35, 0.65, 1.0][st.particles.min(2) as usize];
+    w.fog = st.fog;
+    w.shake_mult = if st.shake { 1.0 } else { 0.0 };
+}
+
 /// The host takes a client's own movement as truth and forwards its choices.
 fn apply_client_input(w: &mut World, h: usize, inp: &ClientInput) {
     let hero = &mut w.heroes[h];
@@ -643,7 +737,7 @@ fn first_vigil_tips() -> Vec<(f32, String)> {
 
 /// True while the game window has the keyboard focus.
 #[cfg(windows)]
-fn window_focused() -> bool {
+pub(super) fn window_focused() -> bool {
     #[link(name = "user32")]
     extern "system" {
         fn GetForegroundWindow() -> isize;
@@ -662,6 +756,6 @@ fn window_focused() -> bool {
 }
 
 #[cfg(not(windows))]
-fn window_focused() -> bool {
+pub(super) fn window_focused() -> bool {
     true
 }

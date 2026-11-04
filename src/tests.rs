@@ -1053,6 +1053,7 @@ fn a_lord_is_announced_five_seconds_ahead() {
     let i = w.enemies.iter().position(|e| e.boss).unwrap();
     w.next_boss = w.time - 1.0;
     let src = Src { hero: 0, weapon: WeaponKind::Blade };
+    w.enemies[i].hp = 1.0;
     w.hit(i, 1e12, Vec2::ZERO, src, false);
     assert!(w.next_boss >= w.time + BOSS_WARNING - 0.01);
 }
@@ -1068,6 +1069,7 @@ fn a_boss_rush_brings_lord_after_lord_and_goes_on_endless() {
         simulate(&mut w, RUSH_BREATHER + 1.0, true, |w, _| warned |= w.boss_warning > 0.0);
         let i = w.enemies.iter().position(|e| e.boss).expect("the next lord did not come");
         lords.push(w.enemies[i].max_hp);
+        w.enemies[i].hp = 1.0;
         w.hit(i, 1e15, Vec2::ZERO, src, false);
     }
     simulate(&mut w, 1.0, true, |_, _| {});
@@ -1084,6 +1086,7 @@ fn a_boss_rush_brings_lord_after_lord_and_goes_on_endless() {
     for _ in 0..3 {
         simulate(&mut w, RUSH_BREATHER + 1.0, true, |_, _| {});
         let i = w.enemies.iter().position(|e| e.boss).expect("the endless rush stopped sending lords");
+        w.enemies[i].hp = 1.0;
         w.hit(i, 1e15, Vec2::ZERO, src, false);
     }
     simulate(&mut w, 1.0, true, |_, _| {});
@@ -1301,6 +1304,10 @@ fn every_lord_fights_through_all_its_phases() {
         assert_eq!(w.boss_kind, Some(*lord), "the wrong lord came");
         assert!(w.quote.is_some(), "{:?} said nothing on arrival", lord);
         // Fight a while in each phase: full health, then half, then a fifth.
+        // So much health that no single frame can fell it; the phases go by percentage.
+        if let Some(e) = w.enemies.iter_mut().find(|e| e.boss) {
+            e.max_hp = 1e12;
+        }
         for frac in [1.0, 0.45, 0.2] {
             if let Some(e) = w.enemies.iter_mut().find(|e| e.boss) {
                 e.hp = e.max_hp * frac;
@@ -1400,7 +1407,10 @@ fn curses_take_hold() {
     let a = calm.make_enemy(EnemyKind::Hollow, Vec2::ZERO);
     let b = cursed.make_enemy(EnemyKind::Hollow, Vec2::ZERO);
     assert!(b.max_hp > a.max_hp * 1.1, "the Dark Hour should toughen foes");
-    assert!(b.speed > a.speed * 1.05 || b.speed / a.speed > 1.1, "Frenzy should speed foes up");
+    // Speeds vary a little per foe; compare the average of many.
+    let avg = |w: &mut World| (0..50).map(|_| w.make_enemy(EnemyKind::Hollow, Vec2::ZERO).speed).sum::<f32>() / 50.0;
+    let (calm_speed, cursed_speed) = (avg(&mut calm), avg(&mut cursed));
+    assert!(cursed_speed > calm_speed * 1.15, "Frenzy should speed foes up: {} vs {}", cursed_speed, calm_speed);
     assert_eq!(cursed.heroes[0].p.revives, 0, "Brittle leaves no embers");
     // Famine: no regeneration.
     cursed.heroes[0].stats.regen = 5.0;
@@ -1409,4 +1419,113 @@ fn curses_take_hold() {
     simulate(&mut cursed, 2.0, false, |w, _| w.enemies.clear());
     assert!(cursed.heroes[0].p.hp <= 10.0 + 0.01, "Famine still let the hero regenerate");
     assert!(curse_mult(cursed.curses) > 1.79);
+}
+
+#[test]
+fn no_single_hit_takes_more_than_a_sliver_of_a_lord() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.time = 5.0 * 60.0;
+    w.next_boss = w.time;
+    simulate(&mut w, 0.5, true, |_, _| {});
+    let i = w.enemies.iter().position(|e| e.boss).expect("no lord came");
+    let max = w.enemies[i].max_hp;
+    let before = w.enemies[i].hp;
+    let src = Src { hero: 0, weapon: WeaponKind::Blade };
+    w.hit(i, 1e15, Vec2::ZERO, src, false);
+    let taken = before - w.enemies[i].hp;
+    assert!(taken <= max * BOSS_HIT_CAP + 0.01, "one hit took {} of {}", taken, max);
+    assert!(!w.enemies[i].dead);
+    // Ordinary foes still fall to one big hit.
+    let e = w.make_enemy(EnemyKind::Knight, vec2(300.0, 0.0));
+    w.enemies.push(e);
+    let j = w.enemies.len() - 1;
+    w.hit(j, 1e15, Vec2::ZERO, src, false);
+    assert!(w.enemies[j].dead);
+}
+
+#[test]
+#[ignore]
+#[cfg(windows)]
+fn discord_pipe_report() {
+    // The game's own id should get READY; a made-up one a clean error rather than a hang.
+    println!("game id: {:?}", crate::discord::probe(crate::discord::APP_ID));
+    println!("made-up id: {:?}", crate::discord::probe("123456789012345678"));
+}
+
+/// Voice trials: each kokoro_<lord>__<voice>.wav in VOICE_DIR, a line recorded with that
+/// Kokoro voice, comes out as fx_<lord>__<voice>.wav in the lord's voice.
+#[test]
+#[ignore]
+fn voice_samples() {
+    let dir = std::env::var("VOICE_DIR").unwrap_or_else(|_| ".".into());
+    for f in std::fs::read_dir(&dir).expect("VOICE_DIR").flatten() {
+        let file = f.file_name().to_string_lossy().into_owned();
+        let Some((lord, voice)) = file.strip_prefix("kokoro_").and_then(|v| v.strip_suffix(".wav")).and_then(|v| v.split_once("__")) else { continue };
+        let Some(kind) = crate::world::ALL_LORDS.into_iter().find(|k| crate::voice::key(*k) == lord) else { continue };
+        let rec = crate::voice::from_wav(&std::fs::read(f.path()).unwrap()).expect("a wav");
+        let out = crate::voice::trim(&crate::voice::process_from(&rec, kind, crate::voice::recorded_pitch(voice)));
+        std::fs::write(format!("{}/fx_{}__{}.wav", dir, lord, voice), crate::voice::to_wav(&out)).unwrap();
+    }
+}
+
+/// Writes the game icon as a large PNG (for Discord's art assets): `ICON_OUT=path cargo test icon_png -- --ignored`.
+#[test]
+#[ignore]
+fn icon_png() {
+    let Ok(path) = std::env::var("ICON_OUT") else { return };
+    let size = 1024;
+    // export_png writes the rows bottom-up, so hand them over flipped.
+    let rgba = crate::icon_art::icon_rgba(size);
+    let bytes = rgba.chunks(size * 4).rev().flatten().copied().collect();
+    let img = macroquad::texture::Image { width: size as u16, height: size as u16, bytes };
+    img.export_png(&path);
+}
+
+/// Writes the lords' lines to record, one per row: file key, Kokoro voice, speed, text.
+/// `VOICE_RAW=dir cargo test voice_jobs -- --ignored`, then record them as <key>.wav there.
+#[test]
+#[ignore]
+fn voice_jobs() {
+    let Ok(dir) = std::env::var("VOICE_RAW") else { return };
+    let mut out = String::new();
+    for kind in crate::world::ALL_LORDS {
+        let Some((voice, speed)) = crate::voice::recorded_with(kind) else { continue };
+        for (i, line) in kind.lines().iter().enumerate().filter(|(_, l)| !l.is_empty()) {
+            out += &format!("{}_{}\t{}\t{}\t{}\n", crate::voice::key(kind), i, voice, speed, crate::voice::spoken(line));
+        }
+    }
+    std::fs::write(format!("{}/jobs.tsv", dir), out).unwrap();
+}
+
+/// Gives the recorded lines in VOICE_RAW each lord's voice and writes them to VOICE_OUT;
+/// the Hound's growls are synthesized.
+#[test]
+#[ignore]
+fn voice_bake() {
+    let (Ok(raw), Ok(out)) = (std::env::var("VOICE_RAW"), std::env::var("VOICE_OUT")) else { return };
+    for kind in crate::world::ALL_LORDS {
+        for (i, line) in kind.lines().iter().enumerate().filter(|(_, l)| !l.is_empty()) {
+            let name = format!("{}_{}", crate::voice::key(kind), i);
+            let audio = match crate::voice::recorded_with(kind) {
+                None => crate::voice::line_audio(kind, line),
+                Some((voice, _)) => {
+                    let rec = crate::voice::from_wav(&std::fs::read(format!("{}/{}.wav", raw, name)).expect("a recording")).expect("a wav");
+                    crate::voice::process_from(&rec, kind, crate::voice::recorded_pitch(voice))
+                }
+            };
+            std::fs::write(format!("{}/{}.wav", out, name), crate::voice::to_wav(&crate::voice::trim(&audio))).unwrap();
+        }
+    }
+}
+
+#[test]
+fn every_lord_line_has_a_voice_key() {
+    for kind in crate::world::ALL_LORDS {
+        for (i, line) in kind.lines().iter().enumerate().filter(|(_, l)| !l.is_empty()) {
+            assert_eq!(crate::voice::line_key(line), Some(format!("{}_{}", crate::voice::key(kind), i)), "{}", line);
+            assert!(crate::embedded::voice(&format!("{}_{}", crate::voice::key(kind), i)).is_some(), "no recording of {:?}", line);
+        }
+    }
+    assert_eq!(crate::voice::line_key("You are not him!").as_deref(), Some("bride_1"));
+    assert_eq!(crate::voice::line_key("Nobody says this."), None);
 }

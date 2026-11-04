@@ -249,17 +249,17 @@ impl App {
             p.1 -= dt;
         }
         self.popups.retain(|p| p.1 > 0.0);
-        let in_vigil = matches!(self.screen, Screen::Playing | Screen::Paused | Screen::Dead { .. } | Screen::Victory { .. });
+        let in_vigil = matches!(self.screen, Screen::Playing | Screen::Dead { .. } | Screen::Victory { .. });
         for (i, (text, life)) in self.popups.iter().enumerate() {
             let k = life.min(1.0);
             let w = ui.width(text, 19.0) + 40.0;
             // In a vigil: above a tip or note on screen, otherwise just above the boss bar.
-            // In the menus: the top right corner, clear of every menu row.
+            // In menus and the pause menu: the bottom right corner, clear of rows and tabs.
             let (cx, y) = if in_vigil {
                 let base = if self.note.is_some() { (sh * 0.82 - 44.0).min(sh - 130.0) } else { sh - 130.0 };
                 (sw * 0.5, base - i as f32 * 34.0)
             } else {
-                (sw - 16.0 - w * 0.5, 34.0 + i as f32 * 34.0)
+                (sw - 16.0 - w * 0.5, sh - 64.0 - i as f32 * 34.0)
             };
             draw_rectangle(cx - w * 0.5, y - 22.0, w, 30.0, Color::new(0.05, 0.03, 0.02, 0.85 * k));
             draw_rectangle_lines(cx - w * 0.5, y - 22.0, w, 30.0, 1.5, a(GOLD, k));

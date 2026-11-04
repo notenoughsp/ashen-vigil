@@ -1,0 +1,4 @@
+The lords' voices were spoken by Kokoro-82M (https://huggingface.co/hexgrad/Kokoro-82M)
+by hexgrad, released under the Apache License, Version 2.0, and then reshaped into each
+lord's voice by the game's own audio code. The model itself is not part of this game.
+Some of its training audio is licensed CC BY 4.0 (SIWIS dataset).

@@ -5,6 +5,7 @@
 mod app;
 mod audio;
 mod data;
+mod discord;
 mod draw;
 mod embedded;
 mod icon_art;
@@ -16,6 +17,7 @@ mod snapshot;
 #[cfg(test)]
 mod tests;
 mod ui;
+mod voice;
 mod world;
 
 use app::{App, AutoTest};

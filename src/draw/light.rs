@@ -229,7 +229,9 @@ impl World {
             Biome::Cathedral => Color::new(0.33, 0.23, 0.22, 1.0),
         };
         let (base, moon) = if self.cute { (AMBIENT_CUTE, Color::new(0.85, 0.5, 0.7, 1.0)) } else { (field, Color::new(0.34, 0.08, 0.08, 1.0)) };
-        clear_background(Color::new(base.r + (moon.r - base.r) * k, base.g + (moon.g - base.g) * k, base.b + (moon.b - base.b) * k, 1.0));
+        let b = super::brightness();
+        let mix = |a: f32, m: f32| ((a + (m - a) * k) * b).min(1.0);
+        clear_background(Color::new(mix(base.r, moon.r), mix(base.g, moon.g), mix(base.b, moon.b), 1.0));
         gl_use_material(&l.add);
         for (p, r, c) in lights {
             draw_texture_ex(&l.falloff, p.x - r, p.y - r, c, DrawTextureParams { dest_size: Some(vec2(r * 2.0, r * 2.0)), ..Default::default() });
