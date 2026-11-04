@@ -224,6 +224,7 @@ fn hero_slow(h: &Hero) -> Vec<u8> {
     }
     w.u8(h.has_cat as u8);
     w.u8(h.skin);
+    w.u8(h.challenges);
     w.0
 }
 
@@ -270,6 +271,7 @@ fn read_hero_slow(data: &[u8], h: &mut Hero) -> bool {
     }
     h.has_cat = r.u8() & 1 != 0;
     h.skin = r.u8().min(SKINS.len() as u8);
+    h.challenges = r.u8() & 7;
     r.ok
 }
 
@@ -444,8 +446,10 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
     e.w.u8(pause);
     e.w.f32(countdown);
     e.w.u16(w.level_round);
-    e.w.u8(w.dead as u8 | (w.won as u8) << 1 | (w.endless as u8) << 2 | (w.grave_found as u8) << 3);
+    e.w.u8(w.dead as u8 | (w.won as u8) << 1 | (w.endless as u8) << 2 | (w.grave_found as u8) << 3 | (w.boss_rush as u8) << 4);
     e.w.u16(w.bosses_killed as u16);
+    // Tenths of a second until the next lord while the warning shows.
+    e.w.u8((w.boss_warning * 10.0).ceil().clamp(0.0, 255.0) as u8);
 
     e.w.u8(w.heroes.len() as u8);
     for h in &w.heroes {
@@ -791,7 +795,9 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.won = flags & 2 != 0;
     w.endless = flags & 4 != 0;
     w.grave_found = flags & 8 != 0;
+    w.boss_rush = flags & 16 != 0;
     w.bosses_killed = d.r.u16() as u32;
+    w.boss_warning = d.r.u8() as f32 / 10.0;
 
     let n = d.r.u8() as usize;
     for _ in 0..n {

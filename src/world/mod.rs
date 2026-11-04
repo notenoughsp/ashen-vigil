@@ -44,6 +44,18 @@ pub const HEAR_FULL: f32 = 450.0;
 /// ...and silent from here on, about a screen away.
 pub const HEAR_MAX: f32 = 1100.0;
 pub const BOSS_INTERVAL: f32 = 5.0 * 60.0;
+/// Seconds of warning before a lord arrives (not in the boss rush).
+pub const BOSS_WARNING: f32 = 5.0;
+/// Lords to defeat in a boss rush, and the breather between two of them.
+pub const RUSH_LORDS: u32 = 12;
+pub const RUSH_BREATHER: f32 = 3.0;
+/// Level-ups a boss rush begins with, and each fallen lord grants.
+pub const RUSH_HEAD_START: u32 = 6;
+pub const RUSH_LEVELS_PER_LORD: u32 = 3;
+/// Health of the first lord of a boss rush, before difficulty and co-op, and how much
+/// more each following lord has.
+pub const RUSH_LORD_HP: f32 = 900.0;
+pub const RUSH_LORD_GROWTH: f32 = 1.6;
 pub const RESUME_DELAY: f32 = 2.5;
 /// The countdown never gets shorter than this...
 pub const MIN_RESUME_DELAY: f32 = 0.7;
@@ -555,6 +567,12 @@ pub struct World {
     pub bosses_killed: u32,
     pub arena: Option<(Vec2, f32)>,
     pub next_boss: f32,
+    /// Seconds until the next lord arrives while the warning shows, else 0. Sent to clients.
+    pub boss_warning: f32,
+    /// Lord after lord with only a short breather, no warning, and thin hordes.
+    pub boss_rush: bool,
+    /// Vigil time when the endless night began (at dawn, or after the last lord of a rush).
+    pub endless_since: f32,
     next_shrine: f32,
     next_elite: f32,
     next_horde: f32,
@@ -665,6 +683,9 @@ impl World {
             bosses_killed: 0,
             arena: None,
             next_boss: BOSS_INTERVAL,
+            boss_warning: 0.0,
+            boss_rush: false,
+            endless_since: 0.0,
             next_shrine: 150.0,
             next_elite: 75.0,
             next_horde: 90.0,
@@ -713,6 +734,14 @@ impl World {
     }
 
     /// Applies the "Head Start" relic: the vigil opens with a level-up.
+    /// Turns this vigil into a boss rush: the first lord comes almost at once, and the
+    /// heroes get a few level-ups to meet it.
+    pub fn start_boss_rush(&mut self) {
+        self.boss_rush = true;
+        self.next_boss = RUSH_BREATHER;
+        self.pending_levels += RUSH_HEAD_START;
+    }
+
     pub fn grant_head_start(&mut self) {
         let n = self.heroes.iter().map(|h| h.profile.relics[3]).max().unwrap_or(0);
         self.pending_levels += n;
@@ -963,7 +992,9 @@ impl World {
         }
         self.update_fx(dt);
         self.enemies.retain(|e| !e.dead);
-        if self.time >= VICTORY_TIME && self.boss.is_none() && !self.won && !self.endless {
+        // Dawn ends a vigil; the last of the lords ends a boss rush.
+        let done = if self.boss_rush { self.bosses_killed >= RUSH_LORDS } else { self.time >= VICTORY_TIME };
+        if done && self.boss.is_none() && !self.won && !self.endless {
             self.won = true;
             for h in self.heroes.iter_mut() {
                 h.banked += h.p.souls;

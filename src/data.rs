@@ -1067,9 +1067,10 @@ pub enum Achievement {
     Dizzy,
     Impatient,
     Partygoer,
+    Gauntlet,
 }
 
-pub const ALL_ACHIEVEMENTS: [Achievement; 66] = [
+pub const ALL_ACHIEVEMENTS: [Achievement; 67] = [
     Achievement::FirstLight,
     Achievement::Gravebreaker,
     Achievement::Dawnbringer,
@@ -1136,6 +1137,7 @@ pub const ALL_ACHIEVEMENTS: [Achievement; 66] = [
     Achievement::Dizzy,
     Achievement::Impatient,
     Achievement::Partygoer,
+    Achievement::Gauntlet,
 ];
 
 impl Achievement {
@@ -1212,6 +1214,7 @@ impl Achievement {
             Dizzy => "Dizzy",
             Impatient => "Impatient",
             Partygoer => "Partygoer",
+            Gauntlet => "The Gauntlet",
         }
     }
 
@@ -1284,6 +1287,7 @@ impl Achievement {
             Dizzy => "Roll ten times in four seconds.",
             Impatient => "Ask for dawn in the main menu.",
             Partygoer => "Start a party in the main menu.",
+            Gauntlet => "Defeat all twelve lords of a boss rush.",
         }
     }
 
@@ -1306,6 +1310,7 @@ impl Achievement {
             Centurion => 30,
             LongNight | AshAndBone => 40,
             Singularity => 60,
+            Gauntlet => 50,
             ThinTheHerd | Polished => 5,
             FullArsenal | Packrat | GentleDawn | Purrfect | Dressed | Dizzy | Impatient | Partygoer => 10,
             HalfNight | Ascendant => 15,

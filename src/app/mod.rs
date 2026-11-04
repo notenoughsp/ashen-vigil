@@ -59,6 +59,9 @@ pub struct Lobby {
     pub msg: Option<(String, Color)>,
     pub players: Vec<LobbyPlayer>,
     pub diff: Difficulty,
+    /// The host chose a boss rush, and these challenge bits.
+    pub rush: bool,
+    pub challenges: u8,
     pub started: bool,
     pub ts: Option<TsStatus>,
     pub ts_job: Option<JoinHandle<TsStatus>>,
@@ -188,6 +191,8 @@ impl App {
                 msg: None,
                 players: Vec::new(),
                 diff: Difficulty::default(),
+                rush: false,
+                challenges: 0,
                 started: false,
                 ts: None,
                 ts_job: None,

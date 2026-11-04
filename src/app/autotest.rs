@@ -245,8 +245,9 @@ impl App {
             420 => want.push("run"),
             430 => {
                 let w = self.world.as_mut().unwrap();
-                w.time = w.next_boss - 1.0;
+                w.time = w.next_boss - 4.0;
             }
+            460 => want.push("warning"),
             900 => want.push("boss"),
             1000 => self.world.as_mut().unwrap().pending_levels += 1,
             1010 => want.push("levelup"),
@@ -261,6 +262,7 @@ impl App {
             }
             1520 => want.push("death"),
             1521 => {
+                self.save.settings.boss_rush = true;
                 self.save.challenges = Challenge::GlassCannon.bit() | Challenge::OneWeapon.bit();
                 self.screen = Screen::Hub;
                 self.hub_sel = 2;
@@ -311,7 +313,14 @@ impl App {
                 self.relic_page = 1;
             }
             1605 => want.push("relics"),
-            1606 => std::process::exit(0),
+            1606 => {
+                // A boss rush: the first lord arrives within seconds.
+                self.save.settings.boss_rush = true;
+                self.save.challenges = 0;
+                self.start_single();
+            }
+            1900 => want.push("rush"),
+            1901 => std::process::exit(0),
             _ => {}
         }
         want
@@ -461,6 +470,8 @@ impl App {
         if f == 10 {
             self.open_lobby();
             self.host_lobby();
+            self.save.challenges = Challenge::GlassCannon.bit();
+            self.save.settings.boss_rush = std::env::var("ASHEN_AUTOTEST_RUSH").is_ok_and(|v| v == "1");
         }
         let peers = match &self.net {
             NetMode::Host(h) => h.peers.len(),
@@ -538,7 +549,10 @@ impl App {
                         // A level-up countdown would hold the dawn back too.
                         w.pause = Pause::Running;
                     }
-                    if w.time < VICTORY_TIME {
+                    if w.boss_rush {
+                        // A boss rush ends with its last lord, not at dawn.
+                        w.bosses_killed = w.bosses_killed.max(RUSH_LORDS);
+                    } else if w.time < VICTORY_TIME {
                         w.time = VICTORY_TIME + 0.5;
                     }
                 }

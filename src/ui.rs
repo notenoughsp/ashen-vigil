@@ -332,6 +332,21 @@ impl<'a> Ui<'a> {
 
         let secs = w.time as u32;
         self.text_c(&format!("{:02}:{:02}", secs / 60, secs % 60), sw * 0.5, 38.0, 32.0, PALE);
+        if w.boss_rush {
+            let lord = if w.endless { format!("Lords slain {}", w.bosses_killed) } else { format!("Lord {} of {}", (w.bosses_killed + 1).min(RUSH_LORDS), RUSH_LORDS) };
+            self.text_c(&lord, sw * 0.5, 60.0, 17.0, EMBER);
+        }
+        if w.boss_warning > 0.0 {
+            // A lord is coming: a red pulse at the edges and a countdown under the clock.
+            let t = w.boss_warning;
+            let pulse = 0.5 + 0.5 * (t * std::f32::consts::TAU).cos();
+            let edge = if w.cute { Color::new(1.0, 0.4, 0.7, 0.35 * pulse) } else { Color::new(0.75, 0.05, 0.03, 0.35 * pulse) };
+            for (x, y, ww, hh) in [(0.0, 0.0, sw, 10.0), (0.0, sh - 10.0, sw, 10.0), (0.0, 0.0, 10.0, sh), (sw - 10.0, 0.0, 10.0, sh)] {
+                draw_rectangle(x, y, ww, hh, edge);
+            }
+            self.spaced_c("A LORD APPROACHES", sw * 0.5, sh * 0.24, 30.0, 6.0, a(Color::new(0.95, 0.35, 0.25, 1.0), 0.6 + 0.4 * pulse));
+            self.text_c(&format!("{}", t.ceil() as u32), sw * 0.5, sh * 0.24 + 52.0, 44.0, a(GOLD, 0.7 + 0.3 * pulse));
+        }
         self.text(&format!("Felled {}", w.kills), sw - 150.0, 50.0, 16.0, DIM);
         if pl.revives > 0 {
             self.text(&format!("Embers {}", pl.revives), sw - 150.0, 68.0, 16.0, EMBER);

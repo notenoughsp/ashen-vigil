@@ -80,7 +80,9 @@ impl App {
         check(w.heroes.len() >= 2 && w.time >= 600.0, Achievement::Fellowship);
         check(me.weapons.iter().any(|wp| wp.tier() >= 2), Achievement::GrandFusion);
         check(me.weapons.iter().any(|wp| wp.tier() >= 3), Achievement::Singularity);
-        check(w.endless && w.time >= VICTORY_TIME + 600.0, Achievement::LongNight);
+        // The past-dawn achievements belong to the vigil; a boss rush has no dawn.
+        let past_dawn = if w.endless && !w.boss_rush { w.time - VICTORY_TIME } else { 0.0 };
+        check(past_dawn >= 600.0, Achievement::LongNight);
         check(w.level >= 100, Achievement::Centurion);
         check(w.kills >= 100_000, Achievement::AshAndBone);
         check(w.time >= 180.0 && me.first_hurt > 180.0, Achievement::Untouched);
@@ -97,14 +99,15 @@ impl App {
         check(w.kills >= 1_000, Achievement::ThinTheHerd);
         check(w.kills >= 50_000, Achievement::SeaOfAsh);
         check(w.kills >= 250_000, Achievement::Extinction);
-        check(w.bosses_killed >= 3, Achievement::Lordbane);
-        check(w.bosses_killed >= 10, Achievement::Kingslayer);
+        // Lords come one after another in a boss rush; these count in the vigil only.
+        check(w.bosses_killed >= 3 && !w.boss_rush, Achievement::Lordbane);
+        check(w.bosses_killed >= 10 && !w.boss_rush, Achievement::Kingslayer);
         check(me.weapons.iter().any(|wp| wp.whole), Achievement::LastFlame);
         check(me.weapons.len() >= 6, Achievement::FullArsenal);
         check(me.items.len() >= 6, Achievement::Packrat);
         check(me.items.iter().any(|it| it.level >= it.kind.max_level() && it.kind.max_level() >= 5), Achievement::Polished);
-        check(w.endless && w.time >= VICTORY_TIME + 1800.0, Achievement::Eternal);
-        check(w.endless && w.time >= VICTORY_TIME + 3600.0, Achievement::Nightless);
+        check(past_dawn >= 1800.0, Achievement::Eternal);
+        check(past_dawn >= 3600.0, Achievement::Nightless);
         check(me.dmg_total >= 1.0e6, Achievement::MillionCuts);
         check(me.dmg_total >= 1.0e9, Achievement::Unmaking);
         check(w.time >= 300.0 && me.first_hurt > 300.0, Achievement::Ghost);
@@ -141,7 +144,6 @@ impl App {
 
     /// Leaderboard, bests and end-of-vigil achievements.
     pub(super) fn finish_run(&mut self, won: bool, marks: u64) {
-        let online = self.online();
         let Some(w) = &self.world else { return };
         if w.heroes.is_empty() {
             return;
@@ -158,12 +160,13 @@ impl App {
             players: w.heroes.len() as u32,
             won: won || w.endless,
             class: me.class,
-            difficulty: w.diff.preset_name().to_string(),
+            difficulty: if w.boss_rush { format!("{} Rush", w.diff.preset_name()) } else { w.diff.preset_name().to_string() },
             damage: me.dmg_total,
         };
         let abyss = PRESETS[3].1;
         let hard_enough = w.diff.count >= abyss.count && w.diff.hp >= abyss.hp && w.diff.dmg >= abyss.dmg && w.diff.speed >= abyss.speed;
-        let challenges = if online { 0 } else { self.save.challenges };
+        // The vigil's own challenges: ours alone, or the host's online.
+        let challenges = me.challenges;
         let mut new_bests = Vec::new();
         if w.kills > self.save.best_kills {
             self.save.best_kills = w.kills;
@@ -187,6 +190,12 @@ impl App {
         let preset = w.diff.preset_name();
         let class = me.class;
         let cute = w.cute;
+        let rush = w.boss_rush;
+        if won && rush {
+            self.unlock(Achievement::Gauntlet);
+        }
+        // The dawn achievements belong to the vigil, not to the boss rush.
+        let won = won && !rush;
         if won {
             self.unlock(Achievement::Dawnbringer);
             if hard_enough {
@@ -210,7 +219,7 @@ impl App {
             }
         }
         // Wins from older saves only live on in the leaderboard.
-        for r in self.save.runs.iter().filter(|r| r.won) {
+        for r in self.save.runs.iter().filter(|r| r.won && !r.difficulty.ends_with("Rush")) {
             self.save.won_classes |= 1 << class_to_u8(r.class);
         }
         if won {
@@ -262,6 +271,7 @@ impl App {
             (true, _) if self.save.settings.cute => ("WHAT A LOVELY NIGHT", GOLD),
             (false, true) if self.save.settings.cute => ("NAP TIME FOR EVERYONE", BLOOD),
             (false, false) if self.save.settings.cute => ("YOU NEED A NAP", BLOOD),
+            (true, _) if w.boss_rush => ("THE LORDS HAVE FALLEN", GOLD),
             (true, _) => ("THE VIGIL IS KEPT", GOLD),
             (false, true) => ("ALL HAVE FALLEN", BLOOD),
             (false, false) => ("YOU HAVE FALLEN", BLOOD),

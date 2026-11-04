@@ -16,7 +16,7 @@ pub fn game_port() -> u16 {
     std::env::var("ASHEN_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PORT)
 }
 // The last byte is the protocol version; different builds refuse to talk to each other.
-const MAGIC: [u8; 3] = [0xA5, 0x1C, 11];
+const MAGIC: [u8; 3] = [0xA5, 0x1C, 12];
 /// Shown in menus, so players can tell whether they run the same build.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const FRAG_PAYLOAD: usize = 1100;
@@ -806,7 +806,7 @@ impl HostNet {
     }
 
     /// Periodic lobby broadcast and pings.
-    pub fn tick_lobby(&mut self, dt: f32, now: f64, players: &[LobbyPlayer], diff: &crate::data::Difficulty) {
+    pub fn tick_lobby(&mut self, dt: f32, now: f64, players: &[LobbyPlayer], diff: &crate::data::Difficulty, rush: bool, challenges: u8) {
         self.lobby_acc += dt;
         if self.lobby_acc >= 0.25 {
             self.lobby_acc = 0.0;
@@ -821,6 +821,8 @@ impl HostNet {
             for v in [diff.count, diff.hp, diff.dmg, diff.speed, diff.boss_hp] {
                 w.f32(v);
             }
+            w.bool(rush);
+            w.u8(challenges);
             let addrs: Vec<SocketAddr> = self.peers.iter().map(|p| p.addr).collect();
             for a in addrs {
                 self.sock.send(&w.0, a);
@@ -878,7 +880,7 @@ impl HostNet {
 pub enum ClientEvent {
     Welcome,
     Refused(String),
-    Lobby { started: bool, players: Vec<LobbyPlayer>, diff: crate::data::Difficulty },
+    Lobby { started: bool, players: Vec<LobbyPlayer>, diff: crate::data::Difficulty, rush: bool, challenges: u8 },
     Snapshot(Vec<u8>),
     HostLeft,
 }
@@ -952,8 +954,10 @@ impl ClientNet {
                         players.push(LobbyPlayer { slot: r.u8(), name: r.str(), class: r.u8() });
                     }
                     let diff = crate::data::Difficulty { count: r.f32(), hp: r.f32(), dmg: r.f32(), speed: r.f32(), boss_hp: r.f32() };
+                    let rush = r.bool();
+                    let challenges = r.u8() & 7;
                     if r.ok {
-                        out.push(ClientEvent::Lobby { started, players, diff });
+                        out.push(ClientEvent::Lobby { started, players, diff, rush, challenges });
                     }
                 }
                 PType::Snap => {

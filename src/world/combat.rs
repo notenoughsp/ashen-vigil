@@ -119,6 +119,14 @@ impl World {
                 h.p.hp = h.rise_health(0.4);
                 h.p.iframes = 2.0;
             }
+            if self.boss_rush {
+                // The next lord follows after a breather, and the heroes grow to meet it.
+                self.next_boss = self.time + RUSH_BREATHER;
+                self.pending_levels += RUSH_LEVELS_PER_LORD;
+            } else {
+                // A lord that outlived its five minutes: the next one still gets its warning.
+                self.next_boss = self.next_boss.max(self.time + BOSS_WARNING);
+            }
             self.events.push(Event::BossDefeated);
             return;
         }

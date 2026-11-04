@@ -8,8 +8,9 @@ use crate::ui::{ui_h, ui_w, BLOOD as BLOOD_RED, EMBER, GOLD, TEAL, UI_SCALES};
 const MENU_ITEMS: [&str; 8] = ["Start", "Online Lobby", "Reliquary", "Wardrobe", "Records", "Options", "Credits", "Exit"];
 /// Columns of the soul upgrades in the Reliquary.
 const SHOP_COLS: usize = 3;
-/// Ash Shrine rows: class, the challenges, begin.
-const HUB_CHALLENGE_ROW: usize = 1;
+/// Ash Shrine rows: class, mode, the challenges, begin.
+const HUB_MODE_ROW: usize = 1;
+const HUB_CHALLENGE_ROW: usize = 2;
 const HUB_ROWS: usize = HUB_CHALLENGE_ROW + ALL_CHALLENGES.len() + 1;
 
 /// One row on the options screen.
@@ -710,6 +711,10 @@ impl App {
             self.cycle_class(if mouse.right { -1 } else { 1 });
             return;
         }
+        if self.hub_sel == HUB_MODE_ROW && (confirm() || left(false) || right(false) || mouse.left || mouse.right) {
+            self.toggle_boss_rush();
+            return;
+        }
         let on_challenge = (HUB_CHALLENGE_ROW..HUB_ROWS - 1).contains(&self.hub_sel);
         if on_challenge && (confirm() || left(false) || right(false) || mouse.left || mouse.right) {
             let ch = ALL_CHALLENGES[self.hub_sel - HUB_CHALLENGE_ROW];
@@ -740,6 +745,13 @@ impl App {
         ui.text(&format!("<  {}  >", class.name()), x + 14.0, y + 23.0, 20.0, col);
         ui.text_r(class.desc(), x + w - 14.0, y + 23.0, 16.0, DIM);
         y += 38.0;
+        let rush = self.save.settings.boss_rush;
+        ui.row(x, y, w, 34.0, self.hub_sel == HUB_MODE_ROW);
+        ui.text(&format!("<  {}  >", if rush { "Boss Rush" } else { "The Vigil" }), x + 14.0, y + 23.0, 20.0, if rush { EMBER } else { PALE });
+        let about =
+            if rush { "Twelve lords, one after another, no warning. Thin hordes, level-ups after every lord." } else { "Hold out until dawn at 30:00. A lord every five minutes." };
+        ui.text_r(about, x + w - 14.0, y + 23.0, 16.0, DIM);
+        y += 38.0;
         for (i, ch) in ALL_CHALLENGES.iter().enumerate() {
             let on = self.save.challenges & ch.bit() != 0;
             ui.row(x, y, w, 28.0, self.hub_sel == HUB_CHALLENGE_ROW + i);
@@ -754,7 +766,8 @@ impl App {
         }
         y += 10.0;
         ui.row(x, y, w, 34.0, self.hub_sel == HUB_ROWS - 1);
-        ui.text_c(&format!("Begin the Vigil  ({})", self.save.settings.diff.preset_name()), cx, y + 24.0, 22.0, EMBER);
+        let begin = if rush { "Begin the Boss Rush" } else { "Begin the Vigil" };
+        ui.text_c(&format!("{}  ({})", begin, self.save.settings.diff.preset_name()), cx, y + 24.0, 22.0, EMBER);
         ui.text_c("Permanent upgrades are bought in the Reliquary.", cx, y + 64.0, 15.0, DIM);
         ui.text_c(
             hint("W/S select    A/D change class    Enter toggle / begin    Esc back", "Stick select, left / right class    A toggle / begin    B back"),

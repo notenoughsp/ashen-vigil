@@ -33,7 +33,8 @@ impl App {
         self.reset_run_log();
         self.endless_paid = 0;
         self.endless_record = None;
-        self.tips = if self.save.vigils == 0 { first_vigil_tips() } else { Vec::new() };
+        // The tips explain the vigil; a boss rush works differently.
+        self.tips = if self.save.vigils == 0 && !w.boss_rush { first_vigil_tips() } else { Vec::new() };
         let mode = match &self.net {
             NetMode::Host(_) => "hosted",
             NetMode::Client(_) => "joined",
@@ -42,7 +43,8 @@ impl App {
         let names: Vec<String> = w.heroes.iter().map(|h| format!("{} ({})", h.name, h.class.name())).collect();
         // A client learns the heroes from the first snapshot; its own pick is what it knows.
         let heroes = if names.is_empty() { format!("me as {}", self.class().name()) } else { names.join(", ") };
-        crate::log!("vigil started, {}, difficulty {}, heroes: {}, challenges {:03b}", mode, w.diff.preset_name(), heroes, self.save.challenges);
+        let kind = if w.boss_rush { "boss rush" } else { "vigil" };
+        crate::log!("{} started, {}, difficulty {}, heroes: {}, challenges {:03b}", kind, mode, w.diff.preset_name(), heroes, self.save.challenges);
         self.world = Some(w);
         self.screen = Screen::Playing;
         self.audio.music(self.menu_music());
@@ -58,6 +60,9 @@ impl App {
         let max = w.heroes[h].stats.max_hp;
         w.heroes[h].p.hp = max;
         w.grant_head_start();
+        if self.save.settings.boss_rush {
+            w.start_boss_rush();
+        }
         if w.remnant.is_some() {
             w.toast("Your remnant still glows where you fell.");
         }
@@ -74,7 +79,17 @@ impl App {
             w.add_hero(p.slot, &p.name, class_from_u8(p.class), p.profile, true);
         }
         w.local = w.heroes.iter().position(|h| h.slot == 0).unwrap_or(0);
+        // The host's challenges hold for everyone.
+        let challenges = self.save.challenges;
+        for h in w.heroes.iter_mut() {
+            h.challenges = challenges;
+            h.recompute_stats();
+            h.p.hp = h.stats.max_hp;
+        }
         w.grant_head_start();
+        if self.save.settings.boss_rush {
+            w.start_boss_rush();
+        }
         host.started = true;
         host.left.clear();
         let alone = w.heroes.len() == 1;
@@ -129,10 +144,10 @@ impl App {
         let w = self.world.as_ref().unwrap();
         // An endless vigil was won already; it pays what it earned beyond the first payout.
         let won = won || w.endless;
-        let total = if w.time < 60.0 && !won { 0 } else { marks_for_run(w.time / 60.0, w.bosses_killed, w.level, w.kills, won, &w.diff) };
+        let total = if w.time < 60.0 && !won { 0 } else { run_marks(w, won) };
         let base = total.saturating_sub(self.endless_paid);
         // Challenges only exist offline and pay extra.
-        let mult = if self.online() { 1.0 } else { challenge_mult(self.save.challenges) };
+        let mult = challenge_mult(w.me().challenges);
         let marks = (base as f32 * mult).round() as u64;
         self.save.marks += marks;
         self.save.best_time = self.save.best_time.max(w.time);
@@ -149,10 +164,16 @@ impl App {
         let Some(w) = self.world.as_mut() else { return };
         w.won = false;
         w.endless = true;
-        w.next_boss = w.time + 60.0;
-        w.banner("THE NIGHT GOES ON", "Every five minutes another lord of ash comes.", Color::from_rgba(200, 120, 90, 255), 4.0);
+        w.endless_since = w.time;
+        if w.boss_rush {
+            w.next_boss = w.time + RUSH_BREATHER;
+            w.banner("THE LORDS KEEP COMING", "One after another, until you fall.", Color::from_rgba(200, 120, 90, 255), 4.0);
+        } else {
+            w.next_boss = w.time + 60.0;
+            w.banner("THE NIGHT GOES ON", "Every five minutes another lord of ash comes.", Color::from_rgba(200, 120, 90, 255), 4.0);
+        }
         // In the same units as `award_marks` before the challenge bonus.
-        self.endless_paid = marks_for_run(w.time / 60.0, w.bosses_killed, w.level, w.kills, true, &w.diff);
+        self.endless_paid = run_marks(w, true);
         self.endless_record = self.save.runs.iter().find(|r| r.won && (r.time - w.time).abs() < 0.5 && r.kills == w.kills).cloned();
         self.audio.music(Music::Endless(0));
         self.screen = Screen::Playing;
@@ -171,7 +192,8 @@ impl App {
     fn vigil_music(&self) -> Music {
         let Some(w) = &self.world else { return self.menu_music() };
         if w.endless {
-            let stage = ((w.time - VICTORY_TIME).max(0.0) / crate::audio::ENDLESS_STAGE) as u8;
+            // Harsher every three minutes from the moment the endless night began.
+            let stage = ((w.time - w.endless_since).max(0.0) / crate::audio::ENDLESS_STAGE) as u8;
             Music::Endless(stage.min(crate::audio::ENDLESS_STAGES - 1))
         } else if self.save.settings.cute {
             Music::Lullaby
@@ -248,9 +270,9 @@ impl App {
                     crate::log!("boss {} appears at {:.0}s", boss_index, self.world.as_ref().map(|w| w.time).unwrap_or(0.0));
                 }
                 Event::BossDefeated => {
-                    let fight = self.world.as_ref().map(|w| w.time - w.boss_started).unwrap_or(f32::MAX);
+                    let (fight, rush) = self.world.as_ref().map(|w| (w.time - w.boss_started, w.boss_rush)).unwrap_or((f32::MAX, false));
                     crate::log!("boss defeated after {:.1}s", fight);
-                    if fight <= 10.0 {
+                    if fight <= 10.0 && !rush {
                         self.unlock(Achievement::Executioner);
                     }
                 }
@@ -459,7 +481,7 @@ impl App {
                     apply_client_input(w, h, &inp);
                 }
                 let players = host.lobby_players(&name, my_class);
-                host.tick_lobby(dt, now, &players, &w.diff);
+                host.tick_lobby(dt, now, &players, &w.diff, w.boss_rush, self.save.challenges);
                 w.update(dt);
                 if host.snapshot_due(dt, w.pause != Pause::Running) {
                     host.send_snapshots(w);
@@ -478,7 +500,9 @@ impl App {
                             self.since_snap = 0.0;
                         }
                         // The host went back to the lobby; follow it from the end screen.
-                        ClientEvent::Lobby { started: false, players, diff } if w.dead || w.won => {
+                        ClientEvent::Lobby { started: false, players, diff, rush, challenges } if w.dead || w.won => {
+                            self.lobby.rush = rush;
+                            self.lobby.challenges = challenges;
                             self.lobby.players = players;
                             self.lobby.diff = diff;
                             self.follow_host = true;
@@ -557,6 +581,13 @@ fn apply_client_input(w: &mut World, h: usize, inp: &ClientInput) {
     if inp.pick_idx != 255 {
         w.pick(h, inp.pick_round, inp.pick_idx as usize);
     }
+}
+
+/// Ashen Marks a vigil has earned before the challenge bonus. A boss rush meets its lords
+/// in quick succession, so each counts for half.
+fn run_marks(w: &World, won: bool) -> u64 {
+    let lords = if w.boss_rush { w.bosses_killed / 2 } else { w.bosses_killed };
+    marks_for_run(w.time / 60.0, lords, w.level, w.kills, won, &w.diff)
 }
 
 fn first_vigil_tips() -> Vec<(f32, String)> {

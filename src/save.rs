@@ -201,6 +201,8 @@ pub struct Settings {
     pub ui_scale: u8,
     /// How far off-screen markers sit inside the screen edge, in percent of the shorter side.
     pub marker_inset: u8,
+    /// The next vigil (alone, or hosted) is a boss rush.
+    pub boss_rush: bool,
     /// The soft variant: pink instead of blood, hearts instead of bullets, blushing foes.
     pub cute: bool,
 }
@@ -239,6 +241,7 @@ impl Default for Settings {
             shake: true,
             ui_scale: 0,
             marker_inset: 12,
+            boss_rush: false,
             cute: false,
         }
     }
@@ -413,6 +416,7 @@ impl Save {
                 "skin" => s.profile.skin = v.parse::<u8>().unwrap_or(0).min(SKINS.len() as u8),
                 "shrine_levels" => s.shrine_levels = v.parse().unwrap_or(0),
                 "won_classes" => s.won_classes = v.parse().unwrap_or(0),
+                "boss_rush" => st.boss_rush = flag(v),
                 "marker_inset" => st.marker_inset = v.parse::<u8>().unwrap_or(12).min(MAX_MARKER_INSET),
                 "best_kills" => s.best_kills = v.parse().unwrap_or(0),
                 "best_level" => s.best_level = v.parse().unwrap_or(0),
@@ -530,7 +534,7 @@ impl Save {
             out += &format!("remnant={:.0},{:.0},{}\n", p.x, p.y, n);
         }
         out += &format!("name={}\nlast_ip={}\nui_scale={}\n", st.name, st.last_ip, st.ui_scale);
-        out += &format!("cute={}\ncute_found={}\n", b(st.cute), b(self.cute_found));
+        out += &format!("cute={}\ncute_found={}\nboss_rush={}\n", b(st.cute), b(self.cute_found), b(st.boss_rush));
         out += &format!(
             "skins={}\nskin={}\nshrine_levels={}\nwon_classes={}\nmarker_inset={}\n",
             self.skins, self.profile.skin, self.shrine_levels, self.won_classes, st.marker_inset

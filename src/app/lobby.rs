@@ -17,8 +17,8 @@ impl App {
     fn lobby_rows(&self) -> usize {
         match self.lobby.state {
             LobbyState::Browse => 5 + self.ts_peers().len() + 1,
-            // Class, difficulty, begin, close.
-            LobbyState::Hosting => 4,
+            // Class, difficulty, mode, three challenges, begin, close.
+            LobbyState::Hosting => 5 + ALL_CHALLENGES.len(),
             // Class, leave.
             LobbyState::Joining(_) | LobbyState::Joined => 2,
         }
@@ -74,6 +74,13 @@ impl App {
         let now = PRESETS.iter().position(|(_, d)| *d == st.diff).map(|i| i as i32).unwrap_or(if dir > 0 { -1 } else { 0 });
         st.diff = PRESETS[(now + dir).rem_euclid(PRESETS.len() as i32) as usize].1;
         self.lobby.diff = st.diff;
+        self.save.store();
+        self.audio.play("select", 0.5);
+    }
+
+    /// Switches between a vigil until dawn and a boss rush; the host's choice applies to everyone.
+    pub(super) fn toggle_boss_rush(&mut self) {
+        self.save.settings.boss_rush = !self.save.settings.boss_rush;
         self.save.store();
         self.audio.play("select", 0.5);
     }
@@ -146,9 +153,11 @@ impl App {
                     self.lobby.msg = Some((format!("Someone with another version of the game tried to join. Everyone needs v{}.", net::VERSION), BLOOD));
                 }
                 let players = host.lobby_players(&name, my_class);
-                host.tick_lobby(dt, now, &players, &self.save.settings.diff);
+                host.tick_lobby(dt, now, &players, &self.save.settings.diff, self.save.settings.boss_rush, self.save.challenges);
                 self.lobby.players = players;
                 self.lobby.diff = self.save.settings.diff;
+                self.lobby.rush = self.save.settings.boss_rush;
+                self.lobby.challenges = self.save.challenges;
             }
             NetMode::Client(client) => {
                 client.tick(dt, now, &name, my_class, &self.save.profile);
@@ -166,9 +175,11 @@ impl App {
                             self.lobby.msg = Some((why, BLOOD));
                             self.lobby.state = LobbyState::Browse;
                         }
-                        ClientEvent::Lobby { started, players, diff } => {
+                        ClientEvent::Lobby { started, players, diff, rush, challenges } => {
                             self.lobby.players = players;
                             self.lobby.diff = diff;
+                            self.lobby.rush = rush;
+                            self.lobby.challenges = challenges;
                             start |= started && !self.lobby.started;
                             self.lobby.started = started;
                         }
@@ -248,8 +259,14 @@ impl App {
                 match self.lobby.sel {
                     0 if dir != 0 => self.cycle_class(dir),
                     1 if dir != 0 => self.cycle_difficulty(dir),
-                    2 if go => self.start_hosted(),
-                    3 if go => self.leave_online(),
+                    2 if dir != 0 => self.toggle_boss_rush(),
+                    s if (3..3 + ALL_CHALLENGES.len()).contains(&s) && (dir != 0 || go) => {
+                        self.save.challenges ^= ALL_CHALLENGES[s - 3].bit();
+                        self.save.store();
+                        self.audio.play("select", 0.5);
+                    }
+                    s if s == 3 + ALL_CHALLENGES.len() && go => self.start_hosted(),
+                    s if s == 4 + ALL_CHALLENGES.len() && go => self.leave_online(),
                     _ => {}
                 }
             }
@@ -380,13 +397,27 @@ impl App {
                 }
                 let d = self.lobby.diff;
                 ui.text(
-                    &format!("Difficulty: {}  (enemies {:.0}%, health {:.0}%, damage {:.0}%)", d.preset_name(), d.count * 100.0, d.hp * 100.0, d.dmg * 100.0),
+                    &format!(
+                        "{}   Difficulty: {}  (enemies {:.0}%, health {:.0}%, damage {:.0}%)",
+                        if self.lobby.rush { "Boss Rush" } else { "Vigil" },
+                        d.preset_name(),
+                        d.count * 100.0,
+                        d.hp * 100.0,
+                        d.dmg * 100.0
+                    ),
                     x,
                     y + 18.0,
                     16.0,
                     DIM,
                 );
-                y += 36.0;
+                y += 22.0;
+                let chosen: Vec<&str> = ALL_CHALLENGES.iter().filter(|c| self.lobby.challenges & c.bit() != 0).map(|c| c.name()).collect();
+                if !chosen.is_empty() {
+                    let bonus = (challenge_mult(self.lobby.challenges) - 1.0) * 100.0;
+                    ui.text(&format!("Challenges for everyone: {}   (+{:.0}% marks)", chosen.join(", "), bonus), x, y + 14.0, 16.0, EMBER);
+                    y += 22.0;
+                }
+                y += 14.0;
                 let value_row = |i: usize, label: &str, value: &str, y: &mut f32| {
                     let on = self.lobby.sel == i;
                     ui.row(x, *y, w, 34.0, on);
@@ -402,8 +433,14 @@ impl App {
                 value_row(0, "Your hero", &format!("<  {}  >", self.class().name()), &mut y);
                 if self.lobby.state == LobbyState::Hosting {
                     value_row(1, "Difficulty", &format!("<  {}  >", self.save.settings.diff.preset_name()), &mut y);
-                    button(2, "Begin the Vigil", EMBER, &mut y);
-                    button(3, "Close lobby", DIM, &mut y);
+                    value_row(2, "Mode", &format!("<  {}  >", mode_name(self.save.settings.boss_rush)), &mut y);
+                    for (k, ch) in ALL_CHALLENGES.iter().enumerate() {
+                        let on = self.save.challenges & ch.bit() != 0;
+                        value_row(3 + k, &format!("Challenge: {}", ch.name()), if on { "On  (+25% marks)" } else { "Off" }, &mut y);
+                    }
+                    let n = 3 + ALL_CHALLENGES.len();
+                    button(n, if self.save.settings.boss_rush { "Begin the Boss Rush" } else { "Begin the Vigil" }, EMBER, &mut y);
+                    button(n + 1, "Close lobby", DIM, &mut y);
                 } else {
                     button(1, "Leave", DIM, &mut y);
                 }
@@ -413,6 +450,15 @@ impl App {
             ui.text_c(m, cx, sh - 54.0, 17.0, *c);
         }
         ui.text_c("Tailscale: all players in the same tailnet, then pick the host's device or enter its 100.x address", cx, sh - 24.0, 15.0, DIM);
+    }
+}
+
+/// The mode as the menus show it.
+pub(super) fn mode_name(rush: bool) -> &'static str {
+    if rush {
+        "Boss Rush: twelve lords, one after another"
+    } else {
+        "The Vigil: hold out until dawn"
     }
 }
 

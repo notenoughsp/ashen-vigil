@@ -131,11 +131,13 @@ impl World {
     pub(crate) fn update_spawns(&mut self, dt: f32) {
         let m = self.time / 60.0;
         let coop = 1.0 + 0.5 * (self.heroes.len().max(1) - 1) as f32;
-        let mut target = (25.0 + m * 18.0).min(750.0) * self.diff.at(self.time).count * coop * self.spawn_pressure();
+        // A boss rush keeps the hordes thin: the lords are the fight.
+        let rush = if self.boss_rush { 0.4 } else { 1.0 };
+        let mut target = (25.0 + m * 18.0).min(750.0) * self.diff.at(self.time).count * coop * self.spawn_pressure() * rush;
         if self.boss.is_some() {
             target *= 0.35;
         }
-        let rate = (4.0 + m * 3.0) * self.diff.at(self.time).count * coop * self.spawn_pressure();
+        let rate = (4.0 + m * 3.0) * self.diff.at(self.time).count * coop * self.spawn_pressure() * rush;
         self.spawn_acc += rate * dt;
         while self.spawn_acc >= 1.0 {
             self.spawn_acc -= 1.0;
@@ -145,7 +147,7 @@ impl World {
             }
         }
 
-        if self.time >= self.next_horde && self.boss.is_none() {
+        if self.time >= self.next_horde && self.boss.is_none() && !self.boss_rush {
             self.next_horde = self.time + 60.0;
             let n = (((28.0 + m * 4.0) * self.diff.at(self.time).count) as usize).min(self.enemy_room());
             let kind = if m > 6.0 { EnemyKind::Ghoul } else { EnemyKind::Hollow };
@@ -193,8 +195,16 @@ impl World {
             self.spawn_relic();
         }
 
+        // Five seconds of warning before a lord, with a bell at the start; none in a boss rush.
+        let warn = if self.boss_rush || self.boss.is_some() { 0.0 } else { (self.next_boss - self.time).clamp(0.0, BOSS_WARNING + 0.01) };
+        if warn > 0.0 && warn <= BOSS_WARNING && self.boss_warning == 0.0 {
+            self.sfx("bell", 0.9);
+            self.toast("A lord of ash approaches...");
+        }
+        self.boss_warning = if warn <= BOSS_WARNING { warn } else { 0.0 };
         if self.time >= self.next_boss && self.boss.is_none() {
             self.next_boss = self.time + BOSS_INTERVAL;
+            self.boss_warning = 0.0;
             self.spawn_boss();
         }
 
@@ -227,7 +237,8 @@ impl World {
         let order = [BossKind::Gravewarden, BossKind::Matriarch, BossKind::Hermit, BossKind::Sovereign];
         let n = self.bosses_spawned;
         // The last hour always belongs to the Sovereign; past dawn the lords take turns again.
-        let finale = self.time >= VICTORY_TIME - 1.0 && !self.endless;
+        // A boss rush has no last hour: its lords simply follow each other.
+        let finale = self.time >= VICTORY_TIME - 1.0 && !self.endless && !self.boss_rush;
         let kind = if finale { BossKind::Sovereign } else { order[(n % 4) as usize] };
         let lap = if finale { 1.5 } else { (n / 4) as f32 };
         self.bosses_spawned += 1;
@@ -245,8 +256,15 @@ impl World {
         e.boss = true;
         // Heroes grow far faster than foes, so a boss gains 17% health for every minute past
         // the first one at 5:00; the finale gets a little extra on top.
-        let minutes = (self.time / 60.0 - 5.0).max(0.0);
-        e.hp = hp * BOSS_GROWTH.powf(minutes) * if finale { 1.25 } else { 1.0 } * self.diff.boss_hp * coop;
+        // In a boss rush every lord starts from the same health and grows with each one before
+        // it, about as fast as the heroes do, so the next is always the harder fight.
+        let grown = if self.boss_rush {
+            // Capped far beyond any real run, so health never reaches infinity.
+            RUSH_LORD_HP * RUSH_LORD_GROWTH.powi(n.min(120) as i32)
+        } else {
+            hp * BOSS_GROWTH.powf((self.time / 60.0 - 5.0).max(0.0))
+        };
+        e.hp = grown * if finale { 1.25 } else { 1.0 } * self.diff.boss_hp * coop;
         e.max_hp = e.hp;
         e.r = r;
         e.speed = speed * self.diff.at(self.time).speed;
@@ -258,7 +276,14 @@ impl World {
         self.boss_kind = Some(kind);
         self.boss_bar_lag = 1.0;
         self.arena = Some((center, 560.0));
-        let title = if finale { "The Last Hour" } else { kind.title() };
+        let rush_title = format!("Lord {} of {}", n + 1, RUSH_LORDS);
+        let title = if finale {
+            "The Last Hour"
+        } else if self.boss_rush && !self.endless {
+            &rush_title
+        } else {
+            kind.title()
+        };
         self.banner(kind.name(), title, Color::from_rgba(220, 200, 170, 255), 4.0);
         self.sfx("roar", 1.0);
         self.shake = 12.0;

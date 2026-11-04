@@ -1031,3 +1031,101 @@ fn skins_travel_to_clients_and_survive_the_save() {
     save.skins = 0;
     assert_eq!(Save::from_text(&save.to_text()).profile.skin, 0);
 }
+
+#[test]
+fn a_lord_is_announced_five_seconds_ahead() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.time = BOSS_INTERVAL - 8.0;
+    w.next_boss = BOSS_INTERVAL;
+    let mut warned_at = None;
+    simulate(&mut w, 10.0, true, |w, _| {
+        if w.boss_warning > 0.0 && warned_at.is_none() {
+            warned_at = Some(w.next_boss - w.time);
+        }
+    });
+    let ahead = warned_at.expect("no warning before the lord");
+    assert!((4.9..=5.01).contains(&ahead), "warned {} s ahead", ahead);
+    assert!(w.boss.is_some(), "the lord did not come");
+    assert_eq!(w.boss_warning, 0.0, "the warning stays up during the fight");
+    // A lord that outlives its five minutes still leaves the next one its warning.
+    let i = w.enemies.iter().position(|e| e.boss).unwrap();
+    w.next_boss = w.time - 1.0;
+    let src = Src { hero: 0, weapon: WeaponKind::Blade };
+    w.hit(i, 1e12, Vec2::ZERO, src, false);
+    assert!(w.next_boss >= w.time + BOSS_WARNING - 0.01);
+}
+
+#[test]
+fn a_boss_rush_brings_lord_after_lord_and_goes_on_endless() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.start_boss_rush();
+    let src = Src { hero: 0, weapon: WeaponKind::Blade };
+    let mut warned = false;
+    let mut lords = Vec::new();
+    for _ in 0..RUSH_LORDS {
+        simulate(&mut w, RUSH_BREATHER + 1.0, true, |w, _| warned |= w.boss_warning > 0.0);
+        let i = w.enemies.iter().position(|e| e.boss).expect("the next lord did not come");
+        lords.push(w.enemies[i].max_hp);
+        w.hit(i, 1e15, Vec2::ZERO, src, false);
+    }
+    simulate(&mut w, 1.0, true, |_, _| {});
+    assert!(!warned, "a boss rush gives no warning");
+    assert!(w.won, "twelve lords should end the boss rush");
+    assert!(w.time < 20.0 * 60.0, "the rush took {} s", w.time);
+    assert!(lords.windows(2).all(|p| p[1] > p[0]), "every lord should be stronger than the last: {:?}", lords);
+    assert!(lords[RUSH_LORDS as usize - 1] > lords[0] * 5.0, "late lords should be far stronger: {:?}", lords);
+    // The endless rush: more lords, no end.
+    w.won = false;
+    w.endless = true;
+    w.endless_since = w.time;
+    w.next_boss = w.time + RUSH_BREATHER;
+    for _ in 0..3 {
+        simulate(&mut w, RUSH_BREATHER + 1.0, true, |_, _| {});
+        let i = w.enemies.iter().position(|e| e.boss).expect("the endless rush stopped sending lords");
+        w.hit(i, 1e15, Vec2::ZERO, src, false);
+    }
+    simulate(&mut w, 1.0, true, |_, _| {});
+    assert!(!w.won && w.bosses_killed == RUSH_LORDS + 3);
+}
+
+#[test]
+fn clients_learn_the_mode_the_warning_and_the_challenges() {
+    let mut host = world_with(2, PRESETS[1].1);
+    host.boss_rush = true;
+    host.boss_warning = 3.2;
+    host.heroes[1].challenges = Challenge::NoRolls.bit() | Challenge::GlassCannon.bit();
+    let mut client = World::new(host.diff, None);
+    client.is_client = true;
+    let mut enc = snapshot::Encoder::default();
+    let mut dec = snapshot::Decoder::default();
+    let ev = snapshot::begin_round(&mut host);
+    let view = snapshot::View::of(&host, 1, vec2(1920.0, 1080.0));
+    let data = enc.encode(&host, &ev, &view, 1, 0);
+    assert!(dec.decode(&mut client, &data, 1, 0.0));
+    assert!(client.boss_rush);
+    assert!((client.boss_warning - 3.2).abs() < 0.11);
+    let me = client.heroes.iter().find(|h| h.slot == 1).unwrap();
+    assert_eq!(me.challenges, Challenge::NoRolls.bit() | Challenge::GlassCannon.bit());
+}
+
+#[test]
+#[ignore]
+fn boss_rush_report() {
+    for heroes in [1, 4] {
+        macroquad::rand::srand(5);
+        let mut w = world_with(heroes, PRESETS[1].1);
+        w.start_boss_rush();
+        let mut fights: Vec<(u32, f32)> = Vec::new();
+        let mut started = None;
+        let peaks = simulate(&mut w, 1500.0, true, |w, _| match (w.boss.is_some(), started) {
+            (true, None) => started = Some(w.time),
+            (false, Some(t)) => {
+                fights.push((w.level, w.time - t));
+                started = None;
+            }
+            _ => {}
+        });
+        assert_bounded(&peaks);
+        println!("{} heroes: {} lords down by {:.0}s, won {}; level and fight seconds: {:?}", heroes, w.bosses_killed, w.time, w.won, fights);
+    }
+}
