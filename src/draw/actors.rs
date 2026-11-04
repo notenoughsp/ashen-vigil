@@ -122,7 +122,10 @@ impl World {
         let pl = &hero.p;
         let p = pl.pos;
         let hi = true;
-        let body = slot_color(hero.slot);
+        let skin = skin_of(hero.skin);
+        let tint = |c: (u8, u8, u8)| rgba(c.0, c.1, c.2, 255);
+        // A skin wins over the class look; the scarf keeps the player's colour.
+        let body = skin.map(|s| tint(s.body)).unwrap_or(slot_color(hero.slot));
         if hero.downed {
             draw_ellipse(p.x + 4.0, p.y + 6.0, 20.0, 9.0, 0.2, rgba(70, 4, 6, 170));
             blob(p + vec2(0.0, 3.0), 13.0, 6.0, 0.15, shade(body, 0.8), hi);
@@ -160,13 +163,13 @@ impl World {
         }
         let f = pl.facing;
         // The weapon follows the aim; the body keeps facing where it walks.
-        let aim = if hero.auto_aim { hero.aim } else { f };
+        let aim = hero.aim;
         let fx = if f.x >= 0.0 { 1.0 } else { -1.0 };
         let moving = pl.moving;
         let walk = pl.walk;
         let bob = if moving { walk.sin().abs() * -1.5 } else { (self.time * 2.0).sin() * 0.4 };
         let p = p + vec2(0.0, bob);
-        let steel = rgba(128, 128, 138, 255);
+        let steel = skin.map(|s| tint(s.metal)).unwrap_or(rgba(128, 128, 138, 255));
         let dark = shade(body, 0.55);
 
         // Cape behind, trailing against the movement.
@@ -205,8 +208,8 @@ impl World {
         draw_circle(p.x, p.y + 5.0, 1.4, rgba(190, 160, 90, 255));
         draw_rectangle(p.x - fx * 6.5 - 1.5, p.y + 5.0, 3.0, 3.5, rgba(74, 52, 34, 255));
         draw_line(p.x + fx * 6.0, p.y + 5.0, p.x + fx * 8.0, p.y + 10.0, 1.6, rgba(40, 30, 24, 255));
-        // Collar: a scarf in the hero's colour.
-        draw_ellipse(p.x, p.y - 6.0, 5.5, 2.0, 0.0, shade(body, 1.2));
+        // Collar: a scarf in the player's colour.
+        draw_ellipse(p.x, p.y - 6.0, 5.5, 2.0, 0.0, shade(slot_color(hero.slot), 1.2));
         // Pauldrons.
         ball(p + vec2(-7.0, -4.0), 3.2, shade(steel, 0.9), hi);
         ball(p + vec2(7.0, -4.0), 3.2, shade(steel, 0.9), hi);
@@ -222,7 +225,20 @@ impl World {
 
         // Head.
         let head = p + vec2(fx * 0.5, -10.0);
-        self.draw_helm(hero.class, head, fx, body, hi);
+        match skin.map(|s| s.helm) {
+            Some(helm) => self.draw_skin_helm(helm, head, fx, steel, hi),
+            None => self.draw_helm(hero.class, head, fx, body, hi),
+        }
+        // A hero called by a cat's name grows cat ears.
+        let catlike = |w: &str| ["cat", "kitty", "kitten", "meow", "neko"].iter().any(|n| w.eq_ignore_ascii_case(n));
+        if hero.name.split(|c: char| !c.is_ascii_alphanumeric()).any(catlike) {
+            let ear = rgba(30, 26, 32, 255);
+            for s in [-1.0, 1.0] {
+                let base = head + vec2(s * 4.0, -5.0);
+                draw_triangle(base + vec2(-2.6, 1.0), base + vec2(2.6, 1.0), base + vec2(s * 1.5, -6.0), ear);
+                draw_triangle(base + vec2(-1.2, 0.4), base + vec2(1.2, 0.4), base + vec2(s * 1.0, -3.6), rgba(240, 150, 180, 255));
+            }
+        }
         if hero.has_cat {
             // A little cat-shaped charm on the belt.
             draw_circle(p.x - fx * 5.0, p.y + 7.0, 1.6, rgba(20, 18, 22, 255));
@@ -294,6 +310,198 @@ impl World {
                 draw_circle(head.x + fx * 3.0, head.y + 1.0, 0.9, rgba(255, 160, 80, 255));
                 let _ = body;
                 draw_triangle(head + vec2(-1.5, -6.0), head + vec2(1.5, -6.0), head + vec2(-fx * 8.0, -10.0), rgba(140, 26, 24, 255));
+            }
+        }
+    }
+
+    /// Head pieces that only come with skins.
+    fn draw_skin_helm(&self, helm: Helm, head: Vec2, fx: f32, metal: Color, hi: bool) {
+        let t = self.time;
+        let fl = 0.85 + 0.15 * (t * 9.0).sin();
+        let slit = rgba(10, 10, 12, 255);
+        match helm {
+            Helm::Class(c) => self.draw_helm(c, head, fx, metal, hi),
+            Helm::PlagueMask => {
+                ball(head, 6.4, rgba(30, 26, 28, 255), hi);
+                draw_triangle(head + vec2(fx * 2.0, -1.0), head + vec2(fx * 2.0, 3.6), head + vec2(fx * 13.0, 4.5), rgba(205, 190, 150, 255));
+                draw_line(head.x + fx * 2.0, head.y + 1.3, head.x + fx * 12.0, head.y + 4.2, 0.8, rgba(120, 100, 70, 255));
+                draw_circle(head.x + fx * 2.6, head.y - 1.2, 2.0, rgba(70, 56, 40, 255));
+                draw_circle(head.x + fx * 2.6, head.y - 1.2, 1.1, rgba(200, 230, 255, 255));
+                draw_ellipse(head.x, head.y - 5.0, 11.5, 2.6, 0.0, rgba(18, 16, 18, 255));
+                draw_rectangle(head.x - 5.0, head.y - 11.5, 10.0, 6.5, rgba(24, 22, 24, 255));
+                draw_line(head.x - 5.0, head.y - 6.5, head.x + 5.0, head.y - 6.5, 1.2, rgba(110, 80, 50, 255));
+            }
+            Helm::Pumpkin => {
+                let orange = rgba(222, 112, 30, 255);
+                ball(head, 7.6, orange, hi);
+                for dx in [-3.5, 0.0, 3.5] {
+                    draw_ellipse_lines(head.x + dx * 0.6, head.y, 2.6, 7.0, 0.0, 0.8, shade(orange, 0.7));
+                }
+                draw_line(head.x, head.y - 7.0, head.x + fx * 1.8, head.y - 10.5, 2.2, rgba(70, 100, 40, 255));
+                let glow = Color::new(1.0, 0.85, 0.3, fl);
+                draw_triangle(head + vec2(fx * 1.0 - 2.0, -1.0), head + vec2(fx * 1.0, -3.5), head + vec2(fx * 1.0 + 0.5, -0.5), glow);
+                draw_triangle(head + vec2(fx * 4.0 - 1.5, -1.0), head + vec2(fx * 4.0, -3.5), head + vec2(fx * 4.0 + 1.0, -0.5), glow);
+                for k in 0..4 {
+                    let x = head.x + fx * (-1.0 + k as f32 * 1.6);
+                    draw_triangle(vec2(x, head.y + 2.0), vec2(x + 1.6 * fx, head.y + 2.0), vec2(x + 0.8 * fx, head.y + if k % 2 == 0 { 4.0 } else { 3.0 }), glow);
+                }
+            }
+            Helm::SkullCrown => {
+                let bone = rgba(225, 215, 190, 255);
+                ball(head, 6.6, bone, hi);
+                draw_circle(head.x + fx * 1.0, head.y, 1.8, slit);
+                draw_circle(head.x + fx * 4.2, head.y, 1.6, slit);
+                draw_line(head.x + fx * 0.5, head.y + 4.0, head.x + fx * 5.0, head.y + 4.0, 1.4, slit);
+                for k in 0..3 {
+                    let x = head.x - 4.0 + k as f32 * 4.0;
+                    draw_triangle(vec2(x - 2.0, head.y - 5.0), vec2(x + 2.0, head.y - 5.0), vec2(x, head.y - 10.0), rgba(230, 190, 80, 255));
+                }
+                draw_rectangle(head.x - 6.0, head.y - 6.0, 12.0, 2.0, rgba(210, 170, 60, 255));
+            }
+            Helm::Antlers => {
+                ball(head, 6.6, rgba(52, 84, 46, 255), hi);
+                draw_circle(head.x + fx * 1.8, head.y + 0.8, 4.2, rgba(8, 10, 6, 255));
+                eyes(head + vec2(fx * 2.4, 0.6), 1.7, 0.8, rgba(170, 255, 140, 255));
+                let wood = rgba(150, 120, 80, 255);
+                for s in [-1.0, 1.0] {
+                    let a = head + vec2(s * 4.0, -5.0);
+                    let b = a + vec2(s * 4.0, -8.0);
+                    draw_line(a.x, a.y, b.x, b.y, 1.6, wood);
+                    for k in 1..3 {
+                        let m = a.lerp(b, k as f32 * 0.35);
+                        draw_line(m.x, m.y, m.x + s * 3.5, m.y - 2.0, 1.2, wood);
+                    }
+                }
+            }
+            Helm::IceCrown => {
+                ball(head, 6.6, rgba(200, 220, 235, 255), hi);
+                draw_line(head.x - 4.5 + fx * 2.0, head.y + 1.0, head.x + 4.5 + fx * 2.0, head.y + 1.0, 1.6, rgba(40, 70, 110, 255));
+                for k in 0..5 {
+                    let x = head.x - 6.0 + k as f32 * 3.0;
+                    let h = if k == 2 { 10.0 } else { 7.0 };
+                    draw_triangle(vec2(x - 1.6, head.y - 5.0), vec2(x + 1.6, head.y - 5.0), vec2(x, head.y - 5.0 - h), rgba(170, 225, 255, 230));
+                }
+                draw_circle(head.x - 2.0, head.y - 9.0, 0.8 + 0.5 * (t * 3.0).sin().abs(), WHITE);
+            }
+            Helm::Halo => {
+                let gold = rgba(240, 205, 110, 255);
+                ball(head, 6.8, gold, hi);
+                draw_line(head.x - 4.5 + fx * 2.0, head.y + 1.0, head.x + 4.5 + fx * 2.0, head.y + 1.0, 1.6, slit);
+                draw_ellipse(head.x, head.y - 11.0, 8.0, 2.4, 0.0, Color::new(1.0, 0.9, 0.5, 0.25 * fl));
+                draw_ellipse_lines(head.x, head.y - 11.0, 7.0, 2.0, 0.0, 1.6, Color::new(1.0, 0.92, 0.6, 0.95));
+            }
+            Helm::Moth => {
+                let fuzz = rgba(205, 190, 210, 255);
+                ball(head, 6.8, fuzz, hi);
+                for k in 0..8 {
+                    let a = k as f32 / 8.0 * TAU;
+                    let q = head + Vec2::from_angle(a) * 6.6;
+                    draw_circle(q.x, q.y, 1.6, fuzz);
+                }
+                draw_circle(head.x + fx * 1.0, head.y + 0.5, 2.2, rgba(20, 16, 24, 255));
+                draw_circle(head.x + fx * 4.4, head.y + 0.5, 2.0, rgba(20, 16, 24, 255));
+                for s in [-1.0, 1.0] {
+                    let a = head + vec2(s * 2.0, -6.0);
+                    let b = a + vec2(s * 5.0, -6.0 + (t * 4.0 + s).sin());
+                    draw_line(a.x, a.y, b.x, b.y, 1.0, rgba(120, 100, 90, 255));
+                    for k in 1..4 {
+                        let m = a.lerp(b, k as f32 * 0.25);
+                        draw_line(m.x, m.y, m.x + s * 1.5, m.y + 1.5, 0.8, rgba(150, 130, 120, 255));
+                    }
+                }
+            }
+            Helm::Jester => {
+                ball(head, 6.2, rgba(235, 225, 215, 255), hi);
+                eyes(head + vec2(fx * 2.2, 0.8), 1.7, 0.9, rgba(20, 20, 30, 255));
+                draw_line(head.x + fx * 0.5, head.y + 3.6, head.x + fx * 4.0, head.y + 3.0, 1.0, rgba(180, 40, 60, 255));
+                let sway = (t * 3.0).sin() * 1.5;
+                for (s, c) in [(-1.0, rgba(120, 40, 150, 255)), (1.0, rgba(60, 150, 90, 255))] {
+                    let tip = head + vec2(s * 10.0, -4.0 + sway * s);
+                    draw_triangle(head + vec2(0.0, -6.0), head + vec2(s * 6.0, -3.0), tip, c);
+                    draw_circle(tip.x, tip.y, 1.8, rgba(240, 200, 80, 255));
+                }
+            }
+            Helm::Flame => {
+                ball(head, 6.0, rgba(30, 18, 16, 255), hi);
+                for k in 0..5 {
+                    let x = head.x - 5.0 + k as f32 * 2.5;
+                    let h = 8.0 + (t * 11.0 + k as f32 * 1.7).sin() * 3.0;
+                    draw_triangle(vec2(x - 2.2, head.y - 3.0), vec2(x + 2.2, head.y - 3.0), vec2(x + (t * 6.0 + k as f32).sin(), head.y - 3.0 - h), rgba(255, 120, 30, 220));
+                    draw_triangle(vec2(x - 1.2, head.y - 3.0), vec2(x + 1.2, head.y - 3.0), vec2(x, head.y - 3.0 - h * 0.6), rgba(255, 220, 110, 240));
+                }
+                eyes(head + vec2(fx * 2.4, 0.6), 1.8, 1.0, rgba(255, 210, 90, 255));
+            }
+            Helm::CatHood => {
+                let fur = rgba(26, 24, 30, 255);
+                for s in [-1.0, 1.0] {
+                    let base = head + vec2(s * 4.0, -4.5);
+                    draw_triangle(base + vec2(-3.0, 1.0), base + vec2(3.0, 1.0), base + vec2(s * 1.5, -6.5), fur);
+                    draw_triangle(base + vec2(-1.4, 0.4), base + vec2(1.4, 0.4), base + vec2(s * 1.0, -4.0), rgba(230, 140, 170, 255));
+                }
+                ball(head, 6.8, fur, hi);
+                eyes(head + vec2(fx * 2.4, 0.4), 1.9, 1.1, rgba(250, 220, 80, 255));
+                draw_circle(head.x + fx * 2.4, head.y + 2.4, 0.8, rgba(240, 140, 170, 255));
+            }
+            Helm::LanternHood => {
+                let hood = rgba(30, 80, 82, 255);
+                draw_triangle(head + vec2(-7.0, 2.0), head + vec2(7.0, 2.0), head + vec2(-fx * 3.0, -11.0), hood);
+                ball(head, 6.8, hood, hi);
+                draw_circle(head.x + fx * 1.8, head.y + 0.8, 4.4, rgba(6, 10, 10, 255));
+                eyes(head + vec2(fx * 2.4, 0.6), 1.7, 0.8, rgba(150, 255, 230, 255));
+                let lamp = head + vec2(-fx * 10.0, -6.0 + (t * 2.0).sin() * 1.5);
+                draw_circle(lamp.x, lamp.y, 7.0 * fl, Color::new(0.5, 1.0, 0.9, 0.18));
+                draw_rectangle(lamp.x - 2.2, lamp.y - 2.6, 4.4, 5.2, rgba(50, 60, 60, 255));
+                draw_rectangle(lamp.x - 1.4, lamp.y - 1.8, 2.8, 3.6, rgba(170, 255, 230, 255));
+            }
+            Helm::Greathelm => {
+                let plume = rgba(170, 30, 36, 255);
+                for k in 0..4 {
+                    let a = head + vec2(-fx * (1.0 + k as f32 * 2.2), -7.0 - (3 - k) as f32 * 0.6);
+                    draw_circle(a.x, a.y, 2.6, plume);
+                }
+                draw_rectangle(head.x - 7.0, head.y - 7.5, 14.0, 14.5, OUTLINE);
+                draw_rectangle(head.x - 6.0, head.y - 6.5, 12.0, 12.5, metal);
+                draw_rectangle(head.x - 6.0, head.y - 6.5, 3.5, 12.5, shade(metal, 1.15));
+                draw_line(head.x - 4.5 + fx * 1.5, head.y - 1.0, head.x + 4.5 + fx * 1.5, head.y - 1.0, 1.8, slit);
+                draw_line(head.x + fx * 1.5, head.y - 1.0, head.x + fx * 1.5, head.y + 4.0, 1.4, slit);
+            }
+            Helm::StarHat => {
+                ball(head, 6.0, rgba(40, 34, 50, 255), hi);
+                eyes(head + vec2(fx * 2.2, 1.0), 1.8, 0.9, rgba(255, 240, 160, 255));
+                let blue = rgba(36, 48, 120, 255);
+                draw_ellipse(head.x, head.y - 3.5, 11.0, 2.8, 0.0, blue);
+                draw_triangle(head + vec2(-5.5, -3.5), head + vec2(5.5, -3.5), head + vec2(-fx * 7.0, -19.0), blue);
+                for (k, (dx, dy)) in [(-2.0, -7.0), (1.5, -10.0), (-3.5, -13.0), (0.5, -5.5)].iter().enumerate() {
+                    let tw = 0.5 + 0.5 * (t * 3.0 + k as f32 * 1.9).sin();
+                    draw_circle(head.x + dx, head.y + dy, 0.6 + tw * 0.6, Color::new(1.0, 0.95, 0.7, 0.5 + 0.5 * tw));
+                }
+            }
+            Helm::LastCrown => {
+                draw_circle(head.x, head.y, 11.0 * fl, Color::new(1.0, 0.9, 0.6, 0.12));
+                ball(head, 6.8, rgba(250, 245, 235, 255), hi);
+                draw_line(head.x - 4.5 + fx * 2.0, head.y + 1.0, head.x + 4.5 + fx * 2.0, head.y + 1.0, 1.6, rgba(255, 170, 60, 255));
+                for k in 0..5 {
+                    let x = head.x - 6.0 + k as f32 * 3.0;
+                    let h = 6.0 + (t * 10.0 + k as f32 * 2.1).sin() * 2.0 + if k == 2 { 3.0 } else { 0.0 };
+                    draw_triangle(vec2(x - 1.6, head.y - 5.0), vec2(x + 1.6, head.y - 5.0), vec2(x, head.y - 5.0 - h), rgba(255, 220, 120, 240));
+                    draw_triangle(vec2(x - 0.8, head.y - 5.0), vec2(x + 0.8, head.y - 5.0), vec2(x, head.y - 5.0 - h * 0.6), WHITE);
+                }
+            }
+            Helm::Strawberry => {
+                ball(head, 6.0, rgba(240, 220, 205, 255), hi);
+                eyes(head + vec2(fx * 2.2, 1.5), 1.7, 0.9, rgba(30, 20, 20, 255));
+                let red = rgba(220, 40, 60, 255);
+                draw_circle(head.x, head.y - 4.5, 7.2, OUTLINE);
+                draw_circle(head.x, head.y - 4.5, 6.4, red);
+                draw_rectangle(head.x - 7.2, head.y - 4.0, 14.4, 4.5, rgba(240, 220, 205, 255));
+                for (dx, dy) in [(-3.5, -6.0), (0.0, -8.5), (3.5, -6.0), (-1.5, -5.0), (2.0, -9.5), (-4.5, -8.5)] {
+                    draw_circle(head.x + dx, head.y + dy, 0.7, rgba(255, 230, 100, 255));
+                }
+                for k in 0..4 {
+                    let a = -PI * 0.5 + (k as f32 - 1.5) * 0.6;
+                    let tip = head + vec2(0.0, -11.0) + Vec2::from_angle(a) * 4.0;
+                    draw_triangle(head + vec2(-1.0, -10.5), head + vec2(1.0, -10.5), tip, rgba(90, 170, 70, 255));
+                }
             }
         }
     }

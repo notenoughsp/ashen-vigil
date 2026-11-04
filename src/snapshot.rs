@@ -205,7 +205,7 @@ fn hero_slow(h: &Hero) -> Vec<u8> {
     for wp in &h.weapons {
         w.u8(wp.kind.idx() as u8);
         w.u8(wp.level as u8);
-        w.bool(wp.evolved);
+        w.u8(wp.evolved as u8 | (wp.whole as u8) << 1);
         w.u8(wp.fused.len() as u8);
         for k in &wp.fused {
             w.u8(k.idx() as u8);
@@ -222,11 +222,12 @@ fn hero_slow(h: &Hero) -> Vec<u8> {
         w.u8(t);
         w.u8(a);
     }
-    w.u8(h.has_cat as u8 | (h.auto_aim as u8) << 1);
+    w.u8(h.has_cat as u8);
+    w.u8(h.skin);
     w.0
 }
 
-fn read_hero_slow(data: &[u8], h: &mut Hero, predicted: bool) -> bool {
+fn read_hero_slow(data: &[u8], h: &mut Hero) -> bool {
     let mut r = Reader::new(data);
     h.name = r.str();
     h.class = class_from_u8(r.u8());
@@ -244,7 +245,8 @@ fn read_hero_slow(data: &[u8], h: &mut Hero, predicted: bool) -> bool {
         let kind = WeaponKind::from_idx(r.u8());
         let mut wp = old.get(i).filter(|o| o.kind == kind).cloned().unwrap_or_else(|| Weapon::new(kind));
         wp.level = r.u8() as u32;
-        wp.evolved = r.bool();
+        let flags = r.u8();
+        wp.evolved = flags & 1 != 0;
         let fused: Vec<WeaponKind> = (0..r.u8().min(11)).map(|_| WeaponKind::from_idx(r.u8())).collect();
         if fused != wp.fused {
             let (level, evolved) = (wp.level, wp.evolved);
@@ -252,6 +254,7 @@ fn read_hero_slow(data: &[u8], h: &mut Hero, predicted: bool) -> bool {
             wp.level = level;
             wp.evolved = evolved;
         }
+        wp.whole = flags & 2 != 0;
         h.weapons.push(wp);
     }
     h.items.clear();
@@ -265,12 +268,8 @@ fn read_hero_slow(data: &[u8], h: &mut Hero, predicted: bool) -> bool {
         let (t, a) = (r.u8(), r.u8());
         h.choices.push(Choice::decode(t, a));
     }
-    let bits = r.u8();
-    h.has_cat = bits & 1 != 0;
-    // Our own toggle is ours.
-    if !predicted {
-        h.auto_aim = bits & 2 != 0;
-    }
+    h.has_cat = r.u8() & 1 != 0;
+    h.skin = r.u8().min(SKINS.len() as u8);
     r.ok
 }
 
@@ -824,7 +823,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         let predicted = slot == local_slot;
         let h = &mut w.heroes[idx];
         h.slot = slot;
-        if !read_hero_slow(&slow, h, predicted) {
+        if !read_hero_slow(&slow, h) {
             return None;
         }
         let mut fr = Reader::new(&fast);

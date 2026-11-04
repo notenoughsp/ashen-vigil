@@ -87,7 +87,7 @@ fn cage(x: f32, y: f32, t: f32) {
 
 impl World {
     pub(super) fn draw_ground(&self) {
-        clear_background(rgba(7, 6, 8, 255));
+        clear_background(if self.cute { rgba(58, 40, 60, 255) } else { rgba(7, 6, 8, 255) });
         let (x0, x1, y0, y1) = tile_range(self.cam, TILE * 2.0);
         for ty in y0..y1 {
             for tx in x0..x1 {
@@ -101,8 +101,25 @@ impl World {
                 let region = hf(tx.div_euclid(REGION), ty.div_euclid(REGION), 9);
                 let base = 13.0 + v * 7.0 + region * 5.0;
                 let red = if hf(tx.div_euclid(3), ty.div_euclid(3), 17) > 0.93 { 4.0 } else { 0.0 };
-                let c = Color::new((base + red) / 255.0, (base - 1.5) / 255.0, (base + 1.0) / 255.0, 1.0);
+                let c = if self.cute {
+                    // Soft lilac and rose flagstones.
+                    let b = base * 3.4;
+                    Color::new((b + 40.0 + red * 4.0) / 255.0, (b + 18.0) / 255.0, (b + 44.0) / 255.0, 1.0)
+                } else {
+                    Color::new((base + red) / 255.0, (base - 1.5) / 255.0, (base + 1.0) / 255.0, 1.0)
+                };
                 draw_rectangle(px + 1.0, py + 1.0, TILE - 2.0, TILE - 2.0, c);
+                if self.cute && hash(tx, ty, 41).is_multiple_of(4) {
+                    // Little flowers between the stones.
+                    let (fx, fy) = (px + 8.0 + hf(tx, ty, 42) * (TILE - 16.0), py + 8.0 + hf(tx, ty, 43) * (TILE - 16.0));
+                    let petal = [rgba(255, 190, 220, 255), rgba(255, 240, 170, 255), rgba(200, 190, 255, 255), rgba(255, 255, 255, 255)][(hash(tx, ty, 44) % 4) as usize];
+                    for k in 0..5 {
+                        let o = Vec2::from_angle(k as f32 / 5.0 * TAU) * 2.6;
+                        // Tiny petals look the same as hexagons and cost a third of a circle.
+                        draw_poly(fx + o.x, fy + o.y, 6, 1.9, 0.0, petal);
+                    }
+                    draw_poly(fx, fy, 6, 1.4, 0.0, rgba(255, 200, 90, 255));
+                }
                 // Worn stone: some tiles are split into smaller slabs.
                 if hash(tx, ty, 21).is_multiple_of(5) {
                     draw_line(px + 1.0, py + TILE * 0.5, px + TILE - 1.0, py + TILE * 0.5, 1.0, rgba(6, 5, 7, 255));
@@ -247,7 +264,8 @@ impl World {
                 let r = 110.0 + v * 130.0;
                 for k in 0..3 {
                     let rr = r * (1.0 - k as f32 * 0.25);
-                    draw_circle(p.x + k as f32 * 18.0, p.y, rr, Color::new(0.5, 0.5, 0.55, 0.022));
+                    let c = if self.cute { Color::new(1.0, 0.85, 0.95, 0.03) } else { Color::new(0.5, 0.5, 0.55, 0.022) };
+                    draw_circle(p.x + k as f32 * 18.0, p.y, rr, c);
                 }
             }
         }

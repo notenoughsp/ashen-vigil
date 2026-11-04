@@ -52,9 +52,10 @@ impl World {
                     gained_xp += v * hero.stats.growth;
                 }
                 PickKind::Draught => {
-                    self.heroes[h].heal(40.0);
+                    let amount = 40.0 * self.heroes[h].draught_mult();
+                    self.heroes[h].heal(amount);
                     self.sfx_at("kindle", 0.4, self.heroes[h].p.pos);
-                    self.toast("Ashen Draught: +40 health");
+                    self.toast(&format!("Ashen Draught: +{:.0} health", amount));
                 }
                 PickKind::Bread => {
                     self.heroes[h].heal(60.0);

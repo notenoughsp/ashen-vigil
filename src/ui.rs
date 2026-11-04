@@ -20,6 +20,13 @@ pub struct Ui<'a> {
 
 thread_local! {
     static UI_SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+    /// Off-screen markers sit this share of the shorter screen side inside the edge.
+    static MARKER_INSET: std::cell::Cell<f32> = const { std::cell::Cell::new(0.12) };
+}
+
+/// Takes the marker setting (percent); called every frame.
+pub fn set_marker_inset(percent: u8) {
+    MARKER_INSET.with(|m| m.set(percent as f32 / 100.0));
 }
 
 thread_local! {
@@ -190,8 +197,8 @@ impl<'a> Ui<'a> {
             }
             let c = vec2(sw, sh) * 0.5;
             let d = (s - c).normalize_or_zero();
-            // Well inside the screen, so a glance from the middle catches them.
-            let m = (sw.min(sh) * 0.12).max(40.0);
+            // Inside the screen by the chosen amount, so a glance from the middle catches them.
+            let m = (sw.min(sh) * MARKER_INSET.with(|m| m.get())).max(20.0);
             // Keep clear of the boss bar along the bottom edge.
             let my = if d.y > 0.0 && w.boss_kind.is_some() { m.max(105.0) } else { m };
             let tx = if d.x.abs() > 0.001 { ((sw * 0.5 - m) / d.x.abs()).abs() } else { f32::MAX };
@@ -222,9 +229,6 @@ impl<'a> Ui<'a> {
         self.bar(Rect::new(22.0, 20.0, hp_w, 11.0), pl.hp / me.stats.max_hp, 0.0, Color::new(0.6, 0.08, 0.06, 1.0));
         let st_w = 120.0 + me.stats.stamina_max * 0.8;
         self.bar(Rect::new(22.0, 38.0, st_w, 7.0), pl.stamina / me.stats.stamina_max, 0.0, Color::new(0.25, 0.55, 0.28, 1.0));
-        let aim_key = if using_pad() { "X" } else { key_label(Action::AutoAim) };
-        let (aim_text, aim_col) = if me.auto_aim { (format!("Auto-aim  [{}]", aim_key), GOLD) } else { (format!("Free aim  [{}]", aim_key), DIM) };
-        self.text(&aim_text, 34.0 + st_w, 46.0, 14.0, aim_col);
 
         // Weapons: an icon each, a coloured frame for evolved and fused ones, the level below.
         let mut x = 22.0;
@@ -251,7 +255,12 @@ impl<'a> Ui<'a> {
                 }
             }
             let ready = !wp.evolved && wp.level >= WEAPON_MAX_LEVEL && me.items.iter().any(|it| it.kind == wp.kind.evo_item());
-            let border = if wp.tier() >= 3 {
+            let border = if wp.tier() >= 4 {
+                // The last flame burns around its frame.
+                let fl = 0.75 + 0.25 * (w.time * 5.0).sin();
+                draw_rectangle(x - 3.0, 53.0, 36.0, 36.0, Color::new(1.0, 0.8, 0.4, 0.18 * fl));
+                Color::new(1.0, 0.85 + 0.15 * fl, 0.55 + 0.3 * fl, 1.0)
+            } else if wp.tier() >= 3 {
                 Color::new(1.0, 0.95, 0.75, 1.0)
             } else if wp.tier() == 2 {
                 Color::new(0.85, 0.55, 1.0, 1.0)
@@ -266,6 +275,7 @@ impl<'a> Ui<'a> {
             };
             draw_rectangle_lines(x, 56.0, 30.0, 30.0, 2.0, border);
             let lv = match wp.tier() {
+                4 => "LAST".to_string(),
                 3 => "ULTRA".to_string(),
                 2 => "MEGA".to_string(),
                 1 => "FUSED".to_string(),
@@ -421,15 +431,24 @@ impl<'a> Ui<'a> {
             draw_texture_ex(tex, 0.0, 0.0, Color::new(0.5, 0.0, 0.0, k * 3.0), DrawTextureParams { dest_size: Some(vec2(sw, sh)), ..Default::default() });
             draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.35, 0.0, 0.0, k * 0.4));
         }
-        draw_texture_ex(tex, 0.0, 0.0, Color::new(0.0, 0.0, 0.0, 1.0), DrawTextureParams { dest_size: Some(vec2(sw, sh)), ..Default::default() });
+        // Cute mode keeps only a faint rosy edge instead of the dark.
+        let edge = if w.cute { Color::new(0.55, 0.25, 0.45, 0.45) } else { Color::new(0.0, 0.0, 0.0, 1.0) };
+        draw_texture_ex(tex, 0.0, 0.0, edge, DrawTextureParams { dest_size: Some(vec2(sw, sh)), ..Default::default() });
+        let hurt = if w.cute { (1.0, 0.4, 0.7) } else { (0.6, 0.0, 0.0) };
         let me = w.me();
         let low = 1.0 - me.p.hp / me.stats.max_hp;
         if low > 0.6 && !w.dead {
             let pulse = 0.5 + 0.5 * (w.time * 5.0).sin();
-            draw_texture_ex(tex, 0.0, 0.0, Color::new(0.6, 0.0, 0.0, (low - 0.6) * 1.5 * pulse), DrawTextureParams { dest_size: Some(vec2(sw, sh)), ..Default::default() });
+            draw_texture_ex(
+                tex,
+                0.0,
+                0.0,
+                Color::new(hurt.0, hurt.1, hurt.2, (low - 0.6) * 1.5 * pulse),
+                DrawTextureParams { dest_size: Some(vec2(sw, sh)), ..Default::default() },
+            );
         }
         if me.p.iframes > 0.3 && me.p.roll_t <= 0.0 && !me.downed {
-            draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.5, 0.0, 0.0, 0.12));
+            draw_rectangle(0.0, 0.0, sw, sh, Color::new(hurt.0 * 0.8, hurt.1, hurt.2, 0.12));
         }
     }
 
@@ -515,14 +534,9 @@ impl<'a> Ui<'a> {
         }
         self.text_c(hint("Esc: resume     Q: leave the vigil", "Start or B: resume     Select: leave the vigil"), sw * 0.5, sh * 0.4 + 62.0, 18.0, DIM);
         let keys = if using_pad() {
-            "X: auto-aim     Y: reroll     LB (hold): damage per weapon".to_string()
+            "Y: reroll     LB (hold): damage per weapon".to_string()
         } else {
-            format!(
-                "{}: auto-aim     {}: mute     {}: damage numbers     F3: performance overlay     F11: fullscreen",
-                key_label(Action::AutoAim),
-                key_label(Action::Mute),
-                key_label(Action::Numbers)
-            )
+            format!("{}: mute     {}: damage numbers     F3: performance overlay     F11: fullscreen", key_label(Action::Mute), key_label(Action::Numbers))
         };
         self.text_c(&keys, sw * 0.5, sh * 0.4 + 88.0, 16.0, DIM);
     }

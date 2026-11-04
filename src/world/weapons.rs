@@ -3,7 +3,7 @@
 use super::*;
 use std::f32::consts::PI;
 
-/// How far auto-aim looks for a target.
+/// How far the weapons look for a target.
 const AIM_RANGE: f32 = 650.0;
 /// How far the soulbolt looks for a foe to seek.
 const HOMING_RANGE: f32 = 450.0;
@@ -23,10 +23,10 @@ impl World {
         }
     }
 
-    /// With auto-aim, point at the nearest enemy in reach; otherwise where the hero walks.
+    /// Weapons point at the nearest enemy in reach, or where the hero walks when none is near.
     fn update_aim(&mut self, h: usize) {
-        let (pos, facing, auto) = (self.heroes[h].p.pos, self.heroes[h].p.facing, self.heroes[h].auto_aim);
-        let target = if auto { self.nearest_enemies(pos, AIM_RANGE, 1).first().map(|&i| self.enemies[i].pos) } else { None };
+        let (pos, facing) = (self.heroes[h].p.pos, self.heroes[h].p.facing);
+        let target = self.nearest_enemies(pos, AIM_RANGE, 1).first().map(|&i| self.enemies[i].pos);
         self.heroes[h].aim = target.map(|t| (t - pos).normalize_or_zero()).filter(|d| *d != Vec2::ZERO).unwrap_or(facing);
     }
 
@@ -37,7 +37,7 @@ impl World {
         let hero = &self.heroes[h];
         let level = hero.weapons[wi].level;
         let s = kind.stats(level, evo);
-        let dmg = s.dmg * hero.might() * part.mult;
+        let dmg = s.dmg * hero.might() * part.mult * hero.weapon_bonus(&hero.weapons[wi]);
         let cd = (s.cd * hero.cooldown()).max(0.05);
         let amount = s.amount + hero.stats.amount;
         let area = s.area * hero.stats.area;

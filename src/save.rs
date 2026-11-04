@@ -13,7 +13,6 @@ pub enum Action {
     Left,
     Right,
     Roll,
-    AutoAim,
     Reroll,
     Pause,
     Weapons,
@@ -21,8 +20,8 @@ pub enum Action {
     Mute,
 }
 
-pub const ACTIONS: [Action; 11] =
-    [Action::Up, Action::Down, Action::Left, Action::Right, Action::Roll, Action::AutoAim, Action::Reroll, Action::Pause, Action::Weapons, Action::Numbers, Action::Mute];
+pub const ACTIONS: [Action; 10] =
+    [Action::Up, Action::Down, Action::Left, Action::Right, Action::Roll, Action::Reroll, Action::Pause, Action::Weapons, Action::Numbers, Action::Mute];
 
 impl Action {
     pub fn label(self) -> &'static str {
@@ -32,7 +31,6 @@ impl Action {
             Action::Left => "Move left",
             Action::Right => "Move right",
             Action::Roll => "Roll",
-            Action::AutoAim => "Auto-aim on/off",
             Action::Reroll => "Reroll level-up",
             Action::Pause => "Pause",
             Action::Weapons => "Damage per weapon (hold)",
@@ -48,7 +46,6 @@ impl Action {
             Action::Left => KeyCode::A,
             Action::Right => KeyCode::D,
             Action::Roll => KeyCode::Space,
-            Action::AutoAim => KeyCode::F,
             Action::Reroll => KeyCode::R,
             Action::Pause => KeyCode::P,
             Action::Weapons => KeyCode::Tab,
@@ -64,7 +61,6 @@ impl Action {
             Action::Left => "left",
             Action::Right => "right",
             Action::Roll => "roll",
-            Action::AutoAim => "auto_aim",
             Action::Reroll => "reroll",
             Action::Pause => "pause",
             Action::Weapons => "weapons",
@@ -203,8 +199,8 @@ pub struct Settings {
     pub shake: bool,
     /// Index into `ui::UI_SCALES`; 0 is automatic.
     pub ui_scale: u8,
-    /// Weapons aim at the nearest enemy instead of where you walk.
-    pub auto_aim: bool,
+    /// How far off-screen markers sit inside the screen edge, in percent of the shorter side.
+    pub marker_inset: u8,
     /// The soft variant: pink instead of blood, hearts instead of bullets, blushing foes.
     pub cute: bool,
 }
@@ -212,6 +208,8 @@ pub struct Settings {
 pub const RESOLUTIONS: [(u32, u32); 6] = [(1280, 720), (1366, 768), (1600, 900), (1920, 1080), (2560, 1440), (3840, 2160)];
 pub const FPS_CAPS: [u32; 9] = [30, 60, 75, 90, 120, 144, 165, 240, 0];
 pub const MSAA: [u32; 4] = [1, 2, 4, 8];
+/// The farthest off-screen markers can sit from the edge, in percent.
+pub const MAX_MARKER_INSET: u8 = 35;
 
 impl Default for Settings {
     fn default() -> Self {
@@ -240,7 +238,7 @@ impl Default for Settings {
             grain: true,
             shake: true,
             ui_scale: 0,
-            auto_aim: false,
+            marker_inset: 12,
             cute: false,
         }
     }
@@ -264,7 +262,13 @@ pub struct Save {
     pub blue_embers: bool,
     /// "cute" was typed in the main menu once; the option shows from then on.
     pub cute_found: bool,
-    pub achievements: u32,
+    pub achievements: u128,
+    /// Hero skins bought, one bit per entry of `SKINS`.
+    pub skins: u32,
+    /// Levels bought at the Ash Shrine over all time.
+    pub shrine_levels: u32,
+    /// Classes that have kept a vigil until dawn, one bit per class.
+    pub won_classes: u16,
     /// Best ten vigils, best first.
     pub runs: Vec<RunRecord>,
     pub best_kills: u32,
@@ -290,6 +294,9 @@ impl Default for Save {
             blue_embers: false,
             cute_found: false,
             achievements: 0,
+            skins: 0,
+            shrine_levels: 0,
+            won_classes: 0,
             runs: Vec::new(),
             best_kills: 0,
             best_level: 0,
@@ -402,6 +409,11 @@ impl Save {
                 "cats" => s.cats = v.parse().unwrap_or(0),
                 "blue_embers" => s.blue_embers = flag(v),
                 "achievements" => s.achievements = v.parse().unwrap_or(0),
+                "skins" => s.skins = v.parse().unwrap_or(0),
+                "skin" => s.profile.skin = v.parse::<u8>().unwrap_or(0).min(SKINS.len() as u8),
+                "shrine_levels" => s.shrine_levels = v.parse().unwrap_or(0),
+                "won_classes" => s.won_classes = v.parse().unwrap_or(0),
+                "marker_inset" => st.marker_inset = v.parse::<u8>().unwrap_or(12).min(MAX_MARKER_INSET),
                 "best_kills" => s.best_kills = v.parse().unwrap_or(0),
                 "best_level" => s.best_level = v.parse().unwrap_or(0),
                 "best_damage" => s.best_damage = v.parse().unwrap_or(0.0),
@@ -434,7 +446,6 @@ impl Save {
                         st.binds[i] = key;
                     }
                 }
-                "auto_aim" => st.auto_aim = flag(v),
                 "cute" => st.cute = flag(v),
                 "cute_found" => s.cute_found = flag(v),
                 "remnant" => {
@@ -467,6 +478,9 @@ impl Save {
                     }
                 }
             }
+        }
+        if s.profile.skin > 0 && s.skins & 1 << (s.profile.skin - 1) == 0 {
+            s.profile.skin = 0;
         }
         s
     }
@@ -517,6 +531,10 @@ impl Save {
         }
         out += &format!("name={}\nlast_ip={}\nui_scale={}\n", st.name, st.last_ip, st.ui_scale);
         out += &format!("cute={}\ncute_found={}\n", b(st.cute), b(self.cute_found));
+        out += &format!(
+            "skins={}\nskin={}\nshrine_levels={}\nwon_classes={}\nmarker_inset={}\n",
+            self.skins, self.profile.skin, self.shrine_levels, self.won_classes, st.marker_inset
+        );
         for (a, k) in ACTIONS.iter().zip(st.binds) {
             out += &format!("bind_{}={}\n", a.key(), key_name(k));
         }
@@ -532,14 +550,13 @@ impl Save {
         );
         out += &format!("resolution={}x{}\nvsync={}\nfps_cap={}\nmsaa={}\n", st.resolution.0, st.resolution.1, b(st.vsync), st.fps_cap, st.msaa);
         out += &format!(
-            "light_quality={}\ndetail={}\nparticles={}\nfog={}\ngrain={}\nshake={}\nauto_aim={}\n",
+            "light_quality={}\ndetail={}\nparticles={}\nfog={}\ngrain={}\nshake={}\n",
             st.light_quality,
             b(st.detail_high),
             st.particles,
             b(st.fog),
             b(st.grain),
-            b(st.shake),
-            b(st.auto_aim)
+            b(st.shake)
         );
         out += &format!("diff_count={}\ndiff_hp={}\ndiff_dmg={}\ndiff_speed={}\ndiff_boss={}\n", st.diff.count, st.diff.hp, st.diff.dmg, st.diff.speed, st.diff.boss_hp);
         for (i, m) in META.iter().enumerate() {

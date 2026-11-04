@@ -27,6 +27,15 @@ fn glow(p: Vec2, r: f32, c: Color, strength: f32) {
 }
 
 const BULLET_RED: Color = Color::new(0.85, 0.06, 0.05, 1.0);
+
+/// A heart centred on `p`, about `r` across each lobe.
+fn heart(p: Vec2, r: f32, c: Color) {
+    // Small lobes need few corners; there can be thousands of hearts on screen.
+    let sides = if r < 6.0 { 8 } else { 16 };
+    draw_poly(p.x - r * 0.45, p.y - r * 0.2, sides, r * 0.6, 0.0, c);
+    draw_poly(p.x + r * 0.45, p.y - r * 0.2, sides, r * 0.6, 0.0, c);
+    draw_triangle(vec2(p.x - r * 1.02, p.y), vec2(p.x + r * 1.02, p.y), vec2(p.x, p.y + r * 1.1), c);
+}
 /// Above this many enemies on screen, models switch to the cheap version.
 const LOD_ENEMIES: usize = 350;
 
@@ -39,6 +48,19 @@ pub fn view_scale() -> f32 {
 /// The part of the field the window shows, in world units.
 pub fn view_size() -> Vec2 {
     vec2(screen_width(), screen_height()) / view_scale()
+}
+
+/// Draws `hero` standing at `at` (UI space) `scale` times its size, for the wardrobe.
+/// Leaves the default camera set.
+pub fn hero_preview(w: &World, hero: &Hero, at: Vec2, scale: f32) {
+    let px = crate::ui::ui_scale();
+    let (sw, sh) = (screen_width(), screen_height());
+    let s = scale * px;
+    let q = at * px;
+    let target = hero.p.pos - vec2((q.x - sw * 0.5) / s, (q.y - sh * 0.5) / s);
+    set_camera(&Camera2D { target, zoom: vec2(2.0 * s / sw, 2.0 * s / sh), ..Default::default() });
+    w.draw_hero(hero, false);
+    set_default_camera();
 }
 
 impl World {
@@ -248,9 +270,8 @@ impl World {
                 // A pink heart instead of a blood-red orb.
                 let (r, pink) = (b.r * pulse, Color::new(1.0, 0.45, 0.7, 1.0));
                 draw_circle(p.x, p.y, b.r * 2.0, with_alpha(pink, 0.12));
-                draw_circle(p.x - r * 0.45, p.y - r * 0.2, r * 0.6, pink);
-                draw_circle(p.x + r * 0.45, p.y - r * 0.2, r * 0.6, pink);
-                draw_triangle(vec2(p.x - r, p.y), vec2(p.x + r, p.y), vec2(p.x, p.y + r * 1.1), pink);
+                heart(p, r, pink);
+                draw_circle(p.x - r * 0.45, p.y - r * 0.35, r * 0.18, Color::new(1.0, 0.9, 0.95, 0.9));
                 continue;
             }
             draw_circle(p.x, p.y, b.r * 2.0, with_alpha(BULLET_RED, 0.12));
@@ -413,10 +434,11 @@ impl World {
     /// A little warm light around each living hero; the rest of the world stays dark.
     fn draw_hero_light(&self) {
         let fl = 0.92 + 0.08 * (self.time * 11.0).sin() * (self.time * 7.3).cos();
+        let c = if self.cute { Color::new(1.0, 0.7, 0.85, 0.016) } else { Color::new(1.0, 0.6, 0.3, 0.012) };
         for h in self.heroes.iter().filter(|h| !h.downed) {
             let p = h.p.pos;
             for k in 0..5 {
-                draw_circle(p.x, p.y, (60.0 + k as f32 * 45.0) * fl, Color::new(1.0, 0.6, 0.3, 0.012));
+                draw_circle(p.x, p.y, (60.0 + k as f32 * 45.0) * fl, c);
             }
         }
     }
@@ -443,11 +465,21 @@ impl World {
         for e in order {
             self.draw_enemy(e, crowded);
             if self.cute {
-                // Rosy cheeks for everyone.
+                // Rosy cheeks and a happy little face for everyone.
                 let (p, r) = (e.pos, e.r);
                 let blush = Color::new(1.0, 0.45, 0.6, 0.55 * e.alpha);
                 draw_circle(p.x - r * 0.45, p.y - r * 0.55, r * 0.22, blush);
                 draw_circle(p.x + r * 0.45, p.y - r * 0.55, r * 0.22, blush);
+                if !crowded {
+                    let ink = Color::new(0.2, 0.08, 0.14, 0.85 * e.alpha);
+                    let sparkle = Color::new(1.0, 1.0, 1.0, 0.9 * e.alpha);
+                    for s in [-1.0, 1.0] {
+                        let eye = vec2(p.x + s * r * 0.28, p.y - r * 0.78);
+                        draw_circle(eye.x, eye.y, r * 0.13, ink);
+                        draw_circle(eye.x - r * 0.04, eye.y - r * 0.05, r * 0.05, sparkle);
+                    }
+                    draw_arc(p.x, p.y - r * 0.62, 10, r * 0.14, 20.0, r * 0.05, 140.0, ink);
+                }
             }
         }
         for e in self.enemies.iter().filter(|e| e.boss) {
@@ -483,7 +515,12 @@ impl World {
             if p.glow {
                 draw_circle(p.pos.x, p.pos.y, p.size * 2.5, with_alpha(p.color, 0.12 * k));
             }
-            draw_circle(p.pos.x, p.pos.y, p.size * (0.4 + 0.6 * k), with_alpha(p.color, if p.glow { k } else { 0.4 + 0.6 * k }));
+            let (r, c) = (p.size * (0.4 + 0.6 * k), with_alpha(p.color, if p.glow { k } else { 0.4 + 0.6 * k }));
+            if self.cute && !p.glow && p.size >= 2.0 {
+                heart(p.pos, r * 1.3, c);
+            } else {
+                draw_circle(p.pos.x, p.pos.y, r, c);
+            }
         }
         if self.fog {
             self.draw_fog();
@@ -500,7 +537,12 @@ impl World {
             let k = (n.life / 0.7).min(1.0);
             let txt = format!("{:.0}", n.val);
             let size = if n.crit { 22.0 } else { 15.0 };
-            let c = if n.crit { Color::new(1.0, 0.3, 0.2, k) } else { Color::new(0.95, 0.92, 0.88, k * 0.85) };
+            let c = match (n.crit, self.cute) {
+                (true, true) => Color::new(1.0, 0.45, 0.75, k),
+                (true, false) => Color::new(1.0, 0.3, 0.2, k),
+                (false, true) => Color::new(1.0, 0.95, 1.0, k * 0.9),
+                (false, false) => Color::new(0.95, 0.92, 0.88, k * 0.85),
+            };
             draw_text(&txt, n.pos.x - 6.0 + 1.0, n.pos.y + 1.0, size, Color::new(0.0, 0.0, 0.0, k * 0.8));
             draw_text(&txt, n.pos.x - 6.0, n.pos.y, size, c);
         }

@@ -2,6 +2,7 @@
 
 use crate::data::*;
 use crate::net::{self, Assembler, Reader};
+use crate::save::Save;
 use crate::snapshot;
 use crate::world::*;
 use macroquad::prelude::*;
@@ -50,7 +51,6 @@ fn simulate(w: &mut World, secs: f32, immortal: bool, mut on_frame: impl FnMut(&
         for (i, h) in w.heroes.iter_mut().enumerate() {
             let t = f as f32 * dt + i as f32;
             h.input = Input { dir: vec2(t.cos(), (t * 0.7).sin()).normalize_or_zero(), roll: f % (40 + i as u32) == 0 };
-            h.auto_aim = i % 2 == 0;
             if immortal {
                 // Full health alone isn't enough: one Abyss boss hit can exceed it.
                 h.p.hp = h.stats.max_hp;
@@ -623,7 +623,6 @@ fn projectile_weapons_aim_at_foes_and_fly_straight() {
     let mut w = world_with(1, PRESETS[1].1);
     w.enemies.clear();
     w.heroes[0].weapons = vec![Weapon::new(WeaponKind::Daggers)];
-    w.heroes[0].auto_aim = false;
     w.heroes[0].p.facing = vec2(0.0, -1.0);
     let hero = w.heroes[0].p.pos;
     let target = hero + vec2(300.0, 120.0);
@@ -925,10 +924,11 @@ fn the_permanent_shop_feeds_the_stats() {
     for (i, m) in META.iter().enumerate() {
         assert!(meta_cost(i, m.max - 1) >= meta_cost(i, 0));
     }
-    assert_eq!(ALL_ACHIEVEMENTS.len(), 30);
-    let mut bits: Vec<u32> = ALL_ACHIEVEMENTS.iter().map(|a| a.bit()).collect();
+    assert!(ALL_ACHIEVEMENTS.len() <= 128, "achievements are bits of a u128");
+    let mut bits: Vec<u128> = ALL_ACHIEVEMENTS.iter().map(|a| a.bit()).collect();
+    bits.sort_unstable();
     bits.dedup();
-    assert_eq!(bits.len(), 30);
+    assert_eq!(bits.len(), ALL_ACHIEVEMENTS.len());
 }
 
 #[test]
@@ -954,4 +954,78 @@ fn cute_mode_softens_the_red() {
     assert!(soft.b > 0.5 && soft.r > 0.9, "{:?}", soft);
     let teal = Color::new(0.2, 0.9, 0.8, 1.0);
     assert_eq!(w.soften(teal), teal);
+}
+
+#[test]
+fn every_weapon_ends_as_the_last_flame() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.heroes[0].weapons = ALL_WEAPONS
+        .iter()
+        .map(|k| {
+            let mut wp = Weapon::new(*k);
+            wp.level = WEAPON_MAX_LEVEL;
+            wp
+        })
+        .collect();
+    w.check_fusion(0);
+    let h = &w.heroes[0];
+    assert_eq!(h.weapons.len(), 1, "every weapon should have gone into one slot");
+    let last = &h.weapons[0];
+    assert!(last.whole && last.tier() == 4);
+    assert_eq!(last.parts().len(), ALL_WEAPONS.len());
+    assert!(last.parts().iter().all(|p| p.mult == LAST_MULT));
+    assert_eq!(last.display_name(), LAST_FLAME);
+
+    // While a new weapon can still come, leftovers wait instead of merging.
+    let mut w = world_with(1, PRESETS[1].1);
+    let mut wp = Weapon::new(WeaponKind::Orb);
+    wp.level = WEAPON_MAX_LEVEL;
+    w.heroes[0].weapons = vec![wp.clone(), Weapon { kind: WeaponKind::Chime, ..wp }];
+    w.check_fusion(0);
+    assert_eq!(w.heroes[0].weapons.len(), 2);
+}
+
+#[test]
+fn the_new_shrine_upgrades_take_effect() {
+    let base = Hero::new(0, "A", Class::Wanderer, Profile::default());
+    let mut profile = Profile::default();
+    for (i, m) in META.iter().enumerate() {
+        profile.meta[i] = m.max;
+    }
+    let full = Hero::new(0, "A", Class::Wanderer, profile);
+    assert!(full.stats.max_hp >= base.stats.max_hp + 150.0);
+    assert!(full.stats.lifesteal > base.stats.lifesteal);
+    assert!(full.roll_cost() < base.roll_cost());
+    assert_eq!(full.max_weapons(), MAX_WEAPONS + 2);
+    assert_eq!(full.max_items(), MAX_ITEMS + 2);
+    assert_eq!(full.weapons[0].level, 1 + META[M_KINDLING].max);
+    assert!(full.draught_mult() > 1.9);
+    assert!(full.rise_health(0.4) > base.rise_health(0.4));
+    let mut wp = Weapon::new(WeaponKind::Blade);
+    wp.level = WEAPON_MAX_LEVEL;
+    assert!(full.weapon_bonus(&wp) > 1.3 && base.weapon_bonus(&wp) == 1.0);
+}
+
+#[test]
+fn skins_travel_to_clients_and_survive_the_save() {
+    let mut host = world_with(2, PRESETS[1].1);
+    host.heroes[1].skin = 7;
+    let mut client = World::new(host.diff, None);
+    client.is_client = true;
+    let mut enc = snapshot::Encoder::default();
+    let mut dec = snapshot::Decoder::default();
+    let ev = snapshot::begin_round(&mut host);
+    let view = snapshot::View::of(&host, 0, vec2(1920.0, 1080.0));
+    let data = enc.encode(&host, &ev, &view, 1, 0);
+    assert!(dec.decode(&mut client, &data, 0, 0.0));
+    let h = client.heroes.iter().find(|h| h.slot == 1).expect("hero 1 arrived");
+    assert_eq!(h.skin, 7);
+
+    let mut save = Save { skins: 1 << 6, marks: 3, ..Default::default() };
+    save.profile.skin = 7;
+    let back = Save::from_text(&save.to_text());
+    assert_eq!((back.skins, back.profile.skin), (1 << 6, 7));
+    // A skin that is not owned is not worn.
+    save.skins = 0;
+    assert_eq!(Save::from_text(&save.to_text()).profile.skin, 0);
 }

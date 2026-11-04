@@ -1,4 +1,4 @@
-# Ashen Vigil
+# <img src="docs/icon.png" width="48" align="top"> Ashen Vigil
 
 [![CI](https://github.com/notenoughsp/ashen-vigil/actions/workflows/ci.yml/badge.svg)](https://github.com/notenoughsp/ashen-vigil/actions/workflows/ci.yml)
 
@@ -39,7 +39,6 @@ The host simulates the world and sends each player a snapshot 30 times a second,
 | Space / Shift | A / RB | roll (costs stamina, invulnerable while rolling) |
 | 1-4, W/S + Enter | stick + A | pick level-up |
 | R | Y | reroll level-up (needs Insight) |
-| F | X | auto-aim on/off: weapons aim at the nearest enemy instead of where you walk |
 | Tab (hold) | | damage per weapon |
 | Esc / P | Start | pause; Q / Select in pause abandons the vigil |
 | Esc | B | back in menus; LB / RB switch option pages |
@@ -52,25 +51,26 @@ Any XInput controller works (Xbox layout shown); it is picked up when plugged in
 
 ## Options
 
-Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (name, volumes, damage numbers and meter, overlay, screen shake, interface size), **Graphics** (resolution, fullscreen, VSync, FPS limit 30-240 or unlimited, 90 by default, anti-aliasing, dynamic lighting and its quality, model detail, particles, blood, fog, film grain) and **Difficulty**. VSync and anti-aliasing apply after a restart. Above 1080p the view of the field stays 1080 units tall, so every resolution sees the same area; the interface grows with it (Interface size: Auto, or 100-200%). A single-player vigil pauses when the window loses focus.
+Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (name, volumes, damage numbers and meter, overlay, screen shake, interface size, how far inside the screen edge off-screen markers sit), **Graphics** (resolution, fullscreen, VSync, FPS limit 30-240 or unlimited, 90 by default, anti-aliasing, dynamic lighting and its quality, model detail, particles, blood, fog, film grain) and **Difficulty**. VSync and anti-aliasing apply after a restart. Above 1080p the view of the field stays 1080 units tall, so every resolution sees the same area; the interface grows with it (Interface size: Auto, or 100-200%). A single-player vigil pauses when the window loses focus.
 
 ## Systems
 
 - **Souls** are both experience and currency. Carried souls are lost on death and left as a **remnant** where you fell; reach it in the next vigil to reclaim them. Die again first and they are gone.
 - **Ash Shrines** appear at 2:30, 7:30, 12:30 ... Stand in one for 1.5 s to heal, bank your carried souls and repel nearby foes.
-- **The Ash Shrine** (Start) spends banked souls on 17 upgrades (health, might, armor, regeneration, area, crit, pickup range, experience, damage to elites and bosses, an extra projectile and more) and lets you pick a class.
-- **Ashen Marks** are earned at the end of every vigil, win or lose (time survived, bosses, level, kills, difficulty). **The Reliquary** in the main menu spends them on new classes, weapons and items for the level-up pool, and on twelve relics (might, health, rerolls, a free level-up at the start, pickup range, a revival, souls, cooldown, armor, experience, speed, luck).
+- **The Ash Shrine** (Start) is where you pick a class and challenges and begin.
+- **The Reliquary** in the main menu has two pages. **Soul Upgrades** spends banked souls on 33 permanent upgrades (health, might, armor, regeneration, area, crit, pickup range, experience, damage to elites and bosses, dodging, less damage taken, cheaper rolls, merchant discounts, stronger draughts, extra projectiles, an extra weapon slot, an extra item slot and more). **Relics and Unlocks** spends **Ashen Marks**, earned at the end of every vigil, win or lose (time survived, bosses, level, kills, difficulty), on new classes, weapons and items and on twelve relics.
+- **The Wardrobe** in the main menu sells 18 hero skins for souls. A skin changes the hero's look in every class and is seen online too; your scarf keeps your player colour.
 - **The field** is a walled square of 7200 x 7200 with the abyss beyond; torches on the wall light the edges.
 - **Lighting**: the world is dark; heroes, torches, candles, shrines, fire, lightning and spells cast light. It can be switched off in the options.
 - **Difficulty ramp**: settings harder than Knight start at a third of their extra strength and reach all of it after three minutes.
-- **Endless night**: after keeping a vigil until dawn, press C (Y) on the summary to fight on; online the host decides and everyone follows. Bosses keep coming every five minutes; the vigil ends when you fall, pays the marks earned beyond dawn and replaces its leaderboard entry.
+- **Endless night**: after keeping a vigil until dawn, press C (Y) or click *Into the endless night* on the summary to fight on; online the host decides and everyone follows. Bosses keep coming every five minutes; the vigil ends when you fall, pays the marks earned beyond dawn and replaces its leaderboard entry.
 - **Lifesteal** (Reaper, Leech Fang) returns at most 4 health per second.
-- **Aiming**: daggers, lances, axes and soulbolts are fired at the nearest foes (several shots spread over several foes); only the soulbolt keeps seeking after it is fired. The crossbow fires in every direction; melee weapons follow the auto-aim toggle.
+- **Aiming**: every weapon aims at the nearest foe on its own, or where you walk when none is near. Daggers, lances, axes and soulbolts spread several shots over several foes; only the soulbolt keeps seeking after it is fired. The crossbow fires in every direction.
 - **Sound** comes from where it happens: full volume near your hero, silent about a screen away. Announcements are heard everywhere.
 - **Mouse**: hover and click work in every menu and on the level-up cards; right click turns a value or class back.
 - **Level-up cards** show weapon and item icons and point out a card that fuses with or evolves something you carry. The HUD shows the same icons for weapons and items.
 - **Volume** moves in 1% steps; hold the key or use the mouse wheel to go faster.
-- **Achievements**: 30, each paying Ashen Marks once. There are secrets to find, too.
+- **Achievements**: 66, each paying Ashen Marks once, on three pages under Records. There are secrets to find, too.
 - **Logs**: every start writes a log to `%APPDATA%\AshenVigil\logs\` (the newest ten are kept), including crashes with their cause. A player who joined someone's vigil sends their log to the host at the end of each vigil and on a crash; the host keeps the last twenty under `logs\players\`. The log holds the game's own events and settings, not the Windows user name.
 - **First vigil**: a few tips appear during your first vigil.
 - **Boss strength** grows 17% per minute past 5:00, so later lords still take a while; a fight that lasts over three minutes lifts the fog ring. Past dawn the four lords take turns.
@@ -78,9 +78,9 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Enemy projectiles** are large and red. Your weapons destroy them: blades and sweeps cut them, projectiles and explosions shoot them down.
 - **Relics on the map** appear every 30-45 s near a player and vanish after a minute (marked on the screen edge): Bloodstone (+50% might), Quicksilver (weapons 40% faster), Aegis Ash (untouchable), a free item upgrade, a pyre bomb that burns everything around it, and grave bread (+60 health).
 - **Coffers** drop from bosses and gold-ringed elites. A weapon at level 10 plus its paired item evolves when you open a coffer.
-- **Fusion**: when a weapon and one of its two partners both reach level 10, they merge into one weapon that fires both evolved forms at 150% damage and frees a slot. Two fusions merge into a **mega fusion** (four weapons at 190% each), two mega fusions into an **ultra fusion** (eight weapons at 240% each).
+- **Fusion**: when a weapon and one of its two partners both reach level 10, they merge into one weapon that fires both evolved forms at 150% damage and frees a slot. Two fusions merge into a **mega fusion** (four weapons at 190% each), two mega fusions into an **ultra fusion** (eight weapons at 240% each). Once nothing is left to level and no new weapon can come, the remaining slots merge too, until every weapon has become one: **The Last Flame** (every weapon at 300%).
 - **Enemy projectiles** can be shot down, but they grow tougher along with the foes: a weak hit dents a late one, a strong one breaks it.
-- **Markers** for things off screen sit well inside the screen edge.
+- **Markers** for things off screen sit well inside the screen edge; Options > General sets how far.
 - **Damage meter** (top right): damage this vigil and in the last minute per player; hold Tab for your weapons.
 - **Late foes**: Cultists (from 6:00) light a fuse and explode, Shieldbearers (from 10:00) block most damage from the front, Necromancers (from 14:00) keep their distance and raise the dead.
 - **Blood Moon** at 8:00 and 18:00 for a minute: red sky, more and harder-hitting foes, double souls.
@@ -89,7 +89,7 @@ Four pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Challenges** (single player, toggled at the Ash Shrine): Rooted (no rolling), Glass Cannon (half health, +60% might), One Blade (no new weapons). Each adds 25% Ashen Marks.
 - **Achievements** pay Ashen Marks once. **Records** in the main menu shows the top-ten leaderboard, personal bests and achievements.
 - **End of vigil**: a summary of time, kills, damage per weapon, a graph of the fight, marks, leaderboard rank and new bests.
-- **Music**: an ambient loop that adds a combat layer as the fight heats up, and a theme of its own for each boss.
+- **Music**: a song for each ten minutes of the vigil with a combat layer that swells as the fight heats up, a theme of its own for each boss, and an endless-night track that grows faster and harsher every three minutes. Cute mode plays a music box instead.
 
 | Weapon | Paired item | Evolution | Fuses with (classic) |
 |---|---|---|---|
@@ -127,7 +127,7 @@ License texts are in `assets/licenses/`.
 | `src/world/` | simulation: `hero` (stats, choices, fusion, challenges), `spawn`, `combat`, `weapons`, `pickups`, `fx` (blood, bodies), `boss`, `events` (Blood Moon, cursed shrines, merchant) |
 | `src/draw/` | world rendering: `ground` (floor, props, decals, fog), `actors` (heroes, enemies, bosses), `light`, `events` |
 | `src/ui.rs` | HUD, damage meter, overlays |
-| `src/app/` | screens: `menus` (main, options, shrine, reliquary), `lobby`, `game` (run loop per network role), `records` (summary, leaderboard, achievements), `input` (keyboard and gamepad), `autotest` |
+| `src/app/` | screens: `menus` (main, options, shrine, reliquary), `wardrobe` (skins), `lobby`, `game` (run loop per network role), `records` (summary, leaderboard, achievements), `input` (keyboard and gamepad), `autotest` |
 | `src/net.rs` | UDP protocol, lobby, Tailscale lookup |
 | `src/snapshot.rs` | host to client world snapshots: per-client view, delta coding against acknowledged snapshots |
 | `src/audio.rs` | sound and music synthesis |

@@ -5,6 +5,9 @@ use crate::net::{ClientEvent, ClientInput, HostEvent};
 
 impl App {
     fn reset_run_state(&mut self) {
+        self.last_rolls = 0;
+        self.roll_times.clear();
+        self.said_404 = false;
         self.snap_dec = Default::default();
         self.since_snap = 0.0;
         self.pick_pending = None;
@@ -42,7 +45,7 @@ impl App {
         crate::log!("vigil started, {}, difficulty {}, heroes: {}, challenges {:03b}", mode, w.diff.preset_name(), heroes, self.save.challenges);
         self.world = Some(w);
         self.screen = Screen::Playing;
-        self.audio.music(Music::Ambient);
+        self.audio.music(self.menu_music());
         self.audio.play("kindle", 0.6);
     }
 
@@ -104,7 +107,7 @@ impl App {
         self.leave_online();
         self.world = None;
         self.screen = if was_online { Screen::Menu } else { Screen::Hub };
-        self.audio.music(Music::Ambient);
+        self.audio.music(self.menu_music());
     }
 
     /// Adds newly banked souls to the save file as soon as they are banked.
@@ -151,8 +154,30 @@ impl App {
         // In the same units as `award_marks` before the challenge bonus.
         self.endless_paid = marks_for_run(w.time / 60.0, w.bosses_killed, w.level, w.kills, true, &w.diff);
         self.endless_record = self.save.runs.iter().find(|r| r.won && (r.time - w.time).abs() < 0.5 && r.kills == w.kills).cloned();
-        self.audio.music(Music::Ambient);
+        self.audio.music(Music::Endless(0));
         self.screen = Screen::Playing;
+    }
+
+    /// What plays in the menus: the first vigil song, or the lullaby in cute mode.
+    pub(super) fn menu_music(&self) -> Music {
+        if self.save.settings.cute {
+            Music::Lullaby
+        } else {
+            Music::Vigil(0)
+        }
+    }
+
+    /// The song for this moment of the vigil when no boss is about.
+    fn vigil_music(&self) -> Music {
+        let Some(w) = &self.world else { return self.menu_music() };
+        if w.endless {
+            let stage = ((w.time - VICTORY_TIME).max(0.0) / crate::audio::ENDLESS_STAGE) as u8;
+            Music::Endless(stage.min(crate::audio::ENDLESS_STAGES - 1))
+        } else if self.save.settings.cute {
+            Music::Lullaby
+        } else {
+            Music::Vigil(((w.time / 600.0) as u8).min(2))
+        }
     }
 
     /// One beginner tip at a time, at its moment in the first vigil.
@@ -221,7 +246,6 @@ impl App {
             match ev {
                 Event::BossStart => {
                     crate::log!("boss {} appears at {:.0}s", boss_index, self.world.as_ref().map(|w| w.time).unwrap_or(0.0));
-                    self.audio.music(Music::Boss(boss_index));
                 }
                 Event::BossDefeated => {
                     let fight = self.world.as_ref().map(|w| w.time - w.boss_started).unwrap_or(f32::MAX);
@@ -229,7 +253,6 @@ impl App {
                     if fight <= 10.0 {
                         self.unlock(Achievement::Executioner);
                     }
-                    self.audio.music(Music::Ambient);
                 }
                 Event::RemnantClaimed => {
                     self.save.remnant = None;
@@ -246,8 +269,12 @@ impl App {
         if client && !empty && endless && !won && matches!(self.screen, Screen::Victory { .. }) {
             self.continue_endless();
         }
+        // The song follows the clock: a boss theme, a song per ten minutes, the endless stages.
+        if !empty && matches!(self.screen, Screen::Playing | Screen::Paused) {
+            let song = if boss { Music::Boss(boss_index) } else { self.vigil_music() };
+            self.audio.music(song);
+        }
         if client && !empty && matches!(self.screen, Screen::Playing | Screen::Paused) {
-            self.audio.music(if boss { Music::Boss(boss_index) } else { Music::Ambient });
             if dead {
                 self.on_death();
             } else if won {
@@ -284,13 +311,6 @@ impl App {
         if paused && !self.online() {
             return;
         }
-        if act_pressed(Action::AutoAim) || pad_pressed(Pad::AutoAim) {
-            self.save.settings.auto_aim = !self.save.settings.auto_aim;
-            let on = self.save.settings.auto_aim;
-            self.set_note(if on { "Auto-aim on: weapons seek the nearest foe." } else { "Auto-aim off: weapons follow your steps." }, 2.0);
-            self.audio.play("select", 0.6);
-            self.save.store();
-        }
         if act_pressed(Action::Numbers) {
             self.save.settings.numbers = !self.save.settings.numbers;
             if let Some(w) = self.world.as_mut() {
@@ -315,7 +335,7 @@ impl App {
             self.leave_online();
             self.world = None;
             self.screen = Screen::Menu;
-            self.audio.music(Music::Ambient);
+            self.audio.music(self.menu_music());
             return;
         }
         if let Some(w) = self.world.as_mut() {
@@ -410,7 +430,6 @@ impl App {
         if !w.heroes.is_empty() {
             let l = w.local;
             w.heroes[l].input = input;
-            w.heroes[l].auto_aim = self.save.settings.auto_aim;
         }
         match &mut self.net {
             NetMode::Offline => w.update(dt),
@@ -499,7 +518,6 @@ impl App {
                         pick_idx,
                         reroll_seq: self.reroll_seq,
                         rolls: me.rolls,
-                        auto_aim: me.auto_aim,
                         ack: self.snap_dec.ack,
                         view: (w.screen.x as u16, w.screen.y as u16),
                     });
@@ -531,7 +549,6 @@ fn apply_client_input(w: &mut World, h: usize, inp: &ClientInput) {
         hero.p.roll_dir = vec2(inp.roll_dir.0, inp.roll_dir.1);
         hero.p.stamina = inp.stamina;
         hero.rolls = inp.rolls;
-        hero.auto_aim = inp.auto_aim;
     }
     if inp.reroll_seq != hero.reroll_seq {
         hero.reroll_seq = inp.reroll_seq;
@@ -546,11 +563,10 @@ fn first_vigil_tips() -> Vec<(f32, String)> {
     let pad = using_pad();
     let k = |a: Action| key_label(a).to_string();
     let roll = if pad { "A".to_string() } else { k(Action::Roll) };
-    let aim = if pad { "X".to_string() } else { k(Action::AutoAim) };
     vec![
-        (1.0, format!("Your weapons strike on their own. Move to stay alive, {} rolls through danger.", roll)),
+        (1.0, format!("Your weapons strike on their own and aim at the nearest foe. Move to stay alive, {} rolls through danger.", roll)),
         (12.0, "Fallen foes leave souls: experience now, and currency at the Ash Shrine later.".into()),
-        (40.0, format!("{} switches auto-aim: weapons turn to the nearest foe instead of where you walk.", aim)),
+        (40.0, "Souls left on the ground merge into bigger ones, so none are ever lost.".into()),
         (100.0, "Two weapons at level 10 that belong together fuse into one.".into()),
         (270.0, "A boss comes every five minutes. Its attacks always show where they will land.".into()),
     ]

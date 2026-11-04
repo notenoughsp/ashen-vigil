@@ -5,11 +5,12 @@ use crate::save::{bindable, key_name, Action, ACTIONS};
 use crate::save::{FPS_CAPS, MSAA, RESOLUTIONS};
 use crate::ui::{ui_h, ui_w, BLOOD as BLOOD_RED, EMBER, GOLD, TEAL, UI_SCALES};
 
-const MENU_ITEMS: [&str; 7] = ["Start", "Online Lobby", "Reliquary", "Records", "Options", "Credits", "Exit"];
-/// Ash Shrine rows: class, the challenges, the soul upgrades, begin.
+const MENU_ITEMS: [&str; 8] = ["Start", "Online Lobby", "Reliquary", "Wardrobe", "Records", "Options", "Credits", "Exit"];
+/// Columns of the soul upgrades in the Reliquary.
+const SHOP_COLS: usize = 3;
+/// Ash Shrine rows: class, the challenges, begin.
 const HUB_CHALLENGE_ROW: usize = 1;
-const HUB_META_ROW: usize = HUB_CHALLENGE_ROW + ALL_CHALLENGES.len();
-const HUB_ROWS: usize = HUB_META_ROW + META_COUNT + 1;
+const HUB_ROWS: usize = HUB_CHALLENGE_ROW + ALL_CHALLENGES.len() + 1;
 
 /// One row on the options screen.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -25,7 +26,7 @@ enum Opt {
     Cute,
     Bind(u8),
     ResetBinds,
-    AutoAim,
+    Markers,
     Resolution,
     Fullscreen,
     Vsync,
@@ -61,7 +62,7 @@ impl Opt {
             Opt::Cute => "Cute mode",
             Opt::Bind(i) => ACTIONS[i as usize].label(),
             Opt::ResetBinds => "Reset to defaults",
-            Opt::AutoAim => "Auto-aim (F)",
+            Opt::Markers => "Off-screen markers",
             Opt::Resolution => "Resolution",
             Opt::Fullscreen => "Fullscreen",
             Opt::Vsync => "VSync",
@@ -87,7 +88,7 @@ impl Opt {
     fn hint(self) -> Option<&'static str> {
         Some(match self {
             Opt::Resolution => "Window size. Fullscreen always uses the monitor's resolution.",
-            Opt::AutoAim => "Weapons aim at the nearest enemy instead of where you walk. F toggles it in a vigil.",
+            Opt::Markers => "How far inside the screen edge the arrows to things off screen sit.",
             Opt::Vsync => "Syncs to the monitor refresh. Takes effect after a restart.",
             Opt::Bind(_) => "Enter, then press the new key. Arrow keys, Shift and Esc always work too.",
             Opt::Cute => "Pink instead of blood, hearts instead of bullets, and everyone blushes.",
@@ -106,23 +107,9 @@ impl Opt {
 const PAGES: [(&str, &[Opt]); 4] = [
     (
         "Controls",
-        &[
-            Opt::Bind(0),
-            Opt::Bind(1),
-            Opt::Bind(2),
-            Opt::Bind(3),
-            Opt::Bind(4),
-            Opt::Bind(5),
-            Opt::Bind(6),
-            Opt::Bind(7),
-            Opt::Bind(8),
-            Opt::Bind(9),
-            Opt::Bind(10),
-            Opt::ResetBinds,
-            Opt::Back,
-        ],
+        &[Opt::Bind(0), Opt::Bind(1), Opt::Bind(2), Opt::Bind(3), Opt::Bind(4), Opt::Bind(5), Opt::Bind(6), Opt::Bind(7), Opt::Bind(8), Opt::Bind(9), Opt::ResetBinds, Opt::Back],
     ),
-    ("General", &[Opt::Name, Opt::Music, Opt::Sfx, Opt::AutoAim, Opt::Numbers, Opt::Meter, Opt::Overlay, Opt::Shake, Opt::UiScale, Opt::Cute, Opt::Back]),
+    ("General", &[Opt::Name, Opt::Music, Opt::Sfx, Opt::Numbers, Opt::Meter, Opt::Overlay, Opt::Shake, Opt::UiScale, Opt::Markers, Opt::Cute, Opt::Back]),
     (
         "Graphics",
         &[
@@ -144,6 +131,15 @@ const PAGES: [(&str, &[Opt]); 4] = [
     ("Difficulty", &[Opt::Preset, Opt::Count, Opt::Hp, Opt::Dmg, Opt::Speed, Opt::BossHp, Opt::Back]),
 ];
 
+/// A price in a few characters: 950, 12.5K, 1.20M.
+pub(super) fn short_num(v: u64) -> String {
+    match v {
+        0..=9_999 => v.to_string(),
+        10_000..=999_999 => format!("{:.1}K", v as f64 / 1e3),
+        _ => format!("{:.2}M", v as f64 / 1e6),
+    }
+}
+
 /// A volume one percent up or down.
 fn percent_step(v: f32, dir: i32) -> f32 {
     ((v * 100.0).round() + dir as f32).clamp(0.0, 100.0) / 100.0
@@ -152,7 +148,7 @@ fn percent_step(v: f32, dir: i32) -> f32 {
 /// Where the main menu rows sit, for drawing and for the mouse.
 fn menu_rows() -> Vec<Rect> {
     let (sw, sh) = (ui_w(), ui_h());
-    (0..MENU_ITEMS.len()).map(|i| Rect::new(sw * 0.5 - 160.0, sh * 0.37 + i as f32 * 44.0, 320.0, 38.0)).collect()
+    (0..MENU_ITEMS.len()).map(|i| Rect::new(sw * 0.5 - 160.0, sh * 0.36 + i as f32 * 42.0, 320.0, 36.0)).collect()
 }
 
 /// A selectable row with a label on the left and a value on the right.
@@ -164,7 +160,7 @@ fn value_row(ui: &Ui, x: f32, y: f32, w: f32, on: bool, label: &str, value: &str
 
 impl App {
     pub(super) fn update_menu(&mut self) {
-        self.audio.music(Music::Ambient);
+        self.audio.music(self.menu_music());
         for k in [KeyCode::Up, KeyCode::Down, KeyCode::Left, KeyCode::Right, KeyCode::B, KeyCode::A] {
             if is_key_pressed(k) {
                 self.konami.push(k);
@@ -223,6 +219,19 @@ impl App {
                 self.typed.clear();
                 self.menu_cat = 6.0;
                 self.audio.play("meow", 0.9);
+                self.unlock(Achievement::Purrfect);
+            } else if self.typed.ends_with("dawn") {
+                self.typed.clear();
+                self.audio.play("bell", 0.6);
+                self.set_note("Not yet. The night is long, and the dawn has to be earned.", 5.0);
+                self.unlock(Achievement::Impatient);
+            } else if self.typed.ends_with("party") {
+                self.typed.clear();
+                self.party = !self.party;
+                self.audio.play("levelup", 0.7);
+                let msg = if self.party { "The embers put on their party hats." } else { "The party winds down. Someone has to clean up." };
+                self.set_note(msg, 4.0);
+                self.unlock(Achievement::Partygoer);
             }
         }
         self.menu_cat = (self.menu_cat - get_frame_time()).max(0.0);
@@ -250,16 +259,21 @@ impl App {
             2 => {
                 self.screen = Screen::Reliquary;
                 self.relic_sel = 0;
+                self.relic_page = 0;
             }
             3 => {
+                self.screen = Screen::Wardrobe;
+                self.wardrobe_sel = self.save.profile.skin as usize;
+            }
+            4 => {
                 self.screen = Screen::Records;
                 self.records_page = 0;
             }
-            4 => {
+            5 => {
                 self.screen = Screen::Options;
                 self.opt_sel = 0;
             }
-            5 => {
+            6 => {
                 self.screen = Screen::Credits;
                 self.credits_scroll = 0.0;
             }
@@ -295,7 +309,7 @@ impl App {
         for (i, (item, r)) in MENU_ITEMS.iter().zip(menu_rows()).enumerate() {
             let on = self.menu_sel == i;
             ui.row(r.x, r.y, r.w, r.h, on);
-            ui.text_c(item, sw * 0.5, r.y + 27.0, 25.0, if on { GOLD } else { PALE });
+            ui.text_c(item, sw * 0.5, r.y + 26.0, 24.0, if on { GOLD } else { PALE });
         }
         ui.text_c(hint("W/S, arrows or mouse to choose, Enter or click to confirm", "Stick or d-pad to choose, A to confirm"), sw * 0.5, sh - 40.0, 16.0, DIM);
         let b = self.save.best_time as u32;
@@ -445,7 +459,7 @@ impl App {
         } else {
             0
         };
-        if matches!(opt, Opt::Music | Opt::Sfx) {
+        if matches!(opt, Opt::Music | Opt::Sfx | Opt::Markers) {
             let held = if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) || pad_stick().x < -0.5 {
                 -1
             } else if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) || pad_stick().x > 0.5 {
@@ -498,7 +512,7 @@ impl App {
             Opt::ResetBinds => st.binds = ACTIONS.map(Action::default_key),
             Opt::Bind(_) => {}
             Opt::UiScale => st.ui_scale = (st.ui_scale as i32 + dir).rem_euclid(UI_SCALES.len() as i32) as u8,
-            Opt::AutoAim => st.auto_aim = !st.auto_aim,
+            Opt::Markers => st.marker_inset = (st.marker_inset as i32 + dir).clamp(0, crate::save::MAX_MARKER_INSET as i32) as u8,
             Opt::Cute => st.cute = !st.cute,
             Opt::Resolution => {
                 let i = RESOLUTIONS.iter().position(|r| *r == st.resolution).map(|i| i as i32).unwrap_or(0);
@@ -579,7 +593,10 @@ impl App {
                 0.0 => format!("Auto ({:.0}%)", crate::ui::ui_scale() * 100.0),
                 s => format!("{:.0}%", s * 100.0),
             },
-            Opt::AutoAim => onoff(st.auto_aim),
+            Opt::Markers => match st.marker_inset {
+                0 => "At the edge".into(),
+                v => format!("{}% inside", v),
+            },
             Opt::Cute => onoff(st.cute),
             Opt::Resolution => {
                 let r = format!("{} x {}", st.resolution.0, st.resolution.1);
@@ -672,7 +689,7 @@ impl App {
 
     pub(super) fn update_hub(&mut self) {
         drain_chars();
-        if grid_nav(&mut self.hub_sel, HUB_META_ROW, META_COUNT, 2) || nav(&mut self.hub_sel, HUB_ROWS, false) {
+        if nav(&mut self.hub_sel, HUB_ROWS, false) {
             self.audio.play("select", 0.4);
         }
         if self.hub_sel == 0 {
@@ -693,7 +710,7 @@ impl App {
             self.cycle_class(if mouse.right { -1 } else { 1 });
             return;
         }
-        let on_challenge = (HUB_CHALLENGE_ROW..HUB_META_ROW).contains(&self.hub_sel);
+        let on_challenge = (HUB_CHALLENGE_ROW..HUB_ROWS - 1).contains(&self.hub_sel);
         if on_challenge && (confirm() || left(false) || right(false) || mouse.left || mouse.right) {
             let ch = ALL_CHALLENGES[self.hub_sel - HUB_CHALLENGE_ROW];
             self.save.challenges ^= ch.bit();
@@ -701,27 +718,8 @@ impl App {
             self.audio.play("select", 0.6);
             return;
         }
-        if !confirm() && !mouse.left {
-            return;
-        }
-        if self.hub_sel == 0 || self.hub_sel == HUB_ROWS - 1 {
+        if confirm() || mouse.left {
             self.start_single();
-            return;
-        }
-        let i = self.hub_sel - HUB_META_ROW;
-        let lvl = self.save.profile.meta[i];
-        if lvl >= META[i].max {
-            return;
-        }
-        let cost = meta_cost(i, lvl);
-        if self.save.souls >= cost {
-            self.save.souls -= cost;
-            self.save.profile.meta[i] += 1;
-            self.save.store();
-            self.audio.play("kindle", 0.6);
-        } else {
-            self.audio.play("hurt", 0.3);
-            self.set_note("Not enough souls.", 2.0);
         }
     }
 
@@ -754,35 +752,54 @@ impl App {
             ui.text_r("+25% marks", x + w - 14.0, y + 20.0, 15.0, if on { EMBER } else { DIM });
             y += 31.0;
         }
-        y += 6.0;
-        // Two columns, drawn in order so the mouse and the cursor agree.
-        let cw = (w - 8.0) * 0.5;
-        for (i, m) in META.iter().enumerate() {
-            let (rx, ry) = (x + (i % 2) as f32 * (cw + 8.0), y + (i / 2) as f32 * 33.0);
-            ui.row(rx, ry, cw, 30.0, self.hub_sel == HUB_META_ROW + i);
-            let lvl = self.save.profile.meta[i];
-            ui.text(m.name, rx + 10.0, ry + 21.0, 17.0, PALE);
-            for k in 0..m.max {
-                let c = if k < lvl { GOLD } else { Color::new(0.25, 0.22, 0.2, 1.0) };
-                draw_rectangle(rx + 132.0 + k as f32 * 9.0, ry + 11.0, 6.0, 6.0, c);
-            }
-            ui.text(m.desc, rx + 212.0, ry + 20.0, 13.0, DIM);
-            let cost = if lvl >= m.max { "MAX".to_string() } else { format!("{}", meta_cost(i, lvl)) };
-            let afford = lvl < m.max && self.save.souls >= meta_cost(i, lvl);
-            ui.text_r(&cost, rx + cw - 10.0, ry + 21.0, 16.0, if afford { GOLD } else { DIM });
-        }
-        y += META_COUNT.div_ceil(2) as f32 * 33.0 + 6.0;
+        y += 10.0;
         ui.row(x, y, w, 34.0, self.hub_sel == HUB_ROWS - 1);
         ui.text_c(&format!("Begin the Vigil  ({})", self.save.settings.diff.preset_name()), cx, y + 24.0, 22.0, EMBER);
-        ui.text_c(hint("W/S select    A/D change class    Enter buy / begin    Esc back", "Stick select, left / right class    A buy / begin    B back"), cx, sh - 24.0, 16.0, DIM);
+        ui.text_c("Permanent upgrades are bought in the Reliquary.", cx, y + 64.0, 15.0, DIM);
+        ui.text_c(
+            hint("W/S select    A/D change class    Enter toggle / begin    Esc back", "Stick select, left / right class    A toggle / begin    B back"),
+            cx,
+            sh - 24.0,
+            16.0,
+            DIM,
+        );
     }
 
     // ---------------------------------------------------------------- reliquary
 
+    /// Rows on the current Reliquary page, Back included.
+    fn reliquary_rows(&self) -> usize {
+        if self.relic_page == 0 {
+            META_COUNT + 1
+        } else {
+            UNLOCKS.len() + RELIC_COUNT + 1
+        }
+    }
+
     pub(super) fn update_reliquary(&mut self) {
         drain_chars();
-        let rows = UNLOCKS.len() + RELIC_COUNT + 1;
-        if grid_nav(&mut self.relic_sel, 0, UNLOCKS.len(), 2) || grid_nav(&mut self.relic_sel, UNLOCKS.len(), RELIC_COUNT, 2) || nav(&mut self.relic_sel, rows, false) {
+        // Two pages: soul upgrades and the things Ashen Marks buy.
+        let page_dir = if is_key_pressed(KeyCode::Tab) || is_key_pressed(KeyCode::E) || is_key_pressed(KeyCode::PageDown) || pad_pressed(Pad::PageNext) {
+            1
+        } else if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::PageUp) || pad_pressed(Pad::PagePrev) {
+            -1
+        } else {
+            0
+        };
+        let clicked_page = clicked_tab().filter(|t| *t != self.relic_page);
+        if page_dir != 0 || clicked_page.is_some() {
+            self.relic_page = clicked_page.unwrap_or((self.relic_page as i32 + page_dir).rem_euclid(2) as usize);
+            self.relic_sel = 0;
+            self.audio.play("select", 0.5);
+            return;
+        }
+        let rows = self.reliquary_rows();
+        let moved = if self.relic_page == 0 {
+            grid_nav(&mut self.relic_sel, 0, META_COUNT, SHOP_COLS)
+        } else {
+            grid_nav(&mut self.relic_sel, 0, UNLOCKS.len(), 2) || grid_nav(&mut self.relic_sel, UNLOCKS.len(), RELIC_COUNT, 2)
+        };
+        if moved || nav(&mut self.relic_sel, rows, false) {
             self.audio.play("select", 0.4);
         }
         let click = mouse_rows(&mut self.relic_sel).left;
@@ -791,6 +808,10 @@ impl App {
             return;
         }
         if !confirm() && !click {
+            return;
+        }
+        if self.relic_page == 0 {
+            self.buy_upgrade(self.relic_sel);
             return;
         }
         let (cost, owned) = if self.relic_sel < UNLOCKS.len() {
@@ -819,14 +840,95 @@ impl App {
         self.audio.play("evolve", 0.6);
     }
 
+    /// One more level of soul upgrade `i`, if the souls are there.
+    fn buy_upgrade(&mut self, i: usize) {
+        let lvl = self.save.profile.meta[i];
+        if lvl >= META[i].max {
+            return;
+        }
+        let cost = meta_cost(i, lvl);
+        if self.save.souls < cost {
+            self.audio.play("hurt", 0.3);
+            self.set_note("Not enough souls. Bank them at shrines during a vigil.", 2.5);
+            return;
+        }
+        self.save.souls -= cost;
+        self.save.profile.meta[i] += 1;
+        self.save.shrine_levels += 1;
+        self.save.store();
+        self.audio.play("kindle", 0.6);
+        if self.save.shrine_levels >= 50 {
+            self.unlock(Achievement::Devoted);
+        }
+    }
+
     pub(super) fn draw_reliquary(&self, ui: &Ui) {
         let (sw, sh) = (ui_w(), ui_h());
         let cx = sw * 0.5;
-        ui.spaced_c("THE RELIQUARY", cx, 56.0, 40.0, 8.0, PALE);
-        ui.text_c(&format!("Ashen Marks  {}", self.save.marks), cx, 88.0, 22.0, EMBER);
+        ui.spaced_c("THE RELIQUARY", cx, 50.0, 40.0, 8.0, PALE);
+        ui.text_c(&format!("Souls  {}        Ashen Marks  {}", self.save.souls, self.save.marks), cx, 80.0, 20.0, if self.relic_page == 0 { GOLD } else { EMBER });
+        // Page tabs.
+        let tab_w = 260.0;
+        for (i, name) in ["Soul Upgrades", "Relics and Unlocks"].iter().enumerate() {
+            let tx = cx - tab_w + i as f32 * tab_w;
+            crate::ui::register_tab(Rect::new(tx + 4.0, 94.0, tab_w - 8.0, 30.0));
+            let on = i == self.relic_page;
+            draw_rectangle(tx + 4.0, 94.0, tab_w - 8.0, 30.0, Color::new(0.07, 0.06, 0.06, if on { 0.95 } else { 0.5 }));
+            if on {
+                draw_rectangle(tx + 4.0, 122.0, tab_w - 8.0, 2.0, GOLD);
+            }
+            ui.text_c(name, tx + tab_w * 0.5, 116.0, 19.0, if on { GOLD } else { DIM });
+        }
         let w = 1100.0f32.min(sw - 40.0);
         let x = cx - w * 0.5;
-        let mut y = 104.0;
+        let top = 138.0;
+        if self.relic_page == 0 {
+            self.draw_upgrades(ui, x, top, w);
+        } else {
+            self.draw_relics(ui, x, top, w);
+        }
+        let foot = if self.relic_page == 0 {
+            "Souls are banked at shrines during a vigil. Upgrades last forever."
+        } else {
+            "Ashen Marks are earned at the end of every vigil: time, bosses, level and kills count."
+        };
+        ui.text_c(foot, cx, sh - 44.0, 15.0, DIM);
+        ui.text_c(hint("Q / E or Tab: page    W/S/A/D select    Enter buy    Esc back", "LB / RB: page    Stick select    A buy    B back"), cx, sh - 20.0, 15.0, DIM);
+    }
+
+    /// The soul upgrades in three columns, the selected one explained below.
+    fn draw_upgrades(&self, ui: &Ui, x: f32, top: f32, w: f32) {
+        let cx = x + w * 0.5;
+        let gap = 6.0;
+        let cw = (w - gap * (SHOP_COLS - 1) as f32) / SHOP_COLS as f32;
+        for (i, m) in META.iter().enumerate() {
+            let (rx, ry) = (x + (i % SHOP_COLS) as f32 * (cw + gap), top + (i / SHOP_COLS) as f32 * 31.0);
+            ui.row(rx, ry, cw, 28.0, self.relic_sel == i);
+            let lvl = self.save.profile.meta[i];
+            ui.text(m.name, rx + 10.0, ry + 20.0, 16.0, PALE);
+            for k in 0..m.max {
+                let c = if k < lvl { GOLD } else { Color::new(0.25, 0.22, 0.2, 1.0) };
+                draw_rectangle(rx + 132.0 + k as f32 * 8.0, ry + 11.0, 5.0, 5.0, c);
+            }
+            let cost = if lvl >= m.max { "MAX".to_string() } else { short_num(meta_cost(i, lvl)) };
+            let afford = lvl < m.max && self.save.souls >= meta_cost(i, lvl);
+            ui.text_r(&cost, rx + cw - 10.0, ry + 20.0, 15.0, if afford { GOLD } else { DIM });
+        }
+        let mut y = top + META_COUNT.div_ceil(SHOP_COLS) as f32 * 31.0 + 4.0;
+        let about = match META.get(self.relic_sel) {
+            Some(m) => format!("{}: {} per level   (level {} of {})", m.name, m.desc, self.save.profile.meta[self.relic_sel], m.max),
+            None => String::new(),
+        };
+        ui.text_c(&about, cx, y + 14.0, 15.0, PALE);
+        y += 24.0;
+        ui.row(x, y, w, 27.0, self.relic_sel == META_COUNT);
+        ui.text_c("Back", cx, y + 20.0, 18.0, DIM);
+    }
+
+    /// Unlocks and relics, bought with Ashen Marks.
+    fn draw_relics(&self, ui: &Ui, x: f32, top: f32, w: f32) {
+        let cx = x + w * 0.5;
+        let mut y = top;
         let row_h = 30.0;
         let cw = (w - 8.0) * 0.5;
         let cell = |i: usize, y0: f32| (x + (i % 2) as f32 * (cw + 8.0), y0 + (i / 2) as f32 * row_h);
@@ -875,7 +977,5 @@ impl App {
         if let Some((u, _)) = UNLOCKS.get(self.relic_sel) {
             ui.text_c(u.desc(), cx, y + 58.0, 17.0, PALE);
         }
-        ui.text_c("Ashen Marks are earned at the end of every vigil: time, bosses, level and kills count.", cx, sh - 44.0, 15.0, DIM);
-        ui.text_c(hint("W/S select    Enter buy    Esc back", "Stick select    A buy    B back"), cx, sh - 20.0, 15.0, DIM);
     }
 }

@@ -169,8 +169,6 @@ pub enum Pad {
     Pause,
     /// Select / View: leave the vigil from the pause menu
     Leave,
-    /// X
-    AutoAim,
     /// Y
     Reroll,
     /// RB
@@ -336,7 +334,6 @@ pub fn pad_pressed(action: Pad) -> bool {
             Pad::Roll => has(Button::South) || has(Button::RightTrigger) || has(Button::RightTrigger2),
             Pad::Pause => has(Button::Start),
             Pad::Leave => has(Button::Select),
-            Pad::AutoAim => has(Button::West),
             Pad::Reroll => has(Button::North),
             Pad::PageNext => has(Button::RightTrigger),
             Pad::PagePrev => has(Button::LeftTrigger),

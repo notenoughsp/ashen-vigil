@@ -338,18 +338,104 @@ fn chord_weight(k: usize, t: f32) -> f32 {
     x * x * (3.0 - 2.0 * x)
 }
 
-fn music_ambient() -> Vec<f32> {
+/// One song of the vigil: a drone, four chords that walk the 16 s loop, and a bell motif.
+struct Act {
+    /// Drone root and its slightly detuned twin.
+    drone: f32,
+    /// Second drone voice as a ratio of the root.
+    drone_hi: f32,
+    chords: [[f32; 3]; 4],
+    /// (seconds into the loop, frequency) of each bell.
+    bells: &'static [(f32, f32)],
+    bell_decay: f32,
+    bell_gain: f32,
+    pad_gain: f32,
+    /// A soft heartbeat under everything, beats per loop (0 for none).
+    heart: u32,
+    /// High music-box notes instead of church bells.
+    music_box: bool,
+}
+
+/// The first ten minutes: A minor, slow and wide.
+const ACT_DUSK: Act = Act {
+    drone: 55.0,
+    drone_hi: 1.4983,
+    chords: [[220.0, 261.63, 329.63], [174.61, 220.0, 261.63], [146.83, 174.61, 220.0], [164.81, 207.65, 246.94]],
+    bells: &[(1.0, 440.0), (3.5, 392.0), (6.0, 349.23), (7.0, 329.63), (10.0, 293.66), (12.5, 261.63), (14.0, 329.63)],
+    bell_decay: 1.4,
+    bell_gain: 0.12,
+    pad_gain: 0.045,
+    heart: 0,
+    music_box: false,
+};
+
+/// Minutes ten to twenty: D minor, a heartbeat, the bells come closer together.
+const ACT_MIDNIGHT: Act = Act {
+    drone: 73.42,
+    drone_hi: 1.4983,
+    chords: [[293.66, 349.23, 440.0], [233.08, 293.66, 349.23], [196.0, 233.08, 293.66], [220.0, 277.18, 329.63]],
+    bells: &[(0.5, 587.33), (1.5, 523.25), (2.5, 440.0), (4.5, 466.16), (5.5, 440.0), (8.5, 392.0), (9.5, 349.23), (10.5, 329.63), (12.5, 349.23), (14.0, 277.18)],
+    bell_decay: 1.8,
+    bell_gain: 0.1,
+    pad_gain: 0.05,
+    heart: 14,
+    music_box: false,
+};
+
+/// Minutes twenty to thirty: C sharp minor with a lowered second, tolling, the last stretch before dawn.
+const ACT_WITCHING: Act = Act {
+    drone: 69.3,
+    drone_hi: 1.0595,
+    chords: [[277.18, 329.63, 415.3], [293.66, 369.99, 440.0], [220.0, 277.18, 329.63], [207.65, 261.63, 311.13]],
+    bells: &[(0.0, 138.59), (2.0, 554.37), (3.0, 523.25), (4.0, 138.59), (6.0, 493.88), (8.0, 138.59), (9.0, 440.0), (10.0, 415.3), (12.0, 146.83), (14.0, 415.3), (15.0, 392.0)],
+    bell_decay: 1.1,
+    bell_gain: 0.11,
+    pad_gain: 0.055,
+    heart: 28,
+    music_box: false,
+};
+
+/// Cute mode: C major on a music box.
+const ACT_LULLABY: Act = Act {
+    drone: 65.41,
+    drone_hi: 1.5,
+    chords: [[261.63, 329.63, 392.0], [220.0, 261.63, 329.63], [174.61, 220.0, 261.63], [196.0, 246.94, 293.66]],
+    bells: &[
+        (0.0, 1046.5),
+        (0.5, 1318.5),
+        (1.0, 1568.0),
+        (2.0, 1318.5),
+        (4.0, 880.0),
+        (4.5, 1046.5),
+        (5.0, 1318.5),
+        (6.0, 1174.7),
+        (8.0, 1046.5),
+        (8.5, 880.0),
+        (9.0, 698.46),
+        (10.0, 880.0),
+        (12.0, 987.77),
+        (12.5, 1174.7),
+        (13.0, 1568.0),
+        (14.0, 1318.5),
+        (15.0, 1174.7),
+    ],
+    bell_decay: 3.5,
+    bell_gain: 0.07,
+    pad_gain: 0.03,
+    heart: 0,
+    music_box: true,
+};
+
+fn music_act(act: &Act) -> Vec<f32> {
     let len = 16.0;
     let mut s = buf(len);
-    // A low drone on A that breathes, and a choir-like pad walking Am - F - Dm - E.
-    let (a1, a1b, e2) = (55.0, 55.25, loop_hz(82.41));
-    let chords: [[f32; 3]; 4] = [[220.0, 261.63, 329.63], [174.61, 220.0, 261.63], [146.83, 174.61, 220.0], [164.81, 207.65, 246.94]];
-    let chords = chords.map(|c| c.map(loop_hz));
+    let (lo, lo_b, hi) = (loop_hz(act.drone), loop_hz(act.drone) + 0.25, loop_hz(act.drone * act.drone_hi));
+    let chords = act.chords.map(|c| c.map(loop_hz));
     for (i, v) in s.iter_mut().enumerate() {
         let t = t_of(i);
         // LFO rates are whole cycles per loop so the loop is seamless.
         let breath = 0.75 + 0.25 * (TAU * t / 8.0).sin();
-        let drone = (voice(a1, t) + voice(a1b, t) * 0.8) * 0.18 + voice(e2, t) * 0.08;
+        let drone = (voice(lo, t) + voice(lo_b, t) * 0.8) * 0.18 + voice(hi, t) * 0.08;
         let mut pad = 0.0;
         for (k, chord) in chords.iter().enumerate() {
             let w = chord_weight(k, t);
@@ -357,17 +443,42 @@ fn music_ambient() -> Vec<f32> {
                 pad += chord.iter().map(|f| voice(*f, t)).sum::<f32>() * w;
             }
         }
-        *v = drone * breath + pad * 0.045 * (0.85 + 0.15 * (TAU * t / 4.0).sin());
+        let drone_gain = if act.music_box { 0.4 } else { 1.0 };
+        *v = drone * breath * drone_gain + pad * act.pad_gain * (0.85 + 0.15 * (TAU * t / 4.0).sin());
     }
-    // Sparse bell motif in A minor.
-    let notes = [(1.0, 440.0), (3.5, 392.0), (6.0, 349.23), (7.0, 329.63), (10.0, 293.66), (12.5, 261.63), (14.0, 329.63)];
-    for (at, f) in notes {
-        let b = bell(2.5, f, 1.4);
+    for &(at, f) in act.bells {
+        let b = if act.music_box { music_box(f, act.bell_decay) } else { bell(2.5, f, act.bell_decay) };
         let start = (at * SR) as usize;
         for (k, x) in b.iter().enumerate() {
             let idx = (start + k) % s.len();
-            s[idx] += x * 0.12;
+            s[idx] += x * act.bell_gain;
         }
+    }
+    if act.heart > 0 {
+        // Lub-dub, quiet and low, in step with the combat drums.
+        let thump = drum(0.25, 46.0, 29, 0.0);
+        let beat = len / act.heart as f32;
+        for b in 0..act.heart {
+            let at = b as f32 * beat;
+            for (off, g) in [(0.0, 0.22), (0.16, 0.14)] {
+                let start = ((at + off) * SR) as usize;
+                for (k, x) in thump.iter().enumerate() {
+                    let idx = (start + k) % s.len();
+                    s[idx] += x * g;
+                }
+            }
+        }
+    }
+    s
+}
+
+/// A plucked comb note: bright, round and short.
+fn music_box(f: f32, decay: f32) -> Vec<f32> {
+    let mut s = buf(1.2);
+    for (i, v) in s.iter_mut().enumerate() {
+        let t = t_of(i);
+        let env = (-t * decay).exp() * (t * 400.0).min(1.0);
+        *v = ((TAU * f * t).sin() + 0.3 * (TAU * 2.0 * f * t).sin() * (-t * decay * 2.0).exp() + 0.12 * (TAU * 3.01 * f * t).sin() * (-t * decay * 3.0).exp()) * env;
     }
     s
 }
@@ -398,6 +509,42 @@ const THEMES: [Theme; 4] = [
     // Ashen Sovereign: fast, driving, everything at once.
     Theme { bpm: 146.0, root: 43.65, clash: 1.0595, cutoff: 1100.0, kicks: 0b1010_1010_1010_1011, toms: 0b0001_0001_0001_0101, bells: true, arp: true },
 ];
+
+/// How many endless stages there are; each lasts `ENDLESS_STAGE` seconds, the last one stays.
+pub const ENDLESS_STAGES: u8 = 8;
+pub const ENDLESS_STAGE: f32 = 180.0;
+
+/// The endless night grows harsher every stage: faster, higher, denser drums, then the grind.
+fn endless_theme(k: u8) -> Theme {
+    let k = k.min(ENDLESS_STAGES - 1);
+    const KICKS: [u16; 8] = [
+        0b1000_0000_1000_0000,
+        0b1000_0000_1000_1000,
+        0b1000_1000_1000_1000,
+        0b1000_1000_1000_1010,
+        0b1010_1000_1010_1000,
+        0b1010_1010_1010_1010,
+        0b1010_1010_1010_1011,
+        0b1011_1010_1011_1011,
+    ];
+    const TOMS: [u16; 8] =
+        [0, 0b0000_0000_0000_1000, 0b0000_0010_0000_0010, 0b0000_0010_0000_0101, 0b0001_0001_0001_0101, 0b0101_0001_0101_0101, 0b0101_0101_0101_0101, 0b0101_0101_0111_0101];
+    Theme {
+        bpm: 112.0 + 9.0 * k as f32,
+        // Up a semitone each stage.
+        root: 49.0 * 2f32.powf(k as f32 / 12.0),
+        clash: match k {
+            0..=1 => 1.4983,
+            2..=4 => 1.335,
+            _ => 1.0595,
+        },
+        cutoff: 450.0 + 140.0 * k as f32,
+        kicks: KICKS[k as usize],
+        toms: TOMS[k as usize],
+        bells: k >= 3,
+        arp: k >= 2,
+    }
+}
 
 /// Wraps whatever spilled past `len` seconds back onto the start, so the loop is seamless.
 fn fold_loop(mut s: Vec<f32>, len: f32) -> Vec<f32> {
@@ -480,6 +627,21 @@ fn music_combat() -> Vec<f32> {
     fold_loop(s, len)
 }
 
+/// Music loop number `i` in the order `Audio::new` loads them: three acts, the lullaby,
+/// the combat drums, the boss themes, the endless stages.
+fn music_track(i: usize) -> Vec<f32> {
+    let bosses = THEMES.len();
+    match i {
+        0 => music_act(&ACT_DUSK),
+        1 => music_act(&ACT_MIDNIGHT),
+        2 => music_act(&ACT_WITCHING),
+        3 => music_act(&ACT_LULLABY),
+        4 => music_combat(),
+        i if i < 5 + bosses => music_boss(&THEMES[i - 5]),
+        i => music_boss(&endless_theme((i - 5 - bosses) as u8)),
+    }
+}
+
 pub const SFX_NAMES: [&str; 24] = [
     "slash", "knife", "fire", "explode", "slam", "zap", "chime", "bell", "hit", "die", "pickup", "levelup", "evolve", "roll", "hurt", "roar", "chest", "kindle", "death", "select",
     "clang", "arrow", "bullet", "meow",
@@ -502,16 +664,23 @@ async fn load_override(dir: &str, name: &str) -> Option<Sound> {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Music {
     Silence,
-    /// Exploring; the combat drums fade in with `set_intensity`.
-    Ambient,
+    /// One song per ten minutes of the vigil (0, 1, 2); the combat drums fade in with
+    /// `set_intensity`. Act 0 also plays in the menus.
+    Vigil(u8),
+    /// Cute mode's music box instead of the vigil songs.
+    Lullaby,
+    /// After dawn: a stage that grows harsher every three minutes.
+    Endless(u8),
     /// A boss theme by boss index.
     Boss(usize),
 }
 
 pub struct Audio {
     sfx: HashMap<&'static str, (Sound, f64)>,
-    ambient: Sound,
+    acts: Vec<Sound>,
+    lullaby: Sound,
     combat: Sound,
+    endless: Vec<Sound>,
     bosses: Vec<Sound>,
     current: Music,
     intensity: f32,
@@ -534,23 +703,37 @@ impl Audio {
             };
             sfx.insert(name, (snd, 0.0));
         }
-        let ambient = match load_override("music", "ambient").await {
-            Some(s) => s,
-            None => load_sound_from_bytes(&to_wav(&music_ambient())).await.expect("music"),
-        };
-        let combat = match load_override("music", "combat").await {
-            Some(s) => s,
-            None => load_sound_from_bytes(&to_wav(&music_combat())).await.expect("music"),
-        };
-        let mut bosses = Vec::new();
-        for (i, th) in THEMES.iter().enumerate() {
-            let snd = match load_override("music", &format!("boss{}", i + 1)).await {
+        // Every loop is synthesized on its own thread; only loading the sounds needs this one.
+        let mut names: Vec<String> = vec!["ambient".into(), "midnight".into(), "witching".into(), "lullaby".into(), "combat".into()];
+        names.extend((1..=THEMES.len()).map(|i| format!("boss{}", i)));
+        names.extend((1..=ENDLESS_STAGES).map(|i| format!("endless{}", i)));
+        let wavs: Vec<Vec<u8>> = std::thread::scope(|sc| {
+            let jobs: Vec<_> = names
+                .iter()
+                .enumerate()
+                .map(|(i, name)| {
+                    let custom = ["ogg", "wav"].iter().any(|ext| std::path::Path::new(&format!("assets/music/{}.{}", name, ext)).exists());
+                    sc.spawn(move || if custom { Vec::new() } else { to_wav(&music_track(i)) })
+                })
+                .collect();
+            jobs.into_iter().map(|j| j.join().unwrap_or_default()).collect()
+        });
+        let mut sounds = Vec::new();
+        for (name, wav) in names.iter().zip(&wavs) {
+            let snd = match load_override("music", name).await {
                 Some(s) => s,
-                None => load_sound_from_bytes(&to_wav(&music_boss(th))).await.expect("music"),
+                None => load_sound_from_bytes(wav).await.expect("music"),
             };
-            bosses.push(snd);
+            sounds.push(snd);
         }
-        Audio { sfx, ambient, combat, bosses, current: Music::Silence, intensity: 0.0, sfx_vol: 0.55, music_vol: 0.4, muted: false }
+        let mut it = sounds.into_iter();
+        let mut take = |n: usize| (0..n).filter_map(|_| it.next()).collect::<Vec<Sound>>();
+        let acts = take(3);
+        let lullaby = take(1).remove(0);
+        let combat = take(1).remove(0);
+        let bosses = take(THEMES.len());
+        let endless = take(ENDLESS_STAGES as usize);
+        Audio { sfx, acts, lullaby, combat, endless, bosses, current: Music::Silence, intensity: 0.0, sfx_vol: 0.55, music_vol: 0.4, muted: false }
     }
 
     /// Plays a sound unless it already played within `gap` seconds.
@@ -572,11 +755,13 @@ impl Audio {
         self.play_gap(name, vol, 0.03);
     }
 
+    fn loops(&self) -> impl Iterator<Item = &Sound> {
+        self.acts.iter().chain([&self.lullaby, &self.combat]).chain(&self.bosses).chain(&self.endless)
+    }
+
     fn stop_music(&self) {
-        stop_sound(&self.ambient);
-        stop_sound(&self.combat);
-        for b in &self.bosses {
-            stop_sound(b);
+        for s in self.loops() {
+            stop_sound(s);
         }
     }
 
@@ -591,30 +776,31 @@ impl Audio {
         }
         let params = PlaySoundParams { looped: true, volume: self.music_vol };
         match which {
-            Music::Ambient => {
-                play_sound(&self.ambient, params);
+            Music::Vigil(act) => {
+                play_sound(&self.acts[(act as usize).min(self.acts.len() - 1)], params);
                 play_sound(&self.combat, PlaySoundParams { looped: true, volume: self.music_vol * self.intensity });
             }
+            Music::Lullaby => play_sound(&self.lullaby, params),
+            Music::Endless(k) => play_sound(&self.endless[(k as usize).min(self.endless.len() - 1)], params),
             Music::Boss(i) => play_sound(&self.bosses[i.min(self.bosses.len() - 1)], params),
             Music::Silence => {}
         }
     }
 
-    /// 0 = calm, 1 = surrounded. Fades the combat drums under the ambient track.
+    /// 0 = calm, 1 = surrounded. Fades the combat drums under the vigil songs.
     pub fn set_intensity(&mut self, k: f32) {
         self.intensity = k.clamp(0.0, 1.0);
-        if self.current == Music::Ambient && !self.muted {
+        if matches!(self.current, Music::Vigil(_)) && !self.muted {
             set_sound_volume(&self.combat, self.music_vol * self.intensity);
         }
     }
 
     pub fn set_music_volume(&mut self, v: f32) {
         self.music_vol = v;
-        set_sound_volume(&self.ambient, v);
-        set_sound_volume(&self.combat, v * self.intensity);
-        for b in &self.bosses {
-            set_sound_volume(b, v);
+        for s in self.loops() {
+            set_sound_volume(s, v);
         }
+        set_sound_volume(&self.combat, v * self.intensity);
     }
 
     pub fn toggle_mute(&mut self) {
@@ -638,9 +824,24 @@ pub fn music_roughness() -> Vec<(&'static str, f32)> {
         let d: f32 = s.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum();
         d / e * 1000.0
     };
-    let mut out = vec![("ambient", rough(&music_ambient())), ("combat", rough(&music_combat()))];
-    for (k, th) in THEMES.iter().enumerate() {
-        out.push((["boss 1", "boss 2", "boss 3", "boss 4"][k], rough(&music_boss(th))));
-    }
-    out
+    const NAMES: [&str; 17] = [
+        "dusk",
+        "midnight",
+        "witching",
+        "lullaby",
+        "combat",
+        "boss 1",
+        "boss 2",
+        "boss 3",
+        "boss 4",
+        "endless 1",
+        "endless 2",
+        "endless 3",
+        "endless 4",
+        "endless 5",
+        "endless 6",
+        "endless 7",
+        "endless 8",
+    ];
+    NAMES.iter().enumerate().map(|(i, n)| (*n, rough(&music_track(i)))).collect()
 }

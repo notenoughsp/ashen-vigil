@@ -160,9 +160,11 @@ impl World {
                     continue;
                 }
                 let at = m.pedestal(i);
-                if let Some(h) = self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(at) < 22.0 && h.p.souls >= m.prices[i] as u64) {
+                // Barter makes the same ware cheaper for whoever has it.
+                let price_for = |h: &Hero| (m.prices[i] as f32 * (1.0 - 0.08 * h.profile.m(M_BARTER) as f32)).round() as u32;
+                if let Some(h) = self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(at) < 22.0 && h.p.souls >= price_for(h) as u64) {
                     m.sold[i] = true;
-                    bought.push((h, ware, m.prices[i]));
+                    bought.push((h, ware, price_for(&self.heroes[h])));
                 }
             }
             if m.life <= 0.0 {

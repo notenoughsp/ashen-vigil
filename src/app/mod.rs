@@ -6,6 +6,7 @@ pub(crate) mod input;
 mod lobby;
 mod menus;
 mod records;
+mod wardrobe;
 
 use crate::audio::{Audio, Music};
 use crate::data::*;
@@ -27,6 +28,7 @@ pub enum Screen {
     Options,
     Hub,
     Reliquary,
+    Wardrobe,
     Credits,
     Records,
     Lobby,
@@ -85,6 +87,17 @@ pub struct App {
     binding: Option<usize>,
     hub_sel: usize,
     relic_sel: usize,
+    /// Reliquary page: 0 soul upgrades, 1 relics and unlocks.
+    relic_page: usize,
+    wardrobe_sel: usize,
+    /// A tiny world for drawing heroes in the wardrobe.
+    preview: Option<World>,
+    /// "party" was typed in the main menu: the embers change colour.
+    party: bool,
+    /// Our rolls so far and when the last ones happened, for the dizzy secret.
+    last_rolls: u32,
+    roll_times: Vec<f32>,
+    said_404: bool,
     credits_scroll: f32,
     level_sel: usize,
     class_idx: usize,
@@ -187,6 +200,13 @@ impl App {
             follow_host: false,
             hub_sel: 0,
             relic_sel: 0,
+            relic_page: 0,
+            wardrobe_sel: 0,
+            preview: None,
+            party: false,
+            last_rolls: 0,
+            roll_times: Vec::new(),
+            said_404: false,
             credits_scroll: 0.0,
             level_sel: 0,
             class_idx: 0,
@@ -295,8 +315,10 @@ impl App {
             w.cute = self.save.settings.cute;
         }
         set_binds(self.save.settings.binds);
+        crate::ui::set_marker_inset(self.save.settings.marker_inset);
         self.t += dt;
-        let typing = matches!(self.screen, Screen::Options | Screen::Lobby);
+        // The main menu listens for secret words, so M must stay a letter there.
+        let typing = matches!(self.screen, Screen::Options | Screen::Lobby | Screen::Menu);
         if act_pressed(Action::Mute) && !typing {
             self.audio.toggle_mute();
         }
@@ -318,6 +340,7 @@ impl App {
             Screen::Options => self.update_options(),
             Screen::Hub => self.update_hub(),
             Screen::Reliquary => self.update_reliquary(),
+            Screen::Wardrobe => self.update_wardrobe(),
             Screen::Credits => self.update_credits(dt),
             Screen::Records => self.update_records(),
             Screen::Lobby => self.update_lobby(dt),
@@ -332,9 +355,13 @@ impl App {
             Screen::Victory { t, marks } => {
                 self.screen = Screen::Victory { t: t + dt, marks };
                 self.step_game(dt, Input::default(), false);
-                if t > 2.5 && !matches!(self.net, NetMode::Client(_)) && (is_key_pressed(KeyCode::C) || pad_pressed(Pad::Reroll)) {
+                // The host (or a lone player) picks with keys or the two buttons; a click
+                // beside the buttons does nothing, so nobody leaves the endless night by accident.
+                let chooser = !matches!(self.net, NetMode::Client(_));
+                let button = clicked_tab();
+                if t > 2.5 && chooser && (is_key_pressed(KeyCode::C) || pad_pressed(Pad::Reroll) || button == Some(1)) {
                     self.continue_endless();
-                } else if t > 2.5 && (confirm() || clicked()) {
+                } else if t > 2.5 && (confirm() || button == Some(0) || (!chooser && clicked())) {
                     self.end_vigil();
                 }
             }
@@ -351,7 +378,11 @@ impl App {
             e.pos.x += (self.t * 0.8 + e.life).sin() * 0.3;
             e.life -= dt;
             let k = (e.life / 3.0).min(1.0);
-            let (glow, core) = if self.save.settings.cute {
+            let (glow, core) = if self.party {
+                let h = (self.t * 0.3 + e.life * 0.21).fract();
+                let c = macroquad::color::hsl_to_rgb(h, 0.9, 0.6);
+                (Color::new(c.r, c.g, c.b, 0.1 * k), Color::new(c.r, c.g, c.b, 0.95 * k))
+            } else if self.save.settings.cute {
                 (Color::new(1.0, 0.5, 0.75, 0.08 * k), Color::new(1.0, 0.7, 0.85, 0.9 * k))
             } else if self.save.blue_embers {
                 (Color::new(0.3, 0.6, 1.0, 0.08 * k), Color::new(0.5, 0.8, 1.0, 0.9 * k))
@@ -366,12 +397,14 @@ impl App {
 
     /// Dark backdrop with drifting embers and a fire glow at `glow_y`.
     fn backdrop(&mut self, dt: f32, glow_y: f32) {
-        clear_background(Color::from_rgba(7, 6, 8, 255));
+        let cute = self.save.settings.cute;
+        clear_background(if cute { Color::from_rgba(46, 26, 48, 255) } else { Color::from_rgba(7, 6, 8, 255) });
         self.draw_embers(dt);
         let fl = 0.85 + 0.15 * (self.t * 7.0).sin();
+        let glow = if cute { Color::new(1.0, 0.55, 0.8, 0.012) } else { Color::new(1.0, 0.4, 0.12, 0.008) };
         for k in 0..10 {
             let r = (60.0 + k as f32 * 28.0) * fl;
-            draw_circle(ui_w() * 0.5, glow_y, r, Color::new(1.0, 0.4, 0.12, 0.008));
+            draw_circle(ui_w() * 0.5, glow_y, r, glow);
         }
     }
 
@@ -418,6 +451,10 @@ impl App {
             Screen::Reliquary => {
                 self.backdrop(dt, 90.0);
                 self.draw_reliquary(&ui);
+            }
+            Screen::Wardrobe => {
+                self.backdrop(dt, 90.0);
+                self.draw_wardrobe(&ui);
             }
             Screen::Records => {
                 self.backdrop(dt, 70.0);

@@ -7,10 +7,14 @@ impl World {
         (3000.0 * self.particle_mult) as usize
     }
 
-    /// In cute mode anything red turns pink.
+    /// In cute mode anything red turns pink, and soot and scorch marks turn lilac.
     pub(crate) fn soften(&self, c: Color) -> Color {
-        if self.cute && c.r > c.g * 1.4 && c.r > c.b * 1.4 {
+        if !self.cute {
+            c
+        } else if c.r > c.g * 1.4 && c.r > c.b * 1.4 {
             Color::new(1.0, 0.55 + c.g * 0.2, 0.75, c.a)
+        } else if c.r + c.g + c.b < 0.4 {
+            Color::new(0.82, 0.7, 0.9, c.a * 0.7)
         } else {
             c
         }

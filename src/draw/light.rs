@@ -27,6 +27,8 @@ void main() {
 
 /// Darkness where no light reaches: a cold, dim blue.
 const AMBIENT: Color = Color::new(0.23, 0.21, 0.28, 1.0);
+/// Cute mode is a soft evening, not a dark night.
+const AMBIENT_CUTE: Color = Color::new(0.72, 0.62, 0.74, 1.0);
 /// Light map size as a fraction of the screen, per quality level; it is blurry anyway.
 const SCALES: [f32; 3] = [0.25, 0.5, 1.0];
 
@@ -108,7 +110,8 @@ impl World {
             if h.downed {
                 out.push((h.p.pos, 90.0, Color::new(0.5, 0.1, 0.08, 1.0)));
             } else {
-                out.push((h.p.pos, 400.0 * flicker, Color::new(1.0, 0.82, 0.62, 1.0)));
+                let warm = if self.cute { Color::new(1.0, 0.8, 0.9, 1.0) } else { Color::new(1.0, 0.82, 0.62, 1.0) };
+                out.push((h.p.pos, 400.0 * flicker, warm));
                 out.push((h.p.pos, 170.0, Color::new(0.45, 0.38, 0.3, 1.0)));
                 if h.buff(Buff::Fury) > 0.0 {
                     out.push((h.p.pos, 120.0, Color::new(0.6, 0.05, 0.05, 1.0)));
@@ -207,8 +210,8 @@ impl World {
         set_camera(&Camera2D { target: cam.target, zoom: vec2(cam.zoom.x, -cam.zoom.y), render_target: Some(l.target.clone()), ..Default::default() });
         // Under the Blood Moon the darkness itself turns red.
         let k = (self.blood_moon / 3.0).clamp(0.0, 1.0).min(((MOON_LENGTH - self.blood_moon) / 3.0).clamp(0.0, 1.0));
-        let moon = Color::new(0.34, 0.08, 0.08, 1.0);
-        clear_background(Color::new(AMBIENT.r + (moon.r - AMBIENT.r) * k, AMBIENT.g + (moon.g - AMBIENT.g) * k, AMBIENT.b + (moon.b - AMBIENT.b) * k, 1.0));
+        let (base, moon) = if self.cute { (AMBIENT_CUTE, Color::new(0.85, 0.5, 0.7, 1.0)) } else { (AMBIENT, Color::new(0.34, 0.08, 0.08, 1.0)) };
+        clear_background(Color::new(base.r + (moon.r - base.r) * k, base.g + (moon.g - base.g) * k, base.b + (moon.b - base.b) * k, 1.0));
         gl_use_material(&l.add);
         for (p, r, c) in lights {
             draw_texture_ex(&l.falloff, p.x - r, p.y - r, c, DrawTextureParams { dest_size: Some(vec2(r * 2.0, r * 2.0)), ..Default::default() });

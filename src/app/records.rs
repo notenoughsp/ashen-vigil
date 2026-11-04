@@ -12,6 +12,13 @@ pub struct RunLog {
 }
 
 const SAMPLE: f32 = 15.0;
+/// Achievements on one page of the records screen: three columns of ten.
+const ACH_PER_PAGE: usize = 30;
+
+/// The leaderboard plus as many achievement pages as needed.
+fn record_pages() -> usize {
+    1 + ALL_ACHIEVEMENTS.len().div_ceil(ACH_PER_PAGE)
+}
 
 /// The verdict on a finished vigil.
 #[derive(Default)]
@@ -83,8 +90,52 @@ impl App {
         check(w.heroes.len() >= 4 && w.time >= 60.0, Achievement::FullHouse);
         check(me.rolls >= 1000, Achievement::RollModel);
         check(me.banked >= 50_000, Achievement::Banker);
+        check(w.time >= 900.0, Achievement::HalfNight);
+        check(w.time >= 1200.0, Achievement::DeepNight);
+        check(w.level >= 50, Achievement::Ascendant);
+        check(w.level >= 200, Achievement::BeyondMeasure);
+        check(w.kills >= 1_000, Achievement::ThinTheHerd);
+        check(w.kills >= 50_000, Achievement::SeaOfAsh);
+        check(w.kills >= 250_000, Achievement::Extinction);
+        check(w.bosses_killed >= 3, Achievement::Lordbane);
+        check(w.bosses_killed >= 10, Achievement::Kingslayer);
+        check(me.weapons.iter().any(|wp| wp.whole), Achievement::LastFlame);
+        check(me.weapons.len() >= 6, Achievement::FullArsenal);
+        check(me.items.len() >= 6, Achievement::Packrat);
+        check(me.items.iter().any(|it| it.level >= it.kind.max_level() && it.kind.max_level() >= 5), Achievement::Polished);
+        check(w.endless && w.time >= VICTORY_TIME + 1800.0, Achievement::Eternal);
+        check(w.endless && w.time >= VICTORY_TIME + 3600.0, Achievement::Nightless);
+        check(me.dmg_total >= 1.0e6, Achievement::MillionCuts);
+        check(me.dmg_total >= 1.0e9, Achievement::Unmaking);
+        check(w.time >= 300.0 && me.first_hurt > 300.0, Achievement::Ghost);
         for a in earned {
             self.unlock(a);
+        }
+        self.track_secrets();
+    }
+
+    /// Little things the vigil notices: ten rolls in four seconds, and a certain minute.
+    fn track_secrets(&mut self) {
+        let Some(w) = self.world.as_mut() else { return };
+        let me = w.me();
+        let (rolls, time) = (me.rolls, w.time);
+        if rolls > self.last_rolls {
+            for _ in self.last_rolls..rolls {
+                self.roll_times.push(time);
+            }
+        }
+        self.last_rolls = rolls;
+        self.roll_times.retain(|t| time - *t <= 4.0);
+        if self.roll_times.len() >= 10 {
+            self.roll_times.clear();
+            w.toast("The world spins. Maybe sit down for a second.");
+            self.unlock(Achievement::Dizzy);
+        }
+        let Some(w) = self.world.as_mut() else { return };
+        // 4:04 into a vigil.
+        if !self.said_404 && (244.0..245.0).contains(&w.time) {
+            self.said_404 = true;
+            w.toast("404: mercy not found.");
         }
     }
 
@@ -133,14 +184,46 @@ impl App {
             }
         }
         let rank = if w.time >= 60.0 { self.save.record_run(record) } else { None };
+        let preset = w.diff.preset_name();
+        let class = me.class;
+        let cute = w.cute;
         if won {
             self.unlock(Achievement::Dawnbringer);
             if hard_enough {
                 self.unlock(Achievement::AbyssWalker);
             }
-            if challenges & Challenge::OneWeapon.bit() != 0 {
-                self.unlock(Achievement::Purist);
+            let earned = [
+                (challenges & Challenge::OneWeapon.bit() != 0, Achievement::Purist),
+                (challenges & Challenge::GlassCannon.bit() != 0, Achievement::ShatteredGlass),
+                (challenges & Challenge::NoRolls.bit() != 0, Achievement::DeepRoots),
+                (challenges.count_ones() >= 3, Achievement::Martyr),
+                (preset == "Pilgrim", Achievement::GentleDawn),
+                (preset == "Knight", Achievement::KnightsDawn),
+                (preset == "Lord", Achievement::LordsDawn),
+                (cute, Achievement::HoldHands),
+                (class == Class::BucketKnight, Achievement::TinCan),
+            ];
+            for (cond, a) in earned {
+                if cond {
+                    self.unlock(a);
+                }
             }
+        }
+        // Wins from older saves only live on in the leaderboard.
+        for r in self.save.runs.iter().filter(|r| r.won) {
+            self.save.won_classes |= 1 << class_to_u8(r.class);
+        }
+        if won {
+            self.save.won_classes |= 1 << class_to_u8(class);
+        }
+        if self.save.won_classes.count_ones() >= 4 {
+            self.unlock(Achievement::ManyFaces);
+        }
+        if self.save.vigils >= 25 {
+            self.unlock(Achievement::OldRegular);
+        }
+        if self.save.cats >= 10 {
+            self.unlock(Achievement::CatHerder);
         }
         self.save.store();
         self.summary = EndSummary { won, marks, challenge_bonus: challenges != 0, rank, new_bests, achievements: self.run_achievements.clone() };
@@ -249,6 +332,17 @@ impl App {
         self.draw_run_graph(rx, gy + 12.0, rw, gh, k2);
         if t > 2.5 {
             let client = matches!(self.net, NetMode::Client(_));
+            if s.won && !client {
+                // Two buttons for the mouse: leave, or fight on.
+                for (i, label) in ["Leave", "Into the endless night"].iter().enumerate() {
+                    let r = Rect::new(sw * 0.5 - 250.0 + i as f32 * 260.0, sh - 92.0, 240.0, 34.0);
+                    crate::ui::register_tab(r);
+                    let hot = r.contains(mouse_ui());
+                    draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.07, 0.06, 0.06, if hot { 0.95 } else { 0.7 } * k2));
+                    draw_rectangle_lines(r.x, r.y, r.w, r.h, 1.5, a(if hot { GOLD } else { DIM }, k2));
+                    ui.text_c(label, r.x + r.w * 0.5, r.y + 23.0, 18.0, a(if i == 1 { EMBER } else { PALE }, k2));
+                }
+            }
             let more = if s.won && !client {
                 hint("Enter: leave     C: keep fighting into the endless night", "A: leave     Y: keep fighting into the endless night")
             } else if s.won {
@@ -296,15 +390,23 @@ impl App {
 
     pub(super) fn update_records(&mut self) {
         drain_chars();
-        if pressed_any(&[KeyCode::Tab, KeyCode::Q, KeyCode::E, KeyCode::A, KeyCode::D, KeyCode::Left, KeyCode::Right]) || pad_pressed(Pad::PageNext) {
-            self.records_page = 1 - self.records_page;
+        let pages = record_pages();
+        let dir = if pressed_any(&[KeyCode::Tab, KeyCode::E, KeyCode::D, KeyCode::Right]) || pad_pressed(Pad::PageNext) {
+            1
+        } else if pressed_any(&[KeyCode::Q, KeyCode::A, KeyCode::Left]) || pad_pressed(Pad::PagePrev) {
+            -1
+        } else {
+            0
+        };
+        if dir != 0 {
+            self.records_page = (self.records_page as i32 + dir).rem_euclid(pages as i32) as usize;
             self.audio.play("select", 0.5);
         }
         if let Some(t) = clicked_tab() {
-            if t < 2 && t != self.records_page {
+            if t < pages && t != self.records_page {
                 self.records_page = t;
                 self.audio.play("select", 0.5);
-            } else if t == 2 {
+            } else if t == pages {
                 self.screen = Screen::Menu;
             }
         }
@@ -317,9 +419,14 @@ impl App {
         let (sw, sh) = (ui_w(), ui_h());
         let cx = sw * 0.5;
         ui.spaced_c("RECORDS", cx, 54.0, 40.0, 8.0, PALE);
-        let tabs = ["Leaderboard", "Achievements"];
+        let mut tabs = vec!["Leaderboard".to_string()];
+        let ach_pages = record_pages() - 1;
+        for k in 0..ach_pages {
+            tabs.push(format!("Achievements {}", ["I", "II", "III", "IV", "V"][k.min(4)]));
+        }
+        let x0 = cx - (tabs.len() as f32 * 200.0 - 20.0) * 0.5;
         for (i, name) in tabs.iter().enumerate() {
-            let x = cx - 190.0 + i as f32 * 200.0;
+            let x = x0 + i as f32 * 200.0;
             crate::ui::register_tab(Rect::new(x, 72.0, 180.0, 30.0));
             let on = i == self.records_page;
             draw_rectangle(x, 72.0, 180.0, 30.0, Color::new(0.07, 0.06, 0.06, if on { 0.95 } else { 0.5 }));
@@ -388,7 +495,8 @@ impl App {
             let wide = (sw - 40.0).min(1180.0);
             let x = cx - wide * 0.5;
             let col_w = wide / 3.0;
-            for (i, ach) in ALL_ACHIEVEMENTS.iter().enumerate() {
+            let first = (self.records_page - 1) * ACH_PER_PAGE;
+            for (i, ach) in ALL_ACHIEVEMENTS.iter().skip(first).take(ACH_PER_PAGE).enumerate() {
                 let have = self.save.achievements & ach.bit() != 0;
                 let cx0 = x + (i % 3) as f32 * col_w;
                 let y = 144.0 + (i / 3) as f32 * 44.0;

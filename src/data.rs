@@ -2,6 +2,7 @@
 
 use macroquad::prelude::*;
 
+/// Weapon and item slots before the Arsenal and Satchel upgrades.
 pub const MAX_WEAPONS: usize = 6;
 pub const MAX_ITEMS: usize = 6;
 pub const WEAPON_MAX_LEVEL: u32 = 10;
@@ -10,6 +11,10 @@ pub const FUSION_MULT: f32 = 1.5;
 /// Damage of each part in a mega fusion (four weapons) and an ultra fusion (eight).
 pub const MEGA_MULT: f32 = 1.9;
 pub const ULTRA_MULT: f32 = 2.4;
+/// Damage of each part once every weapon has become one.
+pub const LAST_MULT: f32 = 3.0;
+/// The name of the weapon that holds all the others.
+pub const LAST_FLAME: &str = "The Last Flame";
 
 // ---------------------------------------------------------------- weapons
 
@@ -310,9 +315,12 @@ pub fn fusion_name(a: WeaponKind, b: WeaponKind) -> &'static str {
         (Chime, Hex) => "Tolling Brand",
         (Lanterns, Lance) => "Lantern Pike",
         (Axe, Crossbow) => "Moonfall Barrage",
-        _ => "Abomination",
+        _ => names_for(&[a, b], &ODD_NAMES),
     }
 }
+
+/// Weapons that were never meant for each other, bound together anyway.
+const ODD_NAMES: [&str; 8] = ["Grafted Woe", "Twinned Ruin", "Bound Relic", "Mismatched Wrath", "Stitched Fury", "Unholy Union", "Chimera's Bite", "Forced Accord"];
 
 const MEGA_NAMES: [&str; 8] = ["Pyre of Kings", "Grave Tide", "Choir of Ash", "The Hollow Crown", "Eclipse Engine", "Black Cathedral", "Wake of Ruin", "The Long Night"];
 const ULTRA_NAMES: [&str; 4] = ["Dawnbreaker", "The Unending", "Ash Incarnate", "World Pyre"];
@@ -514,7 +522,25 @@ pub fn class_to_u8(c: Class) -> u8 {
 
 // ---------------------------------------------------------------- soul upgrades (shrine)
 
-pub const META_COUNT: usize = 17;
+pub const META_COUNT: usize = 33;
+
+/// Indexes of the later shrine upgrades, used where they take effect.
+pub const M_COLOSSUS: usize = 17;
+pub const M_WARDING: usize = 18;
+pub const M_BLOODTHIRST: usize = 19;
+pub const M_FLEETFOOT: usize = 20;
+pub const M_BARTER: usize = 21;
+pub const M_FORESIGHT: usize = 22;
+pub const M_SECOND_WIND: usize = 23;
+pub const M_KINDLING: usize = 24;
+pub const M_WHETSTONE: usize = 25;
+pub const M_FUSION_LORE: usize = 26;
+pub const M_EVASION: usize = 27;
+pub const M_BULWARK: usize = 28;
+pub const M_ALCHEMY: usize = 29;
+pub const M_TITHE: usize = 30;
+pub const M_ARSENAL: usize = 31;
+pub const M_SATCHEL: usize = 32;
 
 pub struct MetaDef {
     pub key: &'static str,
@@ -542,6 +568,22 @@ pub const META: [MetaDef; META_COUNT] = [
     MetaDef { key: "scholar", name: "Scholar", desc: "+5% experience", max: 5, base_cost: 700 },
     MetaDef { key: "slayer", name: "Slayer", desc: "+8% damage to elites and bosses", max: 5, base_cost: 800 },
     MetaDef { key: "volley", name: "Volley", desc: "+1 projectile for every weapon", max: 2, base_cost: 25000 },
+    MetaDef { key: "colossus", name: "Colossus", desc: "+25 max health", max: 6, base_cost: 1500 },
+    MetaDef { key: "warding", name: "Warding", desc: "+0.15 s untouchable after a hit", max: 4, base_cost: 1200 },
+    MetaDef { key: "bloodthirst", name: "Bloodthirst", desc: "+0.15 health per kill", max: 4, base_cost: 1500 },
+    MetaDef { key: "fleetfoot", name: "Fleetfoot", desc: "Rolls cost 3 less stamina", max: 4, base_cost: 1000 },
+    MetaDef { key: "barter", name: "Barter", desc: "Merchant wares cost 8% less", max: 4, base_cost: 1200 },
+    MetaDef { key: "foresight", name: "Foresight", desc: "+8% chance of a fourth card", max: 5, base_cost: 1400 },
+    MetaDef { key: "second_wind", name: "Second Wind", desc: "Rise again with +10% health", max: 4, base_cost: 1200 },
+    MetaDef { key: "kindling", name: "Kindling", desc: "Start with your weapon one level higher", max: 4, base_cost: 2500 },
+    MetaDef { key: "whetstone", name: "Whetstone", desc: "+8% damage for max-level weapons", max: 5, base_cost: 3000 },
+    MetaDef { key: "fusion_lore", name: "Fusion Lore", desc: "+6% damage for fused weapons", max: 5, base_cost: 5000 },
+    MetaDef { key: "evasion", name: "Evasion", desc: "2% chance to avoid a hit", max: 5, base_cost: 4000 },
+    MetaDef { key: "bulwark", name: "Bulwark", desc: "-3% damage taken", max: 5, base_cost: 3500 },
+    MetaDef { key: "alchemy", name: "Alchemy", desc: "Draughts heal 25% more", max: 4, base_cost: 1000 },
+    MetaDef { key: "tithe", name: "Tithe", desc: "Bosses drop 20% more souls", max: 5, base_cost: 2000 },
+    MetaDef { key: "arsenal", name: "Arsenal", desc: "+1 weapon slot", max: 2, base_cost: 150000 },
+    MetaDef { key: "satchel", name: "Satchel", desc: "+1 item slot", max: 2, base_cost: 120000 },
 ];
 
 pub fn meta_cost(i: usize, level: u32) -> u64 {
@@ -655,11 +697,13 @@ pub struct Profile {
     pub meta: [u32; META_COUNT],
     pub relics: [u32; RELIC_COUNT],
     pub unlocks: u64,
+    /// The hero skin worn, 0 for the class look.
+    pub skin: u8,
 }
 
 impl Default for Profile {
     fn default() -> Self {
-        Profile { meta: [0; META_COUNT], relics: [0; RELIC_COUNT], unlocks: default_unlocks() }
+        Profile { meta: [0; META_COUNT], relics: [0; RELIC_COUNT], unlocks: default_unlocks(), skin: 0 }
     }
 }
 
@@ -667,6 +711,74 @@ impl Profile {
     pub fn has(&self, u: Unlock) -> bool {
         self.unlocks & u.bit() != 0
     }
+
+    /// Level of a shrine upgrade.
+    pub fn m(&self, i: usize) -> u32 {
+        self.meta.get(i).copied().unwrap_or(0)
+    }
+}
+
+// ---------------------------------------------------------------- skins
+
+/// What a skin puts on the hero's head.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Helm {
+    /// The helm of a class.
+    Class(Class),
+    PlagueMask,
+    Pumpkin,
+    SkullCrown,
+    Antlers,
+    IceCrown,
+    Halo,
+    Moth,
+    Jester,
+    Flame,
+    CatHood,
+    LanternHood,
+    Greathelm,
+    StarHat,
+    LastCrown,
+    Strawberry,
+}
+
+/// A look for the hero that wins over the class look.
+pub struct SkinDef {
+    pub name: &'static str,
+    pub desc: &'static str,
+    pub cost: u64,
+    /// Tunic and cape.
+    pub body: (u8, u8, u8),
+    /// Breastplate and pauldrons.
+    pub metal: (u8, u8, u8),
+    pub helm: Helm,
+}
+
+/// Skin 0 is the class look; these are bought with souls in the Wardrobe.
+pub const SKINS: [SkinDef; 18] = [
+    SkinDef { name: "Ashen Knight", desc: "Grey as the dust of old fires.", cost: 2_000, body: (96, 92, 90), metal: (150, 150, 156), helm: Helm::Class(Class::Wanderer) },
+    SkinDef { name: "Tin Pail", desc: "A bucket for any class. Clang.", cost: 3_000, body: (90, 70, 50), metal: (140, 140, 150), helm: Helm::Class(Class::BucketKnight) },
+    SkinDef { name: "Crimson Paladin", desc: "Red cloth and horned steel.", cost: 5_000, body: (150, 24, 30), metal: (190, 170, 120), helm: Helm::Class(Class::BloodKnight) },
+    SkinDef { name: "Berry Knight", desc: "Sweet, red and slightly seedy.", cost: 6_000, body: (210, 60, 80), metal: (120, 190, 90), helm: Helm::Strawberry },
+    SkinDef { name: "Plague Doctor", desc: "A beaked mask against the miasma.", cost: 8_000, body: (34, 30, 32), metal: (90, 70, 50), helm: Helm::PlagueMask },
+    SkinDef { name: "Pumpkin Lord", desc: "A grin that glows all night.", cost: 10_000, body: (200, 100, 30), metal: (70, 110, 50), helm: Helm::Pumpkin },
+    SkinDef { name: "Antlered Druid", desc: "The forest walks with you.", cost: 12_000, body: (60, 100, 54), metal: (120, 96, 70), helm: Helm::Antlers },
+    SkinDef { name: "Frost Warden", desc: "Pale blue, with a crown of ice.", cost: 15_000, body: (110, 160, 200), metal: (200, 225, 240), helm: Helm::IceCrown },
+    SkinDef { name: "Bone Monarch", desc: "A skull wearing a crown, or the other way round.", cost: 15_000, body: (190, 180, 150), metal: (220, 210, 180), helm: Helm::SkullCrown },
+    SkinDef { name: "Moth Priest", desc: "Drawn to every flame on the field.", cost: 18_000, body: (150, 130, 160), metal: (190, 170, 150), helm: Helm::Moth },
+    SkinDef { name: "Hollow Jester", desc: "The joke is on the dark.", cost: 20_000, body: (110, 40, 140), metal: (60, 150, 90), helm: Helm::Jester },
+    SkinDef { name: "Lantern Bearer", desc: "A little light that never goes out.", cost: 22_000, body: (40, 110, 110), metal: (150, 150, 140), helm: Helm::LanternHood },
+    SkinDef { name: "Gilded Saint", desc: "Gold leaf over old iron, and a halo.", cost: 25_000, body: (200, 160, 70), metal: (240, 210, 120), helm: Helm::Halo },
+    SkinDef { name: "Ember Wraith", desc: "A head of living fire.", cost: 30_000, body: (40, 24, 22), metal: (90, 60, 50), helm: Helm::Flame },
+    SkinDef { name: "Iron Duke", desc: "A great helm and a proud plume.", cost: 35_000, body: (70, 74, 90), metal: (175, 178, 190), helm: Helm::Greathelm },
+    SkinDef { name: "Grave Cat", desc: "Ears up, tail high, nine lives.", cost: 40_000, body: (26, 24, 30), metal: (60, 56, 66), helm: Helm::CatHood },
+    SkinDef { name: "Starlit Wanderer", desc: "The night sky, stitched into a hat.", cost: 50_000, body: (30, 40, 100), metal: (150, 160, 210), helm: Helm::StarHat },
+    SkinDef { name: "The Last Flame", desc: "White fire and a burning crown.", cost: 250_000, body: (235, 225, 205), metal: (255, 220, 140), helm: Helm::LastCrown },
+];
+
+/// The skin with number `skin`, if any; 0 is the class look.
+pub fn skin_of(skin: u8) -> Option<&'static SkinDef> {
+    (skin as usize).checked_sub(1).and_then(|i| SKINS.get(i))
 }
 
 // ---------------------------------------------------------------- stats
@@ -919,9 +1031,45 @@ pub enum Achievement {
     FullHouse,
     RollModel,
     Banker,
+    HalfNight,
+    DeepNight,
+    Ascendant,
+    BeyondMeasure,
+    ThinTheHerd,
+    SeaOfAsh,
+    Extinction,
+    Lordbane,
+    Kingslayer,
+    LastFlame,
+    FullArsenal,
+    Packrat,
+    Polished,
+    Eternal,
+    Nightless,
+    GentleDawn,
+    KnightsDawn,
+    LordsDawn,
+    ShatteredGlass,
+    DeepRoots,
+    Martyr,
+    MillionCuts,
+    Unmaking,
+    HoldHands,
+    Purrfect,
+    CatHerder,
+    OldRegular,
+    ManyFaces,
+    TinCan,
+    Dressed,
+    Wardrobe,
+    Devoted,
+    Ghost,
+    Dizzy,
+    Impatient,
+    Partygoer,
 }
 
-pub const ALL_ACHIEVEMENTS: [Achievement; 30] = [
+pub const ALL_ACHIEVEMENTS: [Achievement; 66] = [
     Achievement::FirstLight,
     Achievement::Gravebreaker,
     Achievement::Dawnbringer,
@@ -952,11 +1100,47 @@ pub const ALL_ACHIEVEMENTS: [Achievement; 30] = [
     Achievement::FullHouse,
     Achievement::RollModel,
     Achievement::Banker,
+    Achievement::HalfNight,
+    Achievement::DeepNight,
+    Achievement::Ascendant,
+    Achievement::BeyondMeasure,
+    Achievement::ThinTheHerd,
+    Achievement::SeaOfAsh,
+    Achievement::Extinction,
+    Achievement::Lordbane,
+    Achievement::Kingslayer,
+    Achievement::LastFlame,
+    Achievement::FullArsenal,
+    Achievement::Packrat,
+    Achievement::Polished,
+    Achievement::Eternal,
+    Achievement::Nightless,
+    Achievement::GentleDawn,
+    Achievement::KnightsDawn,
+    Achievement::LordsDawn,
+    Achievement::ShatteredGlass,
+    Achievement::DeepRoots,
+    Achievement::Martyr,
+    Achievement::MillionCuts,
+    Achievement::Unmaking,
+    Achievement::HoldHands,
+    Achievement::Purrfect,
+    Achievement::CatHerder,
+    Achievement::OldRegular,
+    Achievement::ManyFaces,
+    Achievement::TinCan,
+    Achievement::Dressed,
+    Achievement::Wardrobe,
+    Achievement::Devoted,
+    Achievement::Ghost,
+    Achievement::Dizzy,
+    Achievement::Impatient,
+    Achievement::Partygoer,
 ];
 
 impl Achievement {
-    pub fn bit(self) -> u32 {
-        1 << self as u32
+    pub fn bit(self) -> u128 {
+        1 << self as u128
     }
 
     pub fn name(self) -> &'static str {
@@ -992,6 +1176,42 @@ impl Achievement {
             FullHouse => "Full House",
             RollModel => "Roll Model",
             Banker => "Banker",
+            HalfNight => "Halfway There",
+            DeepNight => "Deep Night",
+            Ascendant => "Ascendant",
+            BeyondMeasure => "Beyond Measure",
+            ThinTheHerd => "Thinning the Herd",
+            SeaOfAsh => "Sea of Ash",
+            Extinction => "Extinction",
+            Lordbane => "Lordbane",
+            Kingslayer => "Kingslayer",
+            LastFlame => "The Last Flame",
+            FullArsenal => "Full Arsenal",
+            Packrat => "Packrat",
+            Polished => "Polished",
+            Eternal => "Eternal",
+            Nightless => "Nightless",
+            GentleDawn => "Gentle Dawn",
+            KnightsDawn => "Knight's Dawn",
+            LordsDawn => "Lord's Dawn",
+            ShatteredGlass => "Shattered Glass",
+            DeepRoots => "Deep Roots",
+            Martyr => "Martyr",
+            MillionCuts => "A Million Cuts",
+            Unmaking => "The Unmaking",
+            HoldHands => "Hold Hands Until Dawn",
+            Purrfect => "Purrfect",
+            CatHerder => "Cat Herder",
+            OldRegular => "Old Regular",
+            ManyFaces => "Many Faces",
+            TinCan => "Tin Can Triumph",
+            Dressed => "Dressed for the Dark",
+            Wardrobe => "Wardrobe",
+            Devoted => "Devoted",
+            Ghost => "Ghost",
+            Dizzy => "Dizzy",
+            Impatient => "Impatient",
+            Partygoer => "Partygoer",
         }
     }
 
@@ -1028,6 +1248,42 @@ impl Achievement {
             FullHouse => "Keep a vigil with four players.",
             RollModel => "Roll 1,000 times in one vigil.",
             Banker => "Bank 50,000 souls in one vigil.",
+            HalfNight => "Survive fifteen minutes.",
+            DeepNight => "Survive twenty minutes.",
+            Ascendant => "Reach level 50 in one vigil.",
+            BeyondMeasure => "Reach level 200 in one vigil.",
+            ThinTheHerd => "Fell 1,000 foes in one vigil.",
+            SeaOfAsh => "Fell 50,000 foes in one vigil.",
+            Extinction => "Fell 250,000 foes in one vigil.",
+            Lordbane => "Defeat three bosses in one vigil.",
+            Kingslayer => "Defeat ten bosses in one vigil.",
+            LastFlame => "Let every weapon become one.",
+            FullArsenal => "Carry six weapons at once.",
+            Packrat => "Carry six items at once.",
+            Polished => "Raise an item to its highest level.",
+            Eternal => "Fight on thirty minutes past dawn.",
+            Nightless => "Fight on sixty minutes past dawn.",
+            GentleDawn => "Keep a vigil until dawn on Pilgrim.",
+            KnightsDawn => "Keep a vigil until dawn on Knight.",
+            LordsDawn => "Keep a vigil until dawn on Lord.",
+            ShatteredGlass => "Keep a vigil until dawn as a Glass Cannon.",
+            DeepRoots => "Keep a vigil until dawn while Rooted.",
+            Martyr => "Keep a vigil until dawn with all three challenges.",
+            MillionCuts => "Deal 1,000,000 damage in one vigil.",
+            Unmaking => "Deal 1,000,000,000 damage in one vigil.",
+            HoldHands => "Keep a vigil until dawn in cute mode.",
+            Purrfect => "Say meow in the main menu.",
+            CatHerder => "Befriend the Grave Cat ten times.",
+            OldRegular => "Keep 25 vigils.",
+            ManyFaces => "Keep a vigil until dawn with four different classes.",
+            TinCan => "Keep a vigil until dawn as the Bucket Knight.",
+            Dressed => "Buy a hero skin.",
+            Wardrobe => "Own ten hero skins.",
+            Devoted => "Buy 50 levels at the Ash Shrine.",
+            Ghost => "Take no damage in the first five minutes.",
+            Dizzy => "Roll ten times in four seconds.",
+            Impatient => "Ask for dawn in the main menu.",
+            Partygoer => "Start a party in the main menu.",
         }
     }
 
@@ -1050,6 +1306,16 @@ impl Achievement {
             Centurion => 30,
             LongNight | AshAndBone => 40,
             Singularity => 60,
+            ThinTheHerd | Polished => 5,
+            FullArsenal | Packrat | GentleDawn | Purrfect | Dressed | Dizzy | Impatient | Partygoer => 10,
+            HalfNight | Ascendant => 15,
+            DeepNight | Lordbane | MillionCuts | HoldHands | OldRegular => 20,
+            KnightsDawn | CatHerder => 25,
+            SeaOfAsh | TinCan | Devoted => 30,
+            BeyondMeasure | Kingslayer | LordsDawn | ShatteredGlass | DeepRoots | ManyFaces | Wardrobe | Ghost => 40,
+            Extinction | Eternal | Unmaking => 60,
+            LastFlame => 80,
+            Nightless | Martyr => 100,
         }
     }
 }

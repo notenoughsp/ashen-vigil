@@ -19,11 +19,13 @@ pub struct Player {
 
 /// A weapon slot. A fused weapon carries its other weapons in `fused`: one for a fusion,
 /// three for a mega fusion, seven for an ultra fusion. Every part keeps its own timer and spin.
+/// Once every weapon a hero can get has gone into one slot, that slot is `whole`.
 #[derive(Clone)]
 pub struct Weapon {
     pub kind: WeaponKind,
     pub level: u32,
     pub evolved: bool,
+    pub whole: bool,
     pub fused: Vec<WeaponKind>,
     pub timers: Vec<f32>,
     pub spins: Vec<f32>,
@@ -50,11 +52,14 @@ impl Weapon {
         let n = fused.len() + 1;
         // Staggered first shots, so the parts of a fusion don't all fire on the same frame.
         let timers = (0..n).map(|i| 0.3 + i as f32 * 0.3).collect();
-        Weapon { kind, level: 1, evolved: false, fused, timers, spins: vec![0.0; n] }
+        Weapon { kind, level: 1, evolved: false, whole: false, fused, timers, spins: vec![0.0; n] }
     }
 
-    /// 0 plain, 1 fusion, 2 mega fusion, 3 ultra fusion.
+    /// 0 plain, 1 fusion, 2 mega fusion, 3 ultra fusion, 4 the last flame.
     pub fn tier(&self) -> u8 {
+        if self.whole {
+            return 4;
+        }
         match self.fused.len() {
             0 => 0,
             1 | 2 => 1,
@@ -73,7 +78,7 @@ impl Weapon {
     }
 
     pub fn parts(&self) -> Vec<Part> {
-        let mult = [1.0, FUSION_MULT, MEGA_MULT, ULTRA_MULT][self.tier() as usize];
+        let mult = [1.0, FUSION_MULT, MEGA_MULT, ULTRA_MULT, LAST_MULT][self.tier() as usize];
         let evo = self.evolved || self.is_fused();
         self.kinds().into_iter().enumerate().map(|(slot, kind)| Part { kind, evo, mult, slot }).collect()
     }
@@ -87,7 +92,8 @@ impl Weapon {
             0 => self.kind.name(self.evolved),
             1 => fusion_name(self.kind, self.fused[0]),
             2 => mega_name(&self.kinds()),
-            _ => ultra_name(&self.kinds()),
+            3 => ultra_name(&self.kinds()),
+            _ => LAST_FLAME,
         }
     }
 
@@ -184,10 +190,10 @@ pub struct Hero {
     pub rested: bool,
     /// Challenge bits (single player).
     pub challenges: u8,
-    /// Weapons aim at the nearest enemy instead of the walking direction.
-    pub auto_aim: bool,
-    /// Where the weapons point this frame.
+    /// Where the weapons point this frame: at the nearest foe, or where the hero walks.
     pub aim: Vec2,
+    /// The look worn, see `SKINS`; 0 is the class look.
+    pub skin: u8,
 }
 
 impl Hero {
@@ -212,7 +218,7 @@ impl Hero {
                 walk: 0.0,
             },
             stats: Stats::from_array([1.0; 17]),
-            weapons: vec![Weapon::new(class.weapon())],
+            weapons: vec![Weapon { level: 1 + profile.m(M_KINDLING), ..Weapon::new(class.weapon()) }],
             items: Vec::new(),
             rerolls: profile.meta[8] + profile.relics[2],
             choices: Vec::new(),
@@ -237,8 +243,8 @@ impl Hero {
             first_hurt: f32::MAX,
             rested: false,
             challenges: 0,
-            auto_aim: false,
             aim: vec2(1.0, 0.0),
+            skin: profile.skin,
         };
         h.recompute_stats();
         h.p.hp = h.stats.max_hp;
@@ -255,11 +261,42 @@ impl Hero {
     }
 
     pub fn roll_cost(&self) -> f32 {
-        if self.class == Class::BucketKnight {
-            15.0
-        } else {
-            30.0
+        let base = if self.class == Class::BucketKnight { 15.0 } else { 30.0 };
+        (base - 3.0 * self.profile.m(M_FLEETFOOT) as f32).max(6.0)
+    }
+
+    /// Weapon slots, more with the Arsenal upgrade.
+    pub fn max_weapons(&self) -> usize {
+        MAX_WEAPONS + self.profile.m(M_ARSENAL) as usize
+    }
+
+    /// Item slots, more with the Satchel upgrade.
+    pub fn max_items(&self) -> usize {
+        MAX_ITEMS + self.profile.m(M_SATCHEL) as usize
+    }
+
+    /// Share of health a fallen hero rises with.
+    pub fn rise_health(&self, base: f32) -> f32 {
+        self.stats.max_hp * (base + 0.1 * self.profile.m(M_SECOND_WIND) as f32).min(1.0)
+    }
+
+    /// Extra damage from the Whetstone and Fusion Lore upgrades for one weapon slot.
+    pub fn weapon_bonus(&self, w: &Weapon) -> f32 {
+        let mut k = 1.0;
+        if w.level >= WEAPON_MAX_LEVEL || w.evolved {
+            k += 0.08 * self.profile.m(M_WHETSTONE) as f32;
         }
+        if w.is_fused() {
+            k += 0.06 * self.profile.m(M_FUSION_LORE) as f32;
+        }
+        k
+    }
+
+    /// A new weapon can still come from a level-up.
+    fn can_gain_weapon(&self) -> bool {
+        self.challenges & Challenge::OneWeapon.bit() == 0
+            && self.weapons.len() < self.max_weapons()
+            && ALL_WEAPONS.iter().any(|k| !self.owns_weapon(*k) && self.profile.has(Unlock::Weapon(*k)))
     }
 
     /// Might including temporary blessings.
@@ -307,12 +344,12 @@ impl Hero {
         let mut luck = 1.0 + 0.1 * ml(5) + 0.15 * rl(11);
         let mut armor = ml(9) + rl(8);
         let mut regen = 0.15 * ml(10);
-        let mut max_hp = 100.0 * (1.0 + 0.1 * ml(0)) + 15.0 * rl(1);
+        let mut max_hp = 100.0 * (1.0 + 0.1 * ml(0)) + 15.0 * rl(1) + 25.0 * ml(M_COLOSSUS);
         let mut stamina_max = 100.0 + 15.0 * ml(1);
         let mut stamina_regen_mul = 1.0 + 0.1 * ml(1);
         let greed = 1.0 + 0.12 * ml(6) + 0.05 * rl(6);
         let mut crit = 0.05 + 0.02 * ml(12);
-        let mut lifesteal = 0.0;
+        let mut lifesteal = 0.15 * ml(M_BLOODTHIRST);
         let mut growth = 1.0 + 0.05 * ml(14) + 0.05 * rl(9);
         let mut elite_dmg = 1.0 + 0.08 * ml(15);
         match self.class {
@@ -479,7 +516,7 @@ impl Hero {
         }
         if include_new && self.challenges & Challenge::OneWeapon.bit() != 0 {
             // One Blade: no new weapons, items still come.
-            if self.items.len() < MAX_ITEMS {
+            if self.items.len() < self.max_items() {
                 for k in ALL_ITEMS {
                     if !self.items.iter().any(|it| it.kind == k) && self.profile.has(Unlock::Item(k)) {
                         pool.push((Choice::NewItem(k), 1.4));
@@ -487,14 +524,14 @@ impl Hero {
                 }
             }
         } else if include_new {
-            if self.weapons.len() < MAX_WEAPONS {
+            if self.weapons.len() < self.max_weapons() {
                 for k in ALL_WEAPONS {
                     if !self.owns_weapon(k) && self.profile.has(Unlock::Weapon(k)) {
                         pool.push((Choice::NewWeapon(k), 1.6));
                     }
                 }
             }
-            if self.items.len() < MAX_ITEMS {
+            if self.items.len() < self.max_items() {
                 for k in ALL_ITEMS {
                     if !self.items.iter().any(|it| it.kind == k) && self.profile.has(Unlock::Item(k)) {
                         pool.push((Choice::NewItem(k), 1.4));
@@ -512,7 +549,7 @@ impl Hero {
 
     pub fn roll_choices(&self) -> Vec<Choice> {
         let mut pool = self.pool(true);
-        let n = if chance((self.stats.luck - 1.0) * 0.8 + 0.1) { 4 } else { 3 };
+        let n = if chance((self.stats.luck - 1.0) * 0.8 + 0.1 + 0.08 * self.profile.m(M_FORESIGHT) as f32) { 4 } else { 3 };
         let mut out = Vec::new();
         while out.len() < n && !pool.is_empty() {
             let total: f32 = pool.iter().map(|p| p.1).sum();
@@ -537,7 +574,7 @@ impl Hero {
     pub fn apply_choice(&mut self, c: Choice) {
         match c {
             Choice::NewWeapon(k) => {
-                if self.weapons.len() < MAX_WEAPONS && !self.owns_weapon(k) {
+                if self.weapons.len() < self.max_weapons() && !self.owns_weapon(k) {
                     self.weapons.push(Weapon::new(k));
                 }
             }
@@ -549,7 +586,7 @@ impl Hero {
                 }
             }
             Choice::NewItem(k) => {
-                if self.items.len() < MAX_ITEMS && !self.items.iter().any(|it| it.kind == k) {
+                if self.items.len() < self.max_items() && !self.items.iter().any(|it| it.kind == k) {
                     self.items.push(Item { kind: k, level: 1 });
                 }
             }
@@ -558,7 +595,7 @@ impl Hero {
                     it.level = (it.level + 1).min(it.kind.max_level());
                 }
             }
-            Choice::Draught => self.heal(30.0),
+            Choice::Draught => self.heal(30.0 * self.draught_mult()),
             Choice::Souls => self.p.souls += 150,
         }
         self.recompute_stats();
@@ -609,6 +646,11 @@ impl Hero {
         Some((format!("Evolves {}", w.kind.name(false)), evolve))
     }
 
+    /// Draughts heal more with the Alchemy upgrade.
+    pub fn draught_mult(&self) -> f32 {
+        1.0 + 0.25 * self.profile.m(M_ALCHEMY) as f32
+    }
+
     pub fn evolvable(&self) -> Option<usize> {
         self.weapons.iter().position(|w| !w.is_fused() && !w.evolved && w.level >= WEAPON_MAX_LEVEL && self.items.iter().any(|it| it.kind == w.kind.evo_item()))
     }
@@ -634,7 +676,19 @@ impl Hero {
                 return Some((same[0], same[1]));
             }
         }
+        // Nothing left to level and no new weapon can come: the two smallest slots merge,
+        // until in the end every weapon has become one.
+        if self.weapons.len() >= 2 && self.weapons.iter().all(|w| w.maxed()) && !self.can_gain_weapon() {
+            let mut order: Vec<usize> = (0..self.weapons.len()).collect();
+            order.sort_by_key(|&i| (self.weapons[i].fused.len(), i));
+            return Some((order[0], order[1]));
+        }
         None
+    }
+
+    /// The last slot holds everything this hero could ever carry.
+    fn all_in_one(&self) -> bool {
+        self.weapons.len() == 1 && self.weapons[0].is_fused() && !self.can_gain_weapon() && self.challenges & Challenge::OneWeapon.bit() == 0
     }
 }
 
@@ -650,17 +704,22 @@ impl World {
         let hero = &mut self.heroes[h];
         let (a_name, b_name) = (hero.weapons[i].display_name(), hero.weapons[j].display_name());
         let b = hero.weapons.remove(j);
-        let a = &mut hero.weapons[if j < i { i - 1 } else { i }];
+        let ai = if j < i { i - 1 } else { i };
+        let a = &mut hero.weapons[ai];
         a.fused.extend(b.kinds());
         a.timers.extend(b.timers);
         a.spins.extend(b.spins);
         a.evolved = true;
-        let (tier, name) = (a.tier(), a.display_name());
+        if hero.all_in_one() {
+            hero.weapons[ai].whole = true;
+        }
+        let (tier, name) = (hero.weapons[ai].tier(), hero.weapons[ai].display_name());
         hero.recompute_stats();
         let (title, color) = match tier {
             1 => ("FUSION", Color::from_rgba(255, 120, 90, 255)),
             2 => ("MEGA FUSION", Color::from_rgba(220, 140, 255, 255)),
-            _ => ("ULTRA FUSION", Color::from_rgba(255, 245, 200, 255)),
+            3 => ("ULTRA FUSION", Color::from_rgba(255, 245, 200, 255)),
+            _ => ("THE LAST FLAME", Color::from_rgba(255, 255, 235, 255)),
         };
         crate::log!("{}: {} and {} became {} ({})", self.heroes[h].name, a_name, b_name, name, title.to_lowercase());
         self.banner(title, &format!("{}{} and {} become {}", prefix, a_name, b_name, name), color, 4.5);
@@ -720,7 +779,7 @@ impl World {
             if hero.revive >= REVIVE_TIME {
                 hero.downed = false;
                 hero.revive = 0.0;
-                hero.p.hp = hero.stats.max_hp * 0.4;
+                hero.p.hp = hero.rise_health(0.4);
                 hero.p.iframes = 2.0;
                 let (name, hero_pos) = (hero.name.clone(), hero.p.pos);
                 self.toast(&format!("{} rises again.", name));

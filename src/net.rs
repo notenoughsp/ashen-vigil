@@ -16,7 +16,7 @@ pub fn game_port() -> u16 {
     std::env::var("ASHEN_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PORT)
 }
 // The last byte is the protocol version; different builds refuse to talk to each other.
-const MAGIC: [u8; 3] = [0xA5, 0x1C, 10];
+const MAGIC: [u8; 3] = [0xA5, 0x1C, 11];
 /// Shown in menus, so players can tell whether they run the same build.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const FRAG_PAYLOAD: usize = 1100;
@@ -535,6 +535,7 @@ fn write_profile(w: &mut Writer, p: &crate::data::Profile) {
     }
     w.u32(p.unlocks as u32);
     w.u32((p.unlocks >> 32) as u32);
+    w.u8(p.skin);
 }
 
 /// Reads a joining player's progression, clamped to what the game allows.
@@ -550,6 +551,7 @@ fn read_profile(r: &mut Reader) -> crate::data::Profile {
     let lo = r.u32() as u64;
     let hi = r.u32() as u64;
     p.unlocks = lo | hi << 32 | default_unlocks();
+    p.skin = r.u8().min(SKINS.len() as u8);
     p
 }
 
@@ -574,7 +576,6 @@ pub struct ClientInput {
     pub pick_idx: u8,
     pub reroll_seq: u8,
     pub rolls: u32,
-    pub auto_aim: bool,
     /// Newest snapshot applied, so the host can code the next one against it.
     pub ack: u32,
     /// Window size, so the host only sends what fits on screen.
@@ -596,7 +597,6 @@ impl ClientInput {
         w.u8(self.pick_idx);
         w.u8(self.reroll_seq);
         w.u32(self.rolls);
-        w.bool(self.auto_aim);
         w.u32(self.ack);
         w.u16(self.view.0);
         w.u16(self.view.1);
@@ -614,7 +614,6 @@ impl ClientInput {
             pick_idx: r.u8(),
             reroll_seq: r.u8(),
             rolls: r.u32(),
-            auto_aim: r.bool(),
             ack: r.u32(),
             view: (r.u16(), r.u16()),
         }

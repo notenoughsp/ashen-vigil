@@ -86,7 +86,7 @@ impl App {
         self.note = None;
         self.screen = Screen::Lobby;
         self.lobby.sel = 0;
-        self.audio.music(Music::Ambient);
+        self.audio.music(self.menu_music());
         match &mut self.net {
             NetMode::Host(h) => {
                 h.started = false;

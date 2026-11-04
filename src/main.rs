@@ -1,8 +1,13 @@
+// Release builds are a window program: no console window opens next to the game.
+// Everything worth reading goes to the log file anyway.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod app;
 mod audio;
 mod data;
 mod draw;
 mod embedded;
+mod icon_art;
 mod icons;
 mod log;
 mod net;
@@ -20,28 +25,10 @@ use macroquad::prelude::*;
 use save::{Save, Settings};
 use std::time::{Duration, Instant};
 
-/// Window icon: an ember in the dark, drawn per size.
+/// Window icon at one size, from the same drawing as the executable's icon.
 fn icon_pixels<const N: usize>(size: usize) -> [u8; N] {
     let mut px = [0u8; N];
-    for y in 0..size {
-        for x in 0..size {
-            let dx = (x as f32 + 0.5) / size as f32 * 2.0 - 1.0;
-            let dy = (y as f32 + 0.5) / size as f32 * 2.0 - 1.0;
-            let d = (dx * dx + dy * dy).sqrt();
-            // A flame: narrow at the top, round at the bottom.
-            let flame = (dx.abs() * (1.6 - dy * 0.6)) + (dy + 0.1).max(0.0) * 0.4;
-            let i = (y * size + x) * 4;
-            let (r, g, b, a) = if flame < 0.55 && dy > -0.75 && d < 0.95 {
-                let k = 1.0 - flame / 0.55;
-                (255.0, 90.0 + 140.0 * k, 30.0 + 90.0 * k * k, 255.0)
-            } else if d < 0.98 {
-                (14.0, 11.0, 14.0, 255.0)
-            } else {
-                (0.0, 0.0, 0.0, 0.0)
-            };
-            px[i..i + 4].copy_from_slice(&[r as u8, g as u8, b as u8, a as u8]);
-        }
-    }
+    px.copy_from_slice(&icon_art::icon_rgba(size));
     px
 }
 

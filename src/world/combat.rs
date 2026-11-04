@@ -102,8 +102,10 @@ impl World {
                 let off = if n > 1 { Vec2::from_angle(k as f32 / n as f32 * TAU) * 40.0 } else { Vec2::ZERO };
                 self.pickups.push(Pickup::new(pos + off, PickKind::Coffer(true)));
             }
+            // Tithe: the most generous hero's upgrade counts for the whole party.
+            let tithe = 1.0 + 0.2 * self.heroes.iter().map(|h| h.profile.m(M_TITHE)).max().unwrap_or(0) as f32;
             for _ in 0..30 {
-                let v = 10.0 * (1.0 + self.time / 300.0);
+                let v = 10.0 * (1.0 + self.time / 300.0) * tithe;
                 self.drop_soul(pos + rand_dir() * gen_range(10.0, 90.0), v);
             }
             self.banner("FOE VANQUISHED", "", Color::from_rgba(230, 190, 90, 255), 4.0);
@@ -114,7 +116,7 @@ impl World {
             // Fallen companions rise again once the boss is down.
             for h in self.heroes.iter_mut().filter(|h| h.downed && h.connected) {
                 h.downed = false;
-                h.p.hp = h.stats.max_hp * 0.4;
+                h.p.hp = h.rise_health(0.4);
                 h.p.iframes = 2.0;
             }
             self.events.push(Event::BossDefeated);
@@ -207,11 +209,18 @@ impl World {
         if hero.downed || hero.p.iframes > 0.0 || hero.p.roll_t > 0.0 || hero.buff(Buff::Aegis) > 0.0 {
             return;
         }
-        hero.first_hurt = hero.first_hurt.min(now);
-        let d = (dmg - hero.stats.armor).max(1.0);
-        hero.p.hp -= d;
-        hero.p.iframes = 0.45;
         let p = hero.p.pos;
+        if chance(0.02 * hero.profile.m(M_EVASION) as f32) {
+            // Evasion: the blow finds only air, and a short grace follows.
+            hero.p.iframes = 0.3;
+            self.particle(p + vec2(0.0, -20.0), vec2(0.0, -30.0), 0.5, 3.0, Color::from_rgba(220, 220, 255, 255), true);
+            return;
+        }
+        hero.first_hurt = hero.first_hurt.min(now);
+        let taken = 1.0 - 0.03 * hero.profile.m(M_BULWARK) as f32;
+        let d = (dmg * taken - hero.stats.armor).max(1.0);
+        hero.p.hp -= d;
+        hero.p.iframes = 0.45 + 0.15 * hero.profile.m(M_WARDING) as f32;
         if h == self.local {
             self.shake = self.shake.max(6.0);
         }
@@ -223,7 +232,7 @@ impl World {
         let hero = &mut self.heroes[h];
         if hero.p.revives > 0 {
             hero.p.revives -= 1;
-            hero.p.hp = hero.stats.max_hp * 0.5;
+            hero.p.hp = hero.rise_health(0.5);
             hero.p.iframes = 2.0;
             let name = hero.name.clone();
             self.ward_burst(p, 400.0);

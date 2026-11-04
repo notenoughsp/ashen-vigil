@@ -196,7 +196,6 @@ impl App {
             100 => want.push("lobby_browse"),
             101 => {
                 self.class_idx = self.classes().iter().position(|c| *c == Class::Reaper).unwrap_or(0);
-                self.save.settings.auto_aim = true;
                 self.start_single();
                 let w = self.world.as_mut().unwrap();
                 arm(w, 0);
@@ -287,7 +286,32 @@ impl App {
             1540 => want.push("records"),
             1541 => self.records_page = 1,
             1550 => want.push("achievements"),
-            1551 => std::process::exit(0),
+            1551 => self.records_page = 3,
+            1555 => want.push("achievements3"),
+            1556 => {
+                self.screen = Screen::Wardrobe;
+                self.save.souls = 60_000;
+                self.save.skins = 0b1011_0101;
+                self.save.profile.skin = 3;
+                self.wardrobe_sel = 13;
+            }
+            1565 => want.push("wardrobe"),
+            1566 => self.build_skin_gallery(false),
+            1575 => want.push("skins"),
+            1576 => self.build_skin_gallery(true),
+            1585 => want.push("skins_cute"),
+            1586 => {
+                self.world = None;
+                self.screen = Screen::Menu;
+            }
+            1595 => want.push("menu_cute"),
+            1596 => {
+                self.save.settings.cute = false;
+                self.screen = Screen::Reliquary;
+                self.relic_page = 1;
+            }
+            1605 => want.push("relics"),
+            1606 => std::process::exit(0),
             _ => {}
         }
         want
@@ -341,12 +365,49 @@ impl App {
         self.screen = Screen::Playing;
     }
 
+    /// Every skin on a hero, frozen, plus a hero carrying the last flame for the HUD.
+    fn build_skin_gallery(&mut self, cute: bool) {
+        self.save.settings.cute = cute;
+        let mut w = World::new(Difficulty::default(), None);
+        w.screen = crate::draw::view_size();
+        w.cat = None;
+        let idx = w.add_hero(0, "Kitty", Class::Wanderer, Profile::default(), false);
+        w.heroes[idx].p.pos = vec2(-470.0, 210.0);
+        let mut last = Weapon::with_parts(WeaponKind::Blade, ALL_WEAPONS[1..].to_vec());
+        last.whole = true;
+        last.evolved = true;
+        w.heroes[idx].weapons = vec![last];
+        for (i, _) in SKINS.iter().enumerate() {
+            let profile = Profile { skin: i as u8 + 1, ..Profile::default() };
+            let class = ALL_CLASSES[i % ALL_CLASSES.len()];
+            let h = w.add_hero(i as u8 + 1, "", class, profile, false);
+            w.heroes[h].p.pos = vec2(-420.0 + (i % 9) as f32 * 105.0, -170.0 + (i / 9) as f32 * 150.0);
+            w.heroes[h].p.facing = vec2(if i % 2 == 0 { 1.0 } else { -1.0 }, 0.0);
+            w.heroes[h].aim = w.heroes[h].p.facing;
+        }
+        for i in 0..8 {
+            let kind = [EnemyKind::Hollow, EnemyKind::Ghoul, EnemyKind::Moth, EnemyKind::Archer][i % 4];
+            let e = w.make_enemy(kind, vec2(-300.0 + i as f32 * 90.0, 140.0));
+            w.enemies.push(e);
+        }
+        w.local = 0;
+        w.cam = vec2(0.0, -20.0);
+        w.won = true;
+        w.time = 12.3;
+        w.cute = cute;
+        self.save.settings.lighting = true;
+        self.world = Some(w);
+        self.screen = Screen::Playing;
+    }
+
     fn script_stress(&mut self, f: u32) -> Vec<&'static str> {
         let mut want = Vec::new();
         match f {
             5 => {
                 let st = &mut self.save.settings;
                 st.fps_cap = 0;
+                // ASHEN_AUTOTEST_CUTE=1 measures the cute mode's hearts and flowers.
+                st.cute = std::env::var("ASHEN_AUTOTEST_CUTE").is_ok_and(|v| v == "1");
                 st.light_quality = 2;
                 st.particles = 2;
                 st.detail_high = true;
@@ -473,11 +534,15 @@ impl App {
                             w.pick(h, round, 0);
                         }
                     }
+                    if w.pause != Pause::Choosing {
+                        // A level-up countdown would hold the dawn back too.
+                        w.pause = Pause::Running;
+                    }
                     if w.time < VICTORY_TIME {
                         w.time = VICTORY_TIME + 0.5;
                     }
                 }
-                1300 => {
+                1340 => {
                     println!("[host_] end screen: {:?}", self.screen);
                     want.push("victory");
                     self.continue_endless();
