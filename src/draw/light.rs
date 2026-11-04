@@ -26,7 +26,8 @@ void main() {
 }"#;
 
 /// Darkness where no light reaches: a cold, dim blue.
-const AMBIENT: Color = Color::new(0.23, 0.21, 0.28, 1.0);
+/// Moonlight: dark, a little blue, enough to make out the stones away from the fires.
+const AMBIENT: Color = Color::new(0.26, 0.25, 0.33, 1.0);
 /// Cute mode is a soft evening, not a dark night.
 const AMBIENT_CUTE: Color = Color::new(0.72, 0.62, 0.74, 1.0);
 /// Light map size as a fraction of the screen, per quality level; it is blurry anyway.

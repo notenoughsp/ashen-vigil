@@ -431,6 +431,83 @@ impl World {
         draw_circle_lines(c.x, c.y, r, 2.0, Color::new(0.85, 0.85, 0.9, 0.35));
     }
 
+    /// Where an enemy's eyes are and what colour they burn, matching its model.
+    fn eye_spots(&self, e: &Enemy) -> Option<(Vec2, f32, Color)> {
+        let (p, r) = (e.pos, e.r);
+        let dir = self.heading(p);
+        let fx = if dir.x >= 0.0 { 1.0 } else { -1.0 };
+        let t = self.time + e.phase;
+        Some(match e.kind {
+            EnemyKind::Hollow => (p + vec2(fx * r * 0.33, -r * 0.82), r * 0.13, rgba(255, 70, 30, 255)),
+            EnemyKind::Ghoul => (p + dir * r * 0.95 - vec2(0.0, r * 0.12), r * 0.15, rgba(220, 235, 80, 255)),
+            EnemyKind::Moth => (p - vec2(0.0, r * 0.5), r * 0.14, rgba(255, 220, 120, 255)),
+            EnemyKind::Archer => (p + vec2(fx * r * 0.08, -r * 0.95), r * 0.15, rgba(255, 90, 50, 255)),
+            EnemyKind::Bloat => (p + vec2(fx * r * 0.26, -r * 0.35), 0.0, rgba(255, 60, 30, 255)),
+            EnemyKind::Wraith => (p + vec2(fx * r * 0.06, -r * 0.65), r * 0.13, rgba(210, 235, 255, 255)),
+            EnemyKind::Knight => (p + vec2(fx * r * 0.2, -r * 0.95), 0.0, rgba(255, 70, 40, 255)),
+            EnemyKind::Cultist => (p + vec2(fx * r * 0.39, -r * 0.8), r * 0.1, rgba(255, 200, 80, 255)),
+            EnemyKind::Shieldbearer => (p + vec2(-dir.x * r * 0.15, -r * 0.85) + dir * r * 0.12, r * 0.12, rgba(255, 90, 40, 255)),
+            EnemyKind::Necromancer => (p + vec2(fx * r * 0.1, -r * 0.85 + (t * 2.0).sin() * r * 0.15), r * 0.12, rgba(120, 255, 140, 255)),
+            EnemyKind::Boss(_) => return None,
+        })
+    }
+
+    /// Enemy eyes drawn after the lighting, so foes in the dark show as pairs of embers.
+    fn draw_eye_glow(&self) {
+        if self.cute {
+            return;
+        }
+        let shown = self.enemies.iter().filter(|e| !e.boss && !e.dead && self.on_screen(e.pos, e.r));
+        // A big horde gets tiny squares only: cheaper, and nobody can tell at that size.
+        let halo = shown.clone().count() <= LOD_ENEMIES;
+        for e in shown {
+            let Some((at, spread, c)) = self.eye_spots(e) else { continue };
+            let flick = 0.8 + 0.2 * (self.time * 7.0 + e.phase * 3.0).sin();
+            let pairs: &[f32] = if spread > 0.0 { &[-1.0, 1.0] } else { &[0.0] };
+            for s in pairs {
+                let q = at + vec2(s * spread, 0.0);
+                if halo {
+                    draw_poly(q.x, q.y, 10, e.r * 0.3, 0.0, with_alpha(c, 0.14 * flick * e.alpha));
+                    draw_poly(q.x, q.y, 6, (e.r * 0.07).max(0.9), 0.0, with_alpha(c, 0.85 * flick * e.alpha));
+                } else {
+                    draw_rectangle(q.x - 0.9, q.y - 0.9, 1.8, 1.8, with_alpha(c, 0.85 * flick * e.alpha));
+                }
+            }
+        }
+    }
+
+    /// Ash drifting down through the light of the camera, now and then an ember; petals
+    /// in cute mode. Fixed to the world, so it moves with the field, not the screen.
+    fn draw_ash(&self) {
+        let view = view_size() + vec2(200.0, 200.0);
+        let origin = self.cam - view * 0.5;
+        let n = (90.0 * self.particle_mult) as usize;
+        for k in 0..n {
+            let s = k as f32 * 12.9898;
+            let seed = (s.sin() * 43758.547).fract().abs();
+            let seed2 = ((s * 1.7).sin() * 24634.635).fract().abs();
+            let speed = 12.0 + seed2 * 18.0;
+            let drift = (self.time * (0.3 + seed * 0.4) + seed * 30.0).sin() * 25.0;
+            // Wrap inside the view so there is always the same amount on screen.
+            let x = (seed * 7919.0 + self.time * 6.0 + drift - origin.x).rem_euclid(view.x) + origin.x;
+            let y = (seed2 * 6271.0 + self.time * speed - origin.y).rem_euclid(view.y) + origin.y;
+            let ember = k % 11 == 0;
+            let c = if self.cute {
+                [Color::new(1.0, 0.75, 0.88, 0.75), Color::new(1.0, 0.95, 0.98, 0.7)][k % 2]
+            } else if ember {
+                Color::new(1.0, 0.55, 0.2, 0.55 + 0.35 * (self.time * 5.0 + seed * 9.0).sin().abs())
+            } else {
+                Color::new(0.6, 0.58, 0.56, 0.22)
+            };
+            let size = if ember { 1.4 } else { 1.0 + seed * 1.2 };
+            if self.cute {
+                draw_ellipse(x, y, size * 2.2, size * 1.3, self.time + seed * 6.0, c);
+            } else {
+                draw_poly(x, y, 5, size, seed * 6.0, c);
+            }
+        }
+    }
+
     /// A little warm light around each living hero; the rest of the world stays dark.
     fn draw_hero_light(&self) {
         let fl = 0.92 + 0.08 * (self.time * 11.0).sin() * (self.time * 7.3).cos();
@@ -446,7 +523,7 @@ impl World {
     pub fn draw(&self, light: Option<&Lighting>) {
         let cam = self.camera();
         set_camera(&cam);
-        self.draw_ground();
+        self.draw_ground(&cam);
         self.draw_decals();
         self.draw_props();
         self.draw_walls();
@@ -528,7 +605,10 @@ impl World {
         if let Some(l) = light {
             self.apply_lighting(l, &cam);
             set_camera(&cam);
+            // Eyes and ash glow on their own, so they still show in the dark.
+            self.draw_eye_glow();
         }
+        self.draw_ash();
         // Everything below must stay readable in the dark.
         self.draw_warnings();
         self.draw_bullets();

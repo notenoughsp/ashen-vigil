@@ -112,7 +112,7 @@ fn flashed(c: Color, flash: f32) -> Color {
 
 impl World {
     /// Direction from `p` to the nearest hero, or to the right.
-    fn heading(&self, p: Vec2) -> Vec2 {
+    pub(super) fn heading(&self, p: Vec2) -> Vec2 {
         self.nearest_hero(p).map(|h| (self.heroes[h].p.pos - p).normalize_or_zero()).filter(|d| *d != Vec2::ZERO).unwrap_or(vec2(1.0, 0.0))
     }
 
@@ -151,7 +151,8 @@ impl World {
         if pl.iframes > 0.0 && (self.time * 30.0).sin() > 0.3 && pl.roll_t <= 0.0 {
             return;
         }
-        draw_ellipse(p.x, p.y + 13.0, 12.0, 4.0, 0.0, rgba(0, 0, 0, 130));
+        draw_ellipse(p.x, p.y + 13.0, 16.0, 5.5, 0.0, rgba(0, 0, 0, 60));
+        draw_ellipse(p.x, p.y + 13.0, 10.0, 3.5, 0.0, rgba(0, 0, 0, 130));
         if pl.roll_t > 0.0 {
             // Tumbling: a ball of cloak with the helm flashing round.
             let a = (1.0 - pl.roll_t / 0.3) * TAU;
@@ -608,7 +609,17 @@ impl World {
         let dir = self.heading(p);
         let fx = if dir.x >= 0.0 { 1.0 } else { -1.0 };
         if !matches!(e.kind, EnemyKind::Moth | EnemyKind::Wraith) {
-            draw_ellipse(p.x, p.y + r * 0.95, r * 1.05, r * 0.32, 0.0, rgba(0, 0, 0, (110.0 * a) as u8));
+            // A soft shadow: a wide faint one and a tight dark core where the feet touch.
+            // A big horde keeps the single shadow; nobody sees the difference there.
+            if crowded {
+                draw_ellipse(p.x, p.y + r * 0.95, r * 1.05, r * 0.32, 0.0, rgba(0, 0, 0, (110.0 * a) as u8));
+            } else {
+                draw_ellipse(p.x, p.y + r * 0.95, r * 1.35, r * 0.42, 0.0, rgba(0, 0, 0, (55.0 * a) as u8));
+                draw_ellipse(p.x, p.y + r * 0.95, r * 0.85, r * 0.26, 0.0, rgba(0, 0, 0, (110.0 * a) as u8));
+            }
+        } else if !crowded {
+            // Fliers cast a faint shadow further below them.
+            draw_ellipse(p.x, p.y + r * 1.6, r * 0.8, r * 0.22, 0.0, rgba(0, 0, 0, (45.0 * a) as u8));
         }
         if e.elite {
             draw_circle(p.x, p.y, r + 8.0, rgba(230, 180, 60, 36));

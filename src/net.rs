@@ -16,7 +16,7 @@ pub fn game_port() -> u16 {
     std::env::var("ASHEN_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PORT)
 }
 // The last byte is the protocol version; different builds refuse to talk to each other.
-const MAGIC: [u8; 3] = [0xA5, 0x1C, 12];
+const MAGIC: [u8; 3] = [0xA5, 0x1C, 13];
 /// Shown in menus, so players can tell whether they run the same build.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const FRAG_PAYLOAD: usize = 1100;

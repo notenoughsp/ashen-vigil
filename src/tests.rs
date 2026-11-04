@@ -1129,3 +1129,159 @@ fn boss_rush_report() {
         println!("{} heroes: {} lords down by {:.0}s, won {}; level and fight seconds: {:?}", heroes, w.bosses_killed, w.time, w.won, fights);
     }
 }
+
+/// Everything that must hold in every frame, whatever happens.
+fn check_invariants(w: &World, ctx: &str) {
+    let ok = |v: f32| v.is_finite();
+    for e in &w.enemies {
+        assert!(ok(e.pos.x) && ok(e.pos.y) && ok(e.hp) && ok(e.max_hp) && ok(e.speed), "{}: bad enemy {:?} at {:?} hp {}", ctx, e.kind, e.pos, e.hp);
+        assert!(inside_world(e.pos, -400.0), "{}: enemy left the world at {:?}", ctx, e.pos);
+    }
+    for h in &w.heroes {
+        assert!(ok(h.p.pos.x) && ok(h.p.pos.y) && ok(h.p.hp) && ok(h.p.stamina), "{}: bad hero state", ctx);
+        assert!(h.p.hp <= h.stats.max_hp + 0.01, "{}: hp {} over max {}", ctx, h.p.hp, h.stats.max_hp);
+        assert!(h.stats.to_array().iter().all(|v| ok(*v)), "{}: bad stats {:?}", ctx, h.stats);
+        assert!(h.weapons.len() <= h.max_weapons(), "{}: {} weapons, room for {}", ctx, h.weapons.len(), h.max_weapons());
+        assert!(h.items.len() <= h.max_items(), "{}: {} items, room for {}", ctx, h.items.len(), h.max_items());
+        let mut kinds: Vec<usize> = h.weapons.iter().flat_map(|wp| wp.kinds()).map(|k| k.idx()).collect();
+        let n = kinds.len();
+        kinds.sort_unstable();
+        kinds.dedup();
+        assert_eq!(kinds.len(), n, "{}: a weapon is carried twice: {:?}", ctx, h.weapons.iter().map(|w| w.kinds()).collect::<Vec<_>>());
+        for wp in &h.weapons {
+            assert_eq!(wp.timers.len(), wp.fused.len() + 1, "{}: timers out of step", ctx);
+            assert_eq!(wp.spins.len(), wp.fused.len() + 1, "{}: spins out of step", ctx);
+            assert!(wp.level <= WEAPON_MAX_LEVEL || wp.is_fused(), "{}: weapon level {}", ctx, wp.level);
+        }
+        for it in &h.items {
+            assert!(it.level >= 1 && it.level <= it.kind.max_level(), "{}: item level {}", ctx, it.level);
+        }
+        let mut items: Vec<usize> = h.items.iter().map(|i| i.kind.idx()).collect();
+        let n = items.len();
+        items.sort_unstable();
+        items.dedup();
+        assert_eq!(items.len(), n, "{}: an item is carried twice", ctx);
+    }
+    for p in &w.pickups {
+        assert!(ok(p.pos.x) && ok(p.pos.y), "{}: bad pickup", ctx);
+    }
+    for b in &w.ebullets {
+        assert!(ok(b.pos.x) && ok(b.pos.y) && ok(b.vel.x), "{}: bad bullet", ctx);
+    }
+    assert!(ok(w.xp) && ok(w.xp_next) && w.xp_next > 0.0, "{}: bad xp {} / {}", ctx, w.xp, w.xp_next);
+    assert!(w.boss_warning >= 0.0 && w.boss_warning <= BOSS_WARNING + 0.01, "{}: warning {}", ctx, w.boss_warning);
+}
+
+#[test]
+#[ignore]
+fn chaos_across_modes() {
+    let secs: f32 = std::env::var("ASHEN_CHAOS_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(900.0);
+    for seed in 1..=std::env::var("ASHEN_CHAOS_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(8u64) {
+        macroquad::rand::srand(seed * 7919);
+        let heroes = 1 + (seed as usize % 4);
+        let diff = PRESETS[seed as usize % PRESETS.len()].1;
+        let mut w = World::new(diff, None);
+        w.screen = vec2(1920.0, 1080.0);
+        w.record_net = heroes > 1;
+        for i in 0..heroes {
+            let mut profile = Profile { unlocks: if seed % 3 == 0 { default_unlocks() } else { u64::MAX }, ..Profile::default() };
+            for (k, m) in META.iter().enumerate() {
+                profile.meta[k] = gen_range(0, m.max + 1);
+            }
+            for (k, r) in RELICS.iter().enumerate() {
+                profile.relics[k] = gen_range(0, r.max + 1);
+            }
+            profile.skin = gen_range(0, SKINS.len() as u8 + 1);
+            let h = w.add_hero(i as u8, &format!("T{}", i), ALL_CLASSES[(seed as usize + i) % ALL_CLASSES.len()], profile, false);
+            w.heroes[h].challenges = (seed % 8) as u8;
+            w.heroes[h].recompute_stats();
+            w.heroes[h].p.hp = w.heroes[h].stats.max_hp;
+        }
+        w.grant_head_start();
+        let rush = seed % 2 == 0;
+        if rush {
+            w.start_boss_rush();
+        }
+        let ctx = format!("seed {} heroes {} rush {} challenges {:03b}", seed, heroes, rush, seed % 8);
+        let mut client = World::new(diff, None);
+        client.is_client = true;
+        let (mut enc, mut dec) = (snapshot::Encoder::default(), snapshot::Decoder::default());
+        let mut tick = 0u32;
+        let mut endless_done = false;
+        for round in 0..2 {
+            simulate(&mut w, secs, true, |w, f| {
+                // Random cards and rerolls instead of always the first.
+                if w.pause == Pause::Choosing && f % 3 == 0 {
+                    for h in 0..w.heroes.len() {
+                        if gen_range(0, 5) == 0 {
+                            w.reroll(h);
+                        }
+                        let n = w.heroes[h].choices.len().max(1);
+                        let round = w.level_round;
+                        w.pick(h, round, gen_range(0, n));
+                    }
+                }
+                check_invariants(w, &ctx);
+                if f % 2 == 0 {
+                    tick += 1;
+                    let ev = snapshot::begin_round(w);
+                    let view = snapshot::View::of(w, 0, vec2(1920.0, 1080.0));
+                    let data = enc.encode(w, &ev, &view, tick, tick.saturating_sub(1));
+                    assert!(dec.decode(&mut client, &data, 0, 1.0 / 15.0), "{}: client could not decode", ctx);
+                    assert_eq!(client.heroes.len(), w.heroes.len(), "{}", ctx);
+                }
+            });
+            // Kill the lord in the way so the run can reach its end, then go on endless once.
+            if round == 0 && !w.won {
+                w.enemies.retain(|e| !e.boss);
+                w.boss = None;
+                w.boss_kind = None;
+                w.arena = None;
+                if rush {
+                    w.bosses_killed = w.bosses_killed.max(RUSH_LORDS);
+                } else {
+                    w.time = w.time.max(VICTORY_TIME);
+                }
+                w.next_boss = w.time + 30.0;
+                simulate(&mut w, 2.0, true, |_, _| {});
+            }
+            if w.won && !endless_done {
+                endless_done = true;
+                w.won = false;
+                w.endless = true;
+                w.endless_since = w.time;
+                w.next_boss = w.time + if rush { RUSH_BREATHER } else { 60.0 };
+            }
+        }
+        println!("{}: reached {:.0}s, level {}, lords {}, endless {}", ctx, w.time, w.level, w.bosses_killed, w.endless);
+    }
+}
+
+#[test]
+#[ignore]
+fn last_flame_perf_report() {
+    macroquad::rand::srand(3);
+    let mut w = world_with(4, PRESETS[3].1);
+    for h in w.heroes.iter_mut() {
+        let mut last = Weapon::with_parts(WeaponKind::Blade, ALL_WEAPONS[1..].to_vec());
+        last.whole = true;
+        last.evolved = true;
+        last.level = WEAPON_MAX_LEVEL;
+        h.weapons = vec![last];
+        h.items = ALL_ITEMS.iter().take(8).map(|k| Item { kind: *k, level: k.max_level() }).collect();
+        h.profile.meta[M_ARSENAL] = 2;
+        h.profile.meta[M_SATCHEL] = 2;
+        h.recompute_stats();
+    }
+    w.time = 25.0 * 60.0;
+    let peaks = simulate(&mut w, 120.0, true, |w, _| {
+        // Keep the horde as large as it may get.
+        while w.enemies.len() < MAX_ENEMIES {
+            let at = w.heroes[0].p.pos + rand_dir() * gen_range(300.0, 900.0);
+            let e = w.make_enemy(EnemyKind::Ghoul, clamp_world(at, 40.0));
+            w.enemies.push(e);
+        }
+    });
+    assert_bounded(&peaks);
+    println!("last flame x4, full horde: avg {:.2} ms, worst {:.2} ms per update; peaks {:?}", peaks.avg_update_ms, peaks.worst_update_ms, peaks);
+}

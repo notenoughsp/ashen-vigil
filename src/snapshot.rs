@@ -450,6 +450,10 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
     e.w.u16(w.bosses_killed as u16);
     // Tenths of a second until the next lord while the warning shows.
     e.w.u8((w.boss_warning * 10.0).ceil().clamp(0.0, 255.0) as u8);
+    // When the endless night began, so a player who rejoins hears the right stage.
+    if w.endless {
+        e.w.f32(w.endless_since);
+    }
 
     e.w.u8(w.heroes.len() as u8);
     for h in &w.heroes {
@@ -798,6 +802,9 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.boss_rush = flags & 16 != 0;
     w.bosses_killed = d.r.u16() as u32;
     w.boss_warning = d.r.u8() as f32 / 10.0;
+    if w.endless {
+        w.endless_since = d.r.f32();
+    }
 
     let n = d.r.u8() as usize;
     for _ in 0..n {

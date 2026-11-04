@@ -472,7 +472,9 @@ impl App {
             _ => self.draw_game(&ui),
         }
         if let Some((n, life)) = &self.note {
-            ui.text_c(n, sw * 0.5, sh * 0.82, 20.0, Color::new(1.0, 0.75, 0.4, life.min(1.0)));
+            // In the main menu the last row reaches low on small screens; keep notes below it.
+            let y = if self.screen == Screen::Menu { sh - 92.0 } else { sh * 0.82 };
+            ui.text_c(n, sw * 0.5, y, 20.0, Color::new(1.0, 0.75, 0.4, life.min(1.0)));
         }
         self.draw_popups(&ui, dt);
         if self.save.settings.overlay {

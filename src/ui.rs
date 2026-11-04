@@ -332,21 +332,6 @@ impl<'a> Ui<'a> {
 
         let secs = w.time as u32;
         self.text_c(&format!("{:02}:{:02}", secs / 60, secs % 60), sw * 0.5, 38.0, 32.0, PALE);
-        if w.boss_rush {
-            let lord = if w.endless { format!("Lords slain {}", w.bosses_killed) } else { format!("Lord {} of {}", (w.bosses_killed + 1).min(RUSH_LORDS), RUSH_LORDS) };
-            self.text_c(&lord, sw * 0.5, 60.0, 17.0, EMBER);
-        }
-        if w.boss_warning > 0.0 {
-            // A lord is coming: a red pulse at the edges and a countdown under the clock.
-            let t = w.boss_warning;
-            let pulse = 0.5 + 0.5 * (t * std::f32::consts::TAU).cos();
-            let edge = if w.cute { Color::new(1.0, 0.4, 0.7, 0.35 * pulse) } else { Color::new(0.75, 0.05, 0.03, 0.35 * pulse) };
-            for (x, y, ww, hh) in [(0.0, 0.0, sw, 10.0), (0.0, sh - 10.0, sw, 10.0), (0.0, 0.0, 10.0, sh), (sw - 10.0, 0.0, 10.0, sh)] {
-                draw_rectangle(x, y, ww, hh, edge);
-            }
-            self.spaced_c("A LORD APPROACHES", sw * 0.5, sh * 0.24, 30.0, 6.0, a(Color::new(0.95, 0.35, 0.25, 1.0), 0.6 + 0.4 * pulse));
-            self.text_c(&format!("{}", t.ceil() as u32), sw * 0.5, sh * 0.24 + 52.0, 44.0, a(GOLD, 0.7 + 0.3 * pulse));
-        }
         self.text(&format!("Felled {}", w.kills), sw - 150.0, 50.0, 16.0, DIM);
         if pl.revives > 0 {
             self.text(&format!("Embers {}", pl.revives), sw - 150.0, 68.0, 16.0, EMBER);
@@ -397,7 +382,25 @@ impl<'a> Ui<'a> {
         self.edge_markers(w, marks);
 
         // Events in progress, under the clock.
+        // Everything under the clock stacks, so nothing overlaps on small screens.
         let mut ey = 58.0;
+        if w.boss_rush {
+            let lord = if w.endless { format!("Lords slain {}", w.bosses_killed) } else { format!("Lord {} of {}", (w.bosses_killed + 1).min(RUSH_LORDS), RUSH_LORDS) };
+            self.text_c(&lord, sw * 0.5, ey, 17.0, EMBER);
+            ey += 20.0;
+        }
+        if w.boss_warning > 0.0 {
+            // A lord is coming: a red pulse at the edges and a countdown under the clock.
+            let t = w.boss_warning;
+            let pulse = 0.5 + 0.5 * (t * std::f32::consts::TAU).cos();
+            let edge = if w.cute { Color::new(1.0, 0.4, 0.7, 0.35 * pulse) } else { Color::new(0.75, 0.05, 0.03, 0.35 * pulse) };
+            for (x, y, ww, hh) in [(0.0, 0.0, sw, 10.0), (0.0, sh - 10.0, sw, 10.0), (0.0, 0.0, 10.0, sh), (sw - 10.0, 0.0, 10.0, sh)] {
+                draw_rectangle(x, y, ww, hh, edge);
+            }
+            let red = a(Color::new(0.95, 0.35, 0.25, 1.0), 0.6 + 0.4 * pulse);
+            self.spaced_c(&format!("A LORD APPROACHES   {}", t.ceil() as u32), sw * 0.5, ey + 12.0, 26.0, 5.0, red);
+            ey += 40.0;
+        }
         if w.blood_moon > 0.0 {
             let pulse = 0.7 + 0.3 * (w.time * 3.0).sin();
             draw_circle(sw * 0.5 - 70.0, ey - 5.0, 7.0, Color::new(0.8, 0.08, 0.06, pulse));
@@ -447,7 +450,8 @@ impl<'a> Ui<'a> {
             draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.35, 0.0, 0.0, k * 0.4));
         }
         // Cute mode keeps only a faint rosy edge instead of the dark.
-        let edge = if w.cute { Color::new(0.55, 0.25, 0.45, 0.45) } else { Color::new(0.0, 0.0, 0.0, 1.0) };
+        // The night closes in from the edges in a deep, cold blue rather than plain black.
+        let edge = if w.cute { Color::new(0.55, 0.25, 0.45, 0.45) } else { Color::new(0.01, 0.015, 0.05, 1.0) };
         draw_texture_ex(tex, 0.0, 0.0, edge, DrawTextureParams { dest_size: Some(vec2(sw, sh)), ..Default::default() });
         let hurt = if w.cute { (1.0, 0.4, 0.7) } else { (0.6, 0.0, 0.0) };
         let me = w.me();

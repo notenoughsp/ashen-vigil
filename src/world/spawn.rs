@@ -199,7 +199,6 @@ impl World {
         let warn = if self.boss_rush || self.boss.is_some() { 0.0 } else { (self.next_boss - self.time).clamp(0.0, BOSS_WARNING + 0.01) };
         if warn > 0.0 && warn <= BOSS_WARNING && self.boss_warning == 0.0 {
             self.sfx("bell", 0.9);
-            self.toast("A lord of ash approaches...");
         }
         self.boss_warning = if warn <= BOSS_WARNING { warn } else { 0.0 };
         if self.time >= self.next_boss && self.boss.is_none() {

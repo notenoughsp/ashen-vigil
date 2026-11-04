@@ -4,6 +4,17 @@ use super::*;
 
 const TILE: f32 = 64.0;
 const REGION: i32 = 6;
+/// Tiles per side of a cached floor chunk, and how many chunks stay cached.
+const CHUNK: i32 = 8;
+const MAX_CHUNKS: usize = 48;
+
+type ChunkKey = (i32, i32, bool, u32);
+
+thread_local! {
+    /// Floor chunks drawn so far, with the frame each was last used.
+    static CHUNKS: std::cell::RefCell<std::collections::HashMap<ChunkKey, (RenderTarget, u64)>> = std::cell::RefCell::new(std::collections::HashMap::new());
+    static CHUNK_FRAME: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 
 fn hash(x: i32, y: i32, salt: u32) -> u32 {
     let mut h = (x as u32).wrapping_mul(374_761_393) ^ (y as u32).wrapping_mul(668_265_263) ^ salt.wrapping_mul(2_246_822_519);
@@ -86,43 +97,189 @@ fn cage(x: f32, y: f32, t: f32) {
 }
 
 impl World {
-    pub(super) fn draw_ground(&self) {
+    /// The floor. Stones never change, so they are drawn once per chunk of tiles into a
+    /// texture and reused; only the grass that sways is drawn every frame.
+    pub(super) fn draw_ground(&self, cam: &Camera2D) {
         clear_background(if self.cute { rgba(58, 40, 60, 255) } else { rgba(7, 6, 8, 255) });
-        let (x0, x1, y0, y1) = tile_range(self.cam, TILE * 2.0);
-        for ty in y0..y1 {
-            for tx in x0..x1 {
-                let px = tx as f32 * TILE;
-                let py = ty as f32 * TILE;
-                if !inside_world(vec2(px + TILE * 0.5, py + TILE * 0.5), -TILE * 0.5) {
+        let size = TILE * CHUNK as f32;
+        let half = super::view_size() * 0.5 + vec2(TILE, TILE);
+        let (cx0, cx1) = (((self.cam.x - half.x) / size).floor() as i32, ((self.cam.x + half.x) / size).ceil() as i32);
+        let (cy0, cy1) = (((self.cam.y - half.y) / size).floor() as i32, ((self.cam.y + half.y) / size).ceil() as i32);
+        // Sharp at any resolution: chunks are drawn at the screen's pixel density.
+        let scale = super::view_scale().ceil().clamp(1.0, 3.0) as u32;
+        let frame = CHUNK_FRAME.with(|f| {
+            f.set(f.get() + 1);
+            f.get()
+        });
+        CHUNKS.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            for cy in cy0..cy1 {
+                for cx in cx0..cx1 {
+                    let key = (cx, cy, self.cute, scale);
+                    let entry = cache.entry(key).or_insert_with(|| {
+                        let rt = self.render_chunk(cx, cy, scale);
+                        set_camera(cam);
+                        (rt, frame)
+                    });
+                    entry.1 = frame;
+                    draw_texture_ex(&entry.0.texture, cx as f32 * size, cy as f32 * size, WHITE, DrawTextureParams { dest_size: Some(vec2(size, size)), ..Default::default() });
+                }
+            }
+            // Forget the chunks that have not been seen for the longest time.
+            while cache.len() > MAX_CHUNKS {
+                let oldest = cache.iter().min_by_key(|(_, (_, used))| *used).map(|(k, _)| *k);
+                match oldest {
+                    Some(k) => {
+                        cache.remove(&k);
+                    }
+                    None => break,
+                }
+            }
+        });
+        self.draw_earth();
+    }
+
+    /// Draws the stones of one chunk into a fresh texture.
+    fn render_chunk(&self, cx: i32, cy: i32, scale: u32) -> RenderTarget {
+        let size = TILE * CHUNK as f32;
+        let px = (size as u32) * scale;
+        let rt = render_target(px, px);
+        rt.texture.set_filter(FilterMode::Linear);
+        let center = vec2((cx as f32 + 0.5) * size, (cy as f32 + 0.5) * size);
+        // A render target's y runs the other way, as for the light map.
+        set_camera(&Camera2D { target: center, zoom: vec2(2.0 / size, -2.0 / size), render_target: Some(rt.clone()), ..Default::default() });
+        clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
+        for ty in cy * CHUNK..(cy + 1) * CHUNK {
+            for tx in cx * CHUNK..(cx + 1) * CHUNK {
+                self.draw_tile(tx, ty);
+            }
+        }
+        rt
+    }
+
+    /// One tile with its stones, and in cute mode its flowers.
+    fn draw_tile(&self, tx: i32, ty: i32) {
+        let px = tx as f32 * TILE;
+        let py = ty as f32 * TILE;
+        if !inside_world(vec2(px + TILE * 0.5, py + TILE * 0.5), -TILE * 0.5) {
+            return;
+        }
+        let v = hf(tx, ty, 1);
+        // Large-scale variation so the floor reads as regions, not a grid.
+        let region = hf(tx.div_euclid(REGION), ty.div_euclid(REGION), 9);
+        let base = 13.0 + v * 7.0 + region * 5.0;
+        let red = if hf(tx.div_euclid(3), ty.div_euclid(3), 17) > 0.93 { 4.0 } else { 0.0 };
+        let c = if self.cute {
+            // Soft lilac and rose flagstones.
+            let b = base * 3.4;
+            Color::new((b + 40.0 + red * 4.0) / 255.0, (b + 18.0) / 255.0, (b + 44.0) / 255.0, 1.0)
+        } else {
+            Color::new((base + red) / 255.0, (base - 1.5) / 255.0, (base + 1.0) / 255.0, 1.0)
+        };
+        self.flagstones(tx, ty, px, py, c);
+        if self.cute && hash(tx, ty, 41).is_multiple_of(4) {
+            // Little flowers between the stones.
+            let (fx, fy) = (px + 8.0 + hf(tx, ty, 42) * (TILE - 16.0), py + 8.0 + hf(tx, ty, 43) * (TILE - 16.0));
+            let petal = [rgba(255, 190, 220, 255), rgba(255, 240, 170, 255), rgba(200, 190, 255, 255), rgba(255, 255, 255, 255)][(hash(tx, ty, 44) % 4) as usize];
+            for k in 0..5 {
+                let o = Vec2::from_angle(k as f32 / 5.0 * TAU) * 2.6;
+                draw_circle(fx + o.x, fy + o.y, 1.9, petal);
+            }
+            draw_circle(fx, fy, 1.4, rgba(255, 200, 90, 255));
+        }
+    }
+
+    /// One tile of the floor: one to four bevelled slabs, each a little different, some
+    /// cracked, some with moss in the joints.
+    fn flagstones(&self, tx: i32, ty: i32, px: f32, py: f32, base: Color) {
+        let gap = 1.5;
+        let half = TILE * 0.5;
+        let slabs: &[(f32, f32, f32, f32)] = match hash(tx, ty, 21) % 7 {
+            0 => &[(0.0, 0.0, TILE, half), (0.0, half, TILE, half)],
+            1 => &[(0.0, 0.0, half, TILE), (half, 0.0, half, TILE)],
+            2 => &[(0.0, 0.0, half, half), (half, 0.0, half, half), (0.0, half, TILE, half)],
+            3 => &[(0.0, 0.0, TILE * 0.4, TILE), (TILE * 0.4, 0.0, TILE * 0.6, half), (TILE * 0.4, half, TILE * 0.6, half)],
+            _ => &[(0.0, 0.0, TILE, TILE)],
+        };
+        let k = if self.cute { 3.0 } else { 1.0 };
+        let lift = |c: Color, d: f32| Color::new((c.r + d * k / 255.0).clamp(0.0, 1.0), (c.g + d * k / 255.0).clamp(0.0, 1.0), (c.b + d * k / 255.0).clamp(0.0, 1.0), 1.0);
+        for (i, &(sx, sy, sw, sh)) in slabs.iter().enumerate() {
+            let salt = 50 + i as u32;
+            // Each slab its own tone, some a little warmer or greener.
+            let tone = (hf(tx, ty, salt) - 0.5) * 6.0;
+            let warm = if hash(tx, ty, salt + 10).is_multiple_of(6) { 2.5 } else { 0.0 };
+            let c = lift(Color::new(base.r + warm * k / 255.0, base.g, base.b, 1.0), tone);
+            let (x, y, w, h) = (px + sx + gap, py + sy + gap, sw - gap * 2.0, sh - gap * 2.0);
+            draw_rectangle(x, y, w, h, c);
+            // Bevel: light from above, the lower edges in shadow.
+            draw_rectangle(x, y, w, 2.0, lift(c, 6.0));
+            draw_rectangle(x, y, 2.0, h, lift(c, 3.5));
+            draw_rectangle(x, y + h - 2.5, w, 2.5, lift(c, -6.0));
+            draw_rectangle(x + w - 2.0, y, 2.0, h, lift(c, -4.0));
+            // A worn hollow in the middle of big slabs.
+            if w > 40.0 && h > 40.0 && hash(tx, ty, salt + 20).is_multiple_of(3) {
+                draw_ellipse(x + w * 0.5, y + h * 0.55, w * 0.3, h * 0.22, 0.0, Color::new(0.0, 0.0, 0.0, 0.12));
+            }
+            // Cracks.
+            if hash(tx, ty, salt + 30).is_multiple_of(5) {
+                let mut q = vec2(x + w * hf(tx, ty, salt + 31), y + 2.0);
+                let crack = lift(c, -9.0);
+                for s in 0..4 {
+                    let n = q + vec2((hf(tx, ty, salt + 32 + s) - 0.5) * 12.0, h * 0.24);
+                    draw_line(q.x, q.y, n.x, n.y, 1.0, crack);
+                    q = n;
+                }
+            }
+            // Moss creeping out of the lower joint.
+            if !self.cute && hash(tx, ty, salt + 40).is_multiple_of(7) {
+                // A clump or two, not a row: random spots along the joint, bigger in the middle.
+                let clump = x + w * hf(tx, ty, salt + 41);
+                for m in 0..6 {
+                    let off = (hf(tx, ty, salt + 42 + m) - 0.5) * 18.0;
+                    let r = 3.2 - off.abs() * 0.12 + hf(tx, ty, salt + 48 + m);
+                    let shade = 0.8 + hf(tx, ty, salt + 54 + m) * 0.4;
+                    draw_circle(clump + off, y + h - 1.0 - hf(tx, ty, salt + 60 + m) * 3.0, r.max(1.0), Color::new(0.08 * shade, 0.13 * shade, 0.06 * shade, 0.95));
+                }
+            }
+        }
+    }
+
+    /// Bare earth and grass breaking through the stone here and there, over several tiles.
+    fn draw_earth(&self) {
+        let cell = TILE * 4.0;
+        let half = super::view_size() * 0.5 + vec2(cell, cell);
+        let (x0, x1) = (((self.cam.x - half.x) / cell).floor() as i32, ((self.cam.x + half.x) / cell).ceil() as i32);
+        let (y0, y1) = (((self.cam.y - half.y) / cell).floor() as i32, ((self.cam.y + half.y) / cell).ceil() as i32);
+        let (soil, grass) =
+            if self.cute { (Color::new(0.55, 0.42, 0.5, 0.35), Color::new(0.55, 0.8, 0.5, 0.8)) } else { (Color::new(0.12, 0.085, 0.06, 0.6), Color::new(0.14, 0.2, 0.09, 0.95)) };
+        for cy in y0..y1 {
+            for cx in x0..x1 {
+                if !hash(cx, cy, 70).is_multiple_of(3) {
                     continue;
                 }
-                let v = hf(tx, ty, 1);
-                // Large-scale variation so the floor reads as regions, not a grid.
-                let region = hf(tx.div_euclid(REGION), ty.div_euclid(REGION), 9);
-                let base = 13.0 + v * 7.0 + region * 5.0;
-                let red = if hf(tx.div_euclid(3), ty.div_euclid(3), 17) > 0.93 { 4.0 } else { 0.0 };
-                let c = if self.cute {
-                    // Soft lilac and rose flagstones.
-                    let b = base * 3.4;
-                    Color::new((b + 40.0 + red * 4.0) / 255.0, (b + 18.0) / 255.0, (b + 44.0) / 255.0, 1.0)
-                } else {
-                    Color::new((base + red) / 255.0, (base - 1.5) / 255.0, (base + 1.0) / 255.0, 1.0)
-                };
-                draw_rectangle(px + 1.0, py + 1.0, TILE - 2.0, TILE - 2.0, c);
-                if self.cute && hash(tx, ty, 41).is_multiple_of(4) {
-                    // Little flowers between the stones.
-                    let (fx, fy) = (px + 8.0 + hf(tx, ty, 42) * (TILE - 16.0), py + 8.0 + hf(tx, ty, 43) * (TILE - 16.0));
-                    let petal = [rgba(255, 190, 220, 255), rgba(255, 240, 170, 255), rgba(200, 190, 255, 255), rgba(255, 255, 255, 255)][(hash(tx, ty, 44) % 4) as usize];
-                    for k in 0..5 {
-                        let o = Vec2::from_angle(k as f32 / 5.0 * TAU) * 2.6;
-                        // Tiny petals look the same as hexagons and cost a third of a circle.
-                        draw_poly(fx + o.x, fy + o.y, 6, 1.9, 0.0, petal);
-                    }
-                    draw_poly(fx, fy, 6, 1.4, 0.0, rgba(255, 200, 90, 255));
+                let c = vec2((cx as f32 + hf(cx, cy, 71)) * cell, (cy as f32 + hf(cx, cy, 72)) * cell);
+                if !inside_world(c, 60.0) {
+                    continue;
                 }
-                // Worn stone: some tiles are split into smaller slabs.
-                if hash(tx, ty, 21).is_multiple_of(5) {
-                    draw_line(px + 1.0, py + TILE * 0.5, px + TILE - 1.0, py + TILE * 0.5, 1.0, rgba(6, 5, 7, 255));
+                // A patch of soil from a few soft blobs.
+                for b in 0..4 {
+                    let o = vec2(hf(cx, cy, 73 + b) - 0.5, hf(cx, cy, 77 + b) - 0.5) * 70.0;
+                    let r = 26.0 + hf(cx, cy, 81 + b) * 26.0;
+                    draw_ellipse(c.x + o.x, c.y + o.y, r, r * 0.7, hf(cx, cy, 85 + b), soil);
+                }
+                // Tufts of grass around it.
+                for g in 0..9 {
+                    let a = hf(cx, cy, 90 + g) * TAU;
+                    let at = c + Vec2::from_angle(a) * (20.0 + hf(cx, cy, 100 + g) * 45.0);
+                    for blade in -1..=1 {
+                        let lean = blade as f32 * 2.5 + (self.time * 1.3 + at.x * 0.05).sin() * 0.8;
+                        draw_line(at.x, at.y, at.x + lean, at.y - 6.0 - hf(cx, cy, 110 + g) * 4.0, 1.2, grass);
+                    }
+                }
+                // Pebbles.
+                for s in 0..4 {
+                    let at = c + vec2(hf(cx, cy, 120 + s) - 0.5, hf(cx, cy, 125 + s) - 0.5) * 80.0;
+                    draw_circle(at.x, at.y, 1.5 + hf(cx, cy, 130 + s) * 1.5, if self.cute { rgba(220, 200, 220, 255) } else { rgba(40, 37, 36, 255) });
                 }
             }
         }

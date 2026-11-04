@@ -496,6 +496,11 @@ impl App {
                             let slot = client.slot.unwrap_or(1);
                             if self.snap_dec.decode(w, &data, slot, self.since_snap) {
                                 self.snapshots += 1;
+                                // Our own movement runs here, so our hero needs our upgrades
+                                // (cheaper rolls); snapshots only carry what others need to see.
+                                if let Some(me) = w.heroes.iter_mut().find(|h| h.slot == slot) {
+                                    me.profile = self.save.profile;
+                                }
                             }
                             self.since_snap = 0.0;
                         }
