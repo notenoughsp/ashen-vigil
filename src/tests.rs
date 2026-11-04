@@ -526,6 +526,8 @@ fn endless_night_goes_on_past_dawn() {
     w.boss = None;
     w.boss_kind = None;
     w.arena = None;
+    // No new lord may arrive in the meantime and hold the dawn back.
+    w.next_boss = f32::MAX;
     simulate(&mut w, 30.0, true, |_, _| {});
     assert!(w.won, "the vigil should be kept at dawn");
     let bosses = w.bosses_killed;
