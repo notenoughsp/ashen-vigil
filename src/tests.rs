@@ -530,7 +530,7 @@ fn endless_night_goes_on_past_dawn() {
     w.next_boss = f32::MAX;
     simulate(&mut w, 30.0, true, |_, _| {});
     assert!(w.won, "the vigil should be kept at dawn");
-    let bosses = w.bosses_killed;
+    let bosses = w.bosses_spawned;
     w.won = false;
     w.endless = true;
     w.next_boss = w.time + 60.0;
@@ -538,7 +538,9 @@ fn endless_night_goes_on_past_dawn() {
     assert_bounded(&peaks);
     assert!(!w.won, "an endless vigil never ends in a win");
     assert!(w.time > VICTORY_TIME + 900.0, "the endless vigil stopped at {}", w.time);
-    assert!(w.bosses_killed > bosses, "no boss came after dawn");
+    // A lord must come; whether these walking-in-circles test heroes fell it depends on
+    // which lord it is.
+    assert!(w.bosses_spawned > bosses, "no boss came after dawn");
     // Difficulty ramp: full strength only after three minutes.
     let d = PRESETS[3].1;
     assert!(d.at(0.0).hp < d.at(200.0).hp && d.at(200.0).hp == d.hp);
