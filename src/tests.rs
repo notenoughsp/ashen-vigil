@@ -2004,7 +2004,22 @@ fn thrown_projectiles_do_not_follow_their_thrower() {
     let src = Src { hero: 0, weapon: WeaponKind::Lance };
     let start = w.heroes[0].p.pos;
     for kind in [PKind::Lance, PKind::Orb, PKind::Dagger] {
-        w.projs.push(Proj { pos: start, vel: vec2(0.0, 300.0), dir: vec2(0.0, 1.0), r: 6.0, dmg: 1.0, pierce: 999, life: 5.0, age: 0.0, kind, evo: true, area: 1.0, src, hits: Vec::new(), dead: false });
+        w.projs.push(Proj {
+            pos: start,
+            vel: vec2(0.0, 300.0),
+            dir: vec2(0.0, 1.0),
+            r: 6.0,
+            dmg: 1.0,
+            pierce: 999,
+            life: 5.0,
+            age: 0.0,
+            kind,
+            evo: true,
+            area: 1.0,
+            src,
+            hits: Vec::new(),
+            dead: false,
+        });
     }
     for _ in 0..30 {
         w.heroes[0].input = Input { dir: vec2(1.0, 0.0), roll: false, skill: false };

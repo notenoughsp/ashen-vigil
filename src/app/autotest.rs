@@ -419,7 +419,22 @@ impl App {
                 let src = crate::world::Src { hero: 0, weapon: WeaponKind::Lance };
                 for (k, kind) in [crate::world::PKind::Lance, crate::world::PKind::Orb].into_iter().enumerate() {
                     let at = p + vec2(220.0, -60.0 + k as f32 * 120.0);
-                    w.projs.push(crate::world::Proj { pos: at, vel: vec2(0.0, 0.001), dir: vec2(0.0, 1.0), r: 9.0, dmg: 0.0, pierce: 999, life: 1e6, age: 0.0, kind, evo: false, area: 1.0, src, hits: Vec::new(), dead: false });
+                    w.projs.push(crate::world::Proj {
+                        pos: at,
+                        vel: vec2(0.0, 0.001),
+                        dir: vec2(0.0, 1.0),
+                        r: 9.0,
+                        dmg: 0.0,
+                        pierce: 999,
+                        life: 1e6,
+                        age: 0.0,
+                        kind,
+                        evo: false,
+                        area: 1.0,
+                        src,
+                        hits: Vec::new(),
+                        dead: false,
+                    });
                     w.pickups.push(Pickup::new(at + vec2(0.0, 26.0), PickKind::Key));
                 }
             }

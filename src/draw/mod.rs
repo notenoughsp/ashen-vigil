@@ -768,14 +768,7 @@ impl World {
         // The same camera as the scene: macroquad already turns y around for a render target,
         // so flipping it here as well drew every weapon upside down about the screen's middle,
         // and anything moving up or down seemed to travel along with the hero.
-        set_camera(&Camera2D {
-            target: cam.target,
-            zoom: cam.zoom,
-            rotation: cam.rotation,
-            offset: cam.offset,
-            render_target: Some(rt.clone()),
-            ..Default::default()
-        });
+        set_camera(&Camera2D { target: cam.target, zoom: cam.zoom, rotation: cam.rotation, offset: cam.offset, render_target: Some(rt.clone()), ..Default::default() });
         clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
         draw(self);
         set_default_camera();

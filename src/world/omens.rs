@@ -354,7 +354,8 @@ impl World {
             let (skip, lord) = self.skip_time(want);
             let who = on.map(|h| self.heroes[h].name.clone()).unwrap_or_default();
             let mins = skip / 60.0;
-            let span = if (mins - mins.round()).abs() < 0.05 { format!("{:.0} minute{}", mins, if mins.round() == 1.0 { "" } else { "s" }) } else { format!("{:.0} seconds", skip) };
+            let span =
+                if (mins - mins.round()).abs() < 0.05 { format!("{:.0} minute{}", mins, if mins.round() == 1.0 { "" } else { "s" }) } else { format!("{:.0} seconds", skip) };
             if lord {
                 self.banner(
                     "THE SAND RUNS PAST A LORD",

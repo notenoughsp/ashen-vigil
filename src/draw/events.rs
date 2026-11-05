@@ -252,7 +252,11 @@ impl World {
         if let Some(s) = &self.stone {
             let pale = rgba(220, 232, 245, 255);
             say(
-                &[("WAGER STONE", 24.0, rgba(140, 210, 255, 255)), ("Stand on a tile: bet a third of your souls", 18.0, pale), ("(a capped stake) on how fast the next lord falls", 18.0, pale)],
+                &[
+                    ("WAGER STONE", 24.0, rgba(140, 210, 255, 255)),
+                    ("Stand on a tile: bet a third of your souls", 18.0, pale),
+                    ("(a capped stake) on how fast the next lord falls", 18.0, pale),
+                ],
                 s.pos.x,
                 s.pos.y - 130.0,
             );
