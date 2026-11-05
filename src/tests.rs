@@ -1056,6 +1056,8 @@ fn a_lord_is_announced_five_seconds_ahead() {
     w.next_boss = w.time - 1.0;
     let src = Src { hero: 0, weapon: WeaponKind::Blade };
     w.enemies[i].hp = 1.0;
+    // A fresh second, so the cap on a lord's damage per second leaves room for the blow.
+    w.time += 1.0;
     w.hit(i, 1e12, Vec2::ZERO, src, false);
     assert!(w.next_boss >= w.time + BOSS_WARNING - 0.01);
 }
@@ -1072,6 +1074,8 @@ fn a_boss_rush_brings_lord_after_lord_and_goes_on_endless() {
         let i = w.enemies.iter().position(|e| e.boss).expect("the next lord did not come");
         lords.push(w.enemies[i].max_hp);
         w.enemies[i].hp = 1.0;
+        // A fresh second, so the heroes' blows this second leave room under the lord's cap.
+        w.time += 1.0;
         w.hit(i, 1e15, Vec2::ZERO, src, false);
     }
     simulate(&mut w, 1.0, true, |_, _| {});
@@ -1089,6 +1093,7 @@ fn a_boss_rush_brings_lord_after_lord_and_goes_on_endless() {
         simulate(&mut w, RUSH_BREATHER + 1.0, true, |_, _| {});
         let i = w.enemies.iter().position(|e| e.boss).expect("the endless rush stopped sending lords");
         w.enemies[i].hp = 1.0;
+        w.time += 1.0;
         w.hit(i, 1e15, Vec2::ZERO, src, false);
     }
     simulate(&mut w, 1.0, true, |_, _| {});
