@@ -12,7 +12,8 @@ const SHOP_COLS: usize = 3;
 const HUB_MODE_ROW: usize = 1;
 const HUB_BIOME_ROW: usize = 2;
 const HUB_DIFF_ROW: usize = 3;
-const HUB_CHALLENGE_ROW: usize = 4;
+const HUB_BOOST_ROW: usize = 4;
+const HUB_CHALLENGE_ROW: usize = HUB_BOOST_ROW + 3;
 const HUB_CURSE_ROW: usize = HUB_CHALLENGE_ROW + ALL_CHALLENGES.len();
 const HUB_ROWS: usize = HUB_CURSE_ROW + ALL_CURSES.len() + 1;
 
@@ -364,7 +365,7 @@ impl App {
             }
             3 => {
                 self.screen = Screen::Wardrobe;
-                self.wardrobe_sel = self.save.profile.skin as usize;
+                (self.wardrobe_page, self.wardrobe_sel) = wardrobe::wardrobe_spot(self.save.profile.skin as usize);
             }
             4 => {
                 self.screen = Screen::Records;
@@ -512,9 +513,19 @@ impl App {
 
     // ---------------------------------------------------------------- options
 
+    /// The option pages there are now. During a vigil the last page, the difficulty, is
+    /// left out: nothing that would change the vigil itself can be changed in the middle of it.
+    fn page_count(&self) -> usize {
+        if self.options_in_game {
+            PAGES.len() - 1
+        } else {
+            PAGES.len()
+        }
+    }
+
     /// The rows of the current page; the cute option only once it has been found.
     fn option_rows(&self) -> Vec<Opt> {
-        PAGES[self.opt_page.min(PAGES.len() - 1)].1.iter().copied().filter(|o| *o != Opt::Cute || self.save.cute_found).collect()
+        PAGES[self.opt_page.min(self.page_count() - 1)].1.iter().copied().filter(|o| *o != Opt::Cute || self.save.cute_found).collect()
     }
 
     pub(super) fn update_options(&mut self) {
@@ -546,13 +557,13 @@ impl App {
             0
         };
         if page_dir != 0 {
-            self.opt_page = (self.opt_page as i32 + page_dir).rem_euclid(PAGES.len() as i32) as usize;
+            self.opt_page = (self.opt_page.min(self.page_count() - 1) as i32 + page_dir).rem_euclid(self.page_count() as i32) as usize;
             self.opt_sel = 0;
             self.audio.play("select", 0.5);
             drain_chars();
             return;
         }
-        if let Some(t) = clicked_tab() {
+        if let Some(t) = clicked_tab().filter(|t| *t < self.page_count()) {
             if t != self.opt_page {
                 self.opt_page = t;
                 self.opt_sel = 0;
@@ -622,7 +633,7 @@ impl App {
     /// The option row under the cursor changes the window or waits for a key: the
     /// self-test leaves those alone, so it never takes over a monitor or hangs.
     pub(super) fn option_is_risky(&self) -> bool {
-        let rows = PAGES[self.opt_page.min(PAGES.len() - 1)].1;
+        let rows = PAGES[self.opt_page.min(self.page_count() - 1)].1;
         matches!(rows.get(self.opt_sel), Some(Opt::Resolution | Opt::Fullscreen | Opt::Vsync | Opt::Msaa | Opt::Bind(_) | Opt::Name))
     }
 
@@ -696,8 +707,10 @@ impl App {
             Opt::Fog => st.fog = !st.fog,
             Opt::Grain => st.grain = !st.grain,
             Opt::Preset => {
-                let i = PRESETS.iter().position(|p| p.1 == st.diff).map(|i| i as i32).unwrap_or(1);
+                let i = PRESETS.iter().position(|p| p.1 == st.diff.base()).map(|i| i as i32).unwrap_or(1);
+                let boost = st.diff.boost;
                 st.diff = PRESETS[(i + dir).rem_euclid(PRESETS.len() as i32) as usize].1;
+                st.diff.boost = boost;
             }
             Opt::Count => st.diff.count = step(&DIFF_COUNT, st.diff.count, dir),
             Opt::Hp => st.diff.hp = step(&DIFF_HP, st.diff.hp, dir),
@@ -808,11 +821,11 @@ impl App {
         ui.spaced_c("OPTIONS", cx, 54.0, 40.0, 8.0, PALE);
         // Page tabs.
         let tab_w = 180.0;
-        let x0 = cx - tab_w * PAGES.len() as f32 * 0.5;
-        for (i, (name, _)) in PAGES.iter().enumerate() {
+        let x0 = cx - tab_w * self.page_count() as f32 * 0.5;
+        for (i, (name, _)) in PAGES.iter().take(self.page_count()).enumerate() {
             let x = x0 + i as f32 * tab_w;
             crate::ui::register_tab(Rect::new(x + 4.0, 74.0, tab_w - 8.0, 30.0));
-            let on = i == self.opt_page;
+            let on = i == self.opt_page.min(self.page_count() - 1);
             draw_rectangle(x + 4.0, 74.0, tab_w - 8.0, 30.0, Color::new(0.07, 0.06, 0.06, if on { 0.95 } else { 0.5 }));
             if on {
                 draw_rectangle(x + 4.0, 102.0, tab_w - 8.0, 2.0, GOLD);
@@ -880,6 +893,10 @@ impl App {
             self.cycle_difficulty(if left(false) || mouse.right { -1 } else { 1 });
             return;
         }
+        if (HUB_BOOST_ROW..HUB_CHALLENGE_ROW).contains(&self.hub_sel) && (left(false) || right(false) || mouse.left || mouse.right) {
+            self.change_boost(self.hub_sel - HUB_BOOST_ROW, if left(false) || mouse.right { -1 } else { 1 });
+            return;
+        }
         let toggle = confirm() || left(false) || right(false) || mouse.left || mouse.right;
         if (HUB_CURSE_ROW..HUB_ROWS - 1).contains(&self.hub_sel) && toggle {
             self.save.curses ^= ALL_CURSES[self.hub_sel - HUB_CURSE_ROW].bit();
@@ -941,9 +958,20 @@ impl App {
             DIM,
         );
         y += 38.0;
+        // Empowered foes, each on its own, on top of the difficulty: stronger, and richer.
+        for i in 0..3 {
+            let n = d.boost[i];
+            ui.row(x, y, w, 26.0, self.hub_sel == HUB_BOOST_ROW + i);
+            let col = if n > 0 { EMBER } else { DIM };
+            ui.text(BOOST_NAMES[i], x + 36.0, y + 19.0, 17.0, if n > 0 { PALE } else { DIM });
+            ui.text(&format!("<  +{:.0}%  >", n as f32 * BOOST_STEP[i]), x + 245.0, y + 19.0, 16.0, col);
+            let pay = (d.boost_mult(i) - 1.0) * [0.35, 1.0, 0.45][i] * 100.0;
+            ui.text_r(&format!("+{:.0}% souls and marks", pay), x + w - 14.0, y + 19.0, 15.0, col);
+            y += 29.0;
+        }
         for (i, ch) in ALL_CHALLENGES.iter().enumerate() {
             let on = self.save.challenges & ch.bit() != 0;
-            ui.row(x, y, w, 28.0, self.hub_sel == HUB_CHALLENGE_ROW + i);
+            ui.row(x, y, w, 26.0, self.hub_sel == HUB_CHALLENGE_ROW + i);
             draw_rectangle_lines(x + 14.0, y + 8.0, 13.0, 13.0, 1.5, if on { BLOOD_RED } else { DIM });
             if on {
                 draw_rectangle(x + 17.0, y + 11.0, 7.0, 7.0, BLOOD_RED);
@@ -951,12 +979,12 @@ impl App {
             ui.text(ch.name(), x + 36.0, y + 20.0, 17.0, if on { PALE } else { DIM });
             ui.text(ch.desc(), x + 245.0, y + 20.0, 15.0, DIM);
             ui.text_r("+25% marks", x + w - 14.0, y + 20.0, 15.0, if on { EMBER } else { DIM });
-            y += 31.0;
+            y += 29.0;
         }
         for (i, cu) in ALL_CURSES.iter().enumerate() {
             let on = self.save.curses & cu.bit() != 0;
             let col = Color::new(0.75, 0.45, 1.0, 1.0);
-            ui.row(x, y, w, 28.0, self.hub_sel == HUB_CURSE_ROW + i);
+            ui.row(x, y, w, 26.0, self.hub_sel == HUB_CURSE_ROW + i);
             draw_poly_lines(x + 20.5, y + 14.5, 4, 8.0, 45.0, 1.5, if on { col } else { DIM });
             if on {
                 draw_poly(x + 20.5, y + 14.5, 4, 4.5, 45.0, col);
@@ -964,12 +992,14 @@ impl App {
             ui.text(&format!("Curse: {}", cu.name()), x + 36.0, y + 20.0, 17.0, if on { PALE } else { DIM });
             ui.text(cu.desc(), x + 245.0, y + 20.0, 15.0, DIM);
             ui.text_r("+20% marks", x + w - 14.0, y + 20.0, 15.0, if on { col } else { DIM });
-            y += 31.0;
+            y += 29.0;
         }
         y += 10.0;
         ui.row(x, y, w, 34.0, self.hub_sel == HUB_ROWS - 1);
         let begin = if rush { "Begin the Boss Rush" } else { "Begin the Vigil" };
-        ui.text_c(&format!("{}  ({})", begin, self.save.settings.diff.preset_name()), cx, y + 24.0, 22.0, EMBER);
+        let d = self.save.settings.diff;
+        let label = if d.boost == [0; 3] { d.preset_name().to_string() } else { format!("{}, empowered", d.preset_name()) };
+        ui.text_c(&format!("{}  ({})", begin, label), cx, y + 24.0, 22.0, EMBER);
         // A reminder where there is room for it; small screens need the space for notes.
         if sh >= 800.0 {
             ui.text_c("Permanent upgrades are bought in the Reliquary.", cx, y + 64.0, 15.0, DIM);
@@ -1005,6 +1035,7 @@ impl App {
             self.set_note(if souls { "Not that many souls to give." } else { "Not that many Ashen Marks to give." }, 2.5);
             return;
         }
+        let before = (self.save.offered_souls, self.save.offered_marks);
         if souls {
             self.save.souls -= give;
             self.save.offered_souls = self.save.offered_souls.saturating_add(give);
@@ -1016,6 +1047,13 @@ impl App {
         self.audio.play("bell", 0.6);
         let what = if souls { "souls" } else { "Ashen Marks" };
         self.set_note(&format!("You offer {} {}. The ash remembers.", give, what), 3.0);
+        for (class, by_souls, n) in OFFERED_CLASSES {
+            let (was, now) = if by_souls { (before.0, self.save.offered_souls) } else { (before.1, self.save.offered_marks) };
+            if was < n && now >= n {
+                self.audio.play("evolve", 0.7);
+                self.set_note(&format!("A new class answers your offering: the {}.", class.name()), 4.0);
+            }
+        }
         for (done, ach) in [
             (self.save.offered_souls >= 10_000, Achievement::Alms),
             (self.save.offered_souls >= 100_000, Achievement::Benefactor),
@@ -1199,6 +1237,16 @@ impl App {
                 None => format!("Every honour for {} is yours", what),
             };
             ui.text_c(&line, cx, ny, 16.0, DIM);
+            ny += 22.0;
+        }
+        // The classes that come with offerings.
+        ny += 8.0;
+        for (class, by_souls, n) in OFFERED_CLASSES {
+            let have = if by_souls { self.save.offered_souls } else { self.save.offered_marks };
+            let what = if by_souls { "souls" } else { "Ashen Marks" };
+            let (line, col) =
+                if have >= n { (format!("Class: the {} walks with you", class.name()), TEAL) } else { (format!("Class: the {} at {} {} offered", class.name(), n, what), EMBER) };
+            ui.text_c(&line, cx, ny, 16.0, col);
             ny += 22.0;
         }
     }

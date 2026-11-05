@@ -13,18 +13,18 @@ A dark-fantasy survivors-like in Rust ([macroquad](https://macroquad.rs)). Hold 
 
 ## Gallery
 
-**Foes and lords.** Thirteen kinds of foe across the top, the ten lords below them, the nine classes in the middle.
+**Foes and lords.** Thirteen kinds of foe across the top, the ten lords below them, the classes in the middle.
 
 ![Every foe and every lord](docs/bestiary.jpg)
 
-**Three fields.** The Sunken Marsh with the Drowned Bride, and the Burning Cathedral with the Iron Penitent. Braziers burn where someone lit them; the lords announce themselves.
+**Two fields.** The Graveyard, and the Burning Cathedral with the Iron Penitent. Braziers burn where someone lit them; the lords announce themselves.
 
 | | |
 |---|---|
-| ![The Sunken Marsh](docs/marsh.jpg) | ![The Burning Cathedral](docs/cathedral.jpg) |
+| ![The Graveyard](docs/boss.jpg) | ![The Burning Cathedral](docs/cathedral.jpg) |
 | ![A lord in its last phase](docs/boss_phase.jpg) | ![Six weapons at work](docs/arsenal.jpg) |
 
-**Skins and the Wardrobe.** Eighteen looks for every class.
+**Skins and the Wardrobe.** Twenty-eight looks for every class, ten of them earned by giving souls and marks away.
 
 ![Every skin](docs/skins.jpg)
 
@@ -75,21 +75,21 @@ Any XInput controller works (Xbox layout shown); it is picked up when plugged in
 
 ## Options
 
-Five pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (name, damage numbers and meter, overlay, screen shake, interface size, how far inside the screen edge off-screen markers sit), **Sound** (music, all effects, and each kind on its own: lord voices, weapons, hits, foes, pickups, interface), **Graphics** (resolution, fullscreen, VSync, FPS limit 30-240 or unlimited, 90 by default, anti-aliasing, dynamic lighting and its quality, model detail, particles, blood, fog, film grain, brightness, and how opaque your own weapons and skills are, to see the lords' attacks through them) and **Difficulty**. VSync and anti-aliasing apply after a restart. Above 1080p the view of the field stays 1080 units tall, so every resolution sees the same area; the interface grows with it (Interface size: Auto, or 100-200%). Options can be changed during a vigil from the pause menu (Resume, Options, Sound, Leave), which also shows the time, level, damage per second and your weapons and passives. Resting the mouse on a weapon or passive, in the pause menu or the HUD, says what it does. More options: pause or mute when the window loses focus, flash when hit, small health and stamina bars under your hero, brightness, lords speak, and a Discord status that shows friends whether you are in the menus, the lobby, a vigil or a boss rush, alone or online. At start the game asks GitHub whether a newer version is out (Check for updates, on by default); the main menu then offers to download it, put it in place of the old exe and restart.
+Five pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (name, damage numbers and meter, overlay, screen shake, interface size, how far inside the screen edge off-screen markers sit), **Sound** (music, all effects, and each kind on its own: lord voices, weapons, hits, foes, pickups, interface), **Graphics** (resolution, fullscreen, VSync, FPS limit 30-240 or unlimited, 90 by default, anti-aliasing, dynamic lighting and its quality, model detail, particles, blood, fog, film grain, brightness, and how opaque your own weapons and skills are, to see the lords' attacks through them) and **Difficulty**. VSync and anti-aliasing apply after a restart. Above 1080p the view of the field stays 1080 units tall, so every resolution sees the same area; the interface grows with it (Interface size: Auto, or 100-200%). Options can be changed during a vigil from the pause menu (Resume, Options, Sound, Leave), all but the difficulty, which stays as the vigil began; which also shows the time, level, damage per second and your weapons and passives. Resting the mouse on a weapon or passive, in the pause menu or the HUD, says what it does. More options: pause or mute when the window loses focus, flash when hit, small health and stamina bars under your hero, brightness, lords speak, and a Discord status that shows friends whether you are in the menus, the lobby, a vigil or a boss rush, alone or online. At start the game asks GitHub whether a newer version is out (Check for updates, on by default); the main menu then offers to download it, put it in place of the old exe and restart.
 
 ## Systems
 
 - **Souls** are both experience and currency. Carried souls are lost on death and left as a **remnant** where you fell; reach it in the next vigil to reclaim them. Die again first and they are gone.
 - **Ash Shrines** appear at 2:30, 7:30, 12:30 ... Stand in one for 1.5 s to heal, bank your carried souls and repel nearby foes.
 - **The Ash Shrine** (Start) is where you pick a class, the mode, the field, challenges and curses, and begin.
-- **Fields**: The Graveyard (archers and the restless), The Sunken Marsh (black water, leeches, ghouls and bloated things) and The Burning Cathedral (zealots, knights and gargoyles). Each has its own floor, props, light, foes and its own five lords; the Sovereign always ends the night. Online the host chooses.
+- **Fields**: The Graveyard (archers and the restless) and The Burning Cathedral (zealots, knights and gargoyles). Each has its own floor, props, light, foes and its own five lords; the Sovereign always ends the night. Online the host chooses.
 - **Lords**: ten in all. The Gravewarden, Pale Matriarch, Tolling Hermit and Ashen Sovereign, joined by the Drowned Bride (walls of water with one gap, a spiral of pillars), the Bog Mother (leaps, mud and ghouls), the Iron Penitent (a whirling flail, a lashing chain, three crushing steps), the Hollow Choir (a sweeping beam of voices and notes that follow you), the Stone Seraph (dives from the dark, drops stones) and the Pale Hound (zig-zag lunges and a howl that calls the pack). The lords speak aloud: most of them when they arrive, when they grow desperate and as they fall, the Pale Hound sniffs, howls and whimpers; five of them rise once more at a quarter of their health with a new trick.
-- **Class skills** on E (X): Rally, Fan of Knives, Meteor, Sanctuary, Harvest, Hex Field, Blood Rite, Bolt Storm and CLANG, one per class, growing with your level. The HUD shows when it is ready.
+- **Class skills** on E (X): Rally, Fan of Knives, Meteor, Sanctuary, Harvest, Hex Field, Blood Rite, Bolt Storm, CLANG, Beacon and Tempest, one per class, growing with your level. The HUD shows when it is ready.
 - **Curses** (at the Ash Shrine, or by the host for everyone): Frenzy, Famine, Volatile, Elite Tide, The Dark Hour, Brittle. Each adds 20% Ashen Marks.
 - **Braziers** stand all over every field. Stand by a cold one for a moment to light it: for two minutes it lights the dark, mends heroes near it and sets foes alight; it scatters a few souls when it catches. The nearest cold one is marked at the screen edge.
 - **Boss Rush** (a mode at the Ash Shrine, or the host's choice in the lobby): twelve lords, one after another with a three-second breather and no warning. Every lord is stronger than the last, the hordes are thin, you start with six level-ups and get three more per fallen lord. After the twelfth you can go on into an endless rush.
-- **The Reliquary** in the main menu has two pages. **Soul Upgrades** spends banked souls on 33 permanent upgrades (health, might, armor, regeneration, area, crit, pickup range, experience, damage to elites and bosses, dodging, less damage taken, cheaper rolls, merchant discounts, stronger draughts, extra projectiles, an extra weapon slot, an extra item slot and more). **Relics and Unlocks** spends **Ashen Marks**, earned at the end of every vigil, win or lose (time survived, bosses, level, kills, difficulty), on new classes, weapons and items and on twelve relics.
-- **The Wardrobe** in the main menu sells 18 hero skins for souls. A skin changes the hero's look in every class and is seen online too; your scarf keeps your player colour.
+- **The Reliquary** in the main menu has three pages. **Soul Upgrades** spends banked souls on 33 permanent upgrades (health, might, armor, regeneration, area, crit, pickup range, experience, damage to elites and bosses, dodging, less damage taken, cheaper rolls, merchant discounts, stronger draughts, extra projectiles, an extra weapon slot, an extra item slot and more). **Relics and Unlocks** spends **Ashen Marks**, earned at the end of every vigil, win or lose (time survived, bosses, level, kills, difficulty), on new classes and items and on twelve relics; every weapon is there from the start (marks spent on weapons before were given back). **Offerings** gives souls or marks away for honours, ten skins and two classes: the **Lantern Warden** (25,000 souls offered: Wraith Lanterns or Swinging Censer with one more, a wider light, braziers that burn twice as long, and Beacon, which slows, burns and heals) and the **Stormcaller** (250 marks offered: Storm Spear or Judgement Blade, +10% crit, crits that leap to a second foe, and Tempest, eight bolts on the strongest foes).
+- **The Wardrobe** in the main menu sells 18 hero skins for souls; ten more come with what has been offered in the Reliquary (10K, 50K, 100K, 500K, 1M and 5M souls; 100, 300, 1,000 and 5,000 marks). A skin changes the hero's look in every class and is seen online too; your scarf keeps your player colour.
 - **The field** is a walled square of 7200 x 7200 with the abyss beyond; torches on the wall light the edges.
 - **Lighting**: the world is dark; heroes, torches, candles, shrines, fire, lightning and spells cast light. It can be switched off in the options.
 - **Difficulty ramp**: settings harder than Knight start at a third of their extra strength and reach all of it after three minutes.
@@ -120,30 +120,32 @@ Five pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Omens** now and then: **blood altars** (stand on one to give a quarter of your life for +35% might until the next lord falls; the health bar shows the part given away), **cursed coffers** (richer loot, but opening one calls a ring of elites), **the courier** (a runner who flees with the key to a sealed vault; catch it within 35 s and the vault holds three coffers; an opened vault crumbles after 25 s), **the mist** (the night darkens and a champion hunts you in the fog; like the lords, no blow takes more than 2.5% of its health), **weather** for a few minutes (**ash rain**: fire weapons deal 40% more; **grave mist**: foes wade slower and souls are richer, but the light is short) and **Sven, the rival**, a dark hero who hunts whoever has gone 100 seconds without a wound and carries many souls. He circles and throws fans of blades, and before each lunge he stops and marks its path with a red line; every time he comes back he is stronger.
 - **Hourglass shrines** rise six times a vigil: stand on one and one to five minutes of the night pass at once, with their level-ups. If the sand runs past a lord, the lord comes 15 seconds later with a warning all the while; dawn is never skipped.
 - **The wager stone** rises before every lord: stand on a tile until its circle fills to bet a third of your carried souls (at most 400 plus 60 per minute of the night) that the lord falls within 30, 60 or 90 seconds, for three, two or one and a half times the stake. The bet's clock runs under the lord's health bar.
+- **Soul burden**: the souls you carry make you stronger, one step at 1,000 and one more each time the purse doubles, up to ten steps (512,000): +5% might, +3% area, +2% speed, +6% pickup range and 1% quicker weapons per step. Banking souls at a shrine gives the burden up.
+- **Empowered foes** (at the Ash Shrine, and in the lobby for everyone): foes' health (up to +300%, lords too), speed (up to +100%) and numbers (up to +200%), each on its own on top of the difficulty, each step paying more souls and marks.
 - **Ash Shrines** stir every 2.5 minutes, relics and blessings lie about more often, and passive items go up to level 8.
 - **Challenges** (toggled at the Ash Shrine, or by the host in the lobby for everyone): Rooted (no rolling), Glass Cannon (half health, +60% might), One Blade (no new weapons). Each adds 25% Ashen Marks.
 - **Achievements** pay Ashen Marks once. **Records** in the main menu shows the top-ten leaderboard, personal bests and achievements.
 - **End of vigil**: a summary of time, kills, damage per weapon, a graph of the fight, marks, leaderboard rank and new bests.
 - **Music**: a song for each ten minutes of the vigil with a combat layer that swells as the fight heats up, a theme of its own for each boss, and an endless-night track that grows faster and harsher every three minutes. Cute mode plays a music box instead.
 
-| Weapon | Paired item | Evolution | Fuses with (classic) |
+**Two arsenals.** The graveyard and the cathedral each have twelve weapons of their own; a vigil on a field offers only its own. Each class starts with the weapon in its place (the Reaper with the Grave Scythe on the graveyard, the Crozier in the cathedral). Weapons fuse at level 10 with one of two partners, two fusions make a mega fusion, two megas an ultra fusion, and at the end all twelve become one: **The Last Flame** on the graveyard, **The Final Hymn** in the cathedral.
+
+| Graveyard | Cathedral | The cathedral weapon | Classic fusion (graveyard / cathedral) |
 |---|---|---|---|
-| Rusted Blade | Ember Heart | Cinder Edge | Crescent Axe: Executioner's Gyre |
-| Pale Daggers | Pilgrim's Boots | Thousand Thorns | Gloom Crossbow: Thousandfold Volley |
-| Kindled Orb | Ashen Lens | Ruin Sun | Hex Brand: Cinderstorm |
-| Chime of Warding | Verdant Moss | Sanctum Bell | Wraith Lanterns: Requiem of Bells |
-| Wraith Lanterns | Twin Sigil | Choir of the Drowned | Chime of Warding |
-| Storm Spear | Crow Feather | Heaven's Reproach | Soulbolt: Wrath of the Pale Sky |
-| Crescent Axe | Iron Shell | Moonreaver | Rusted Blade |
-| Soulbolt | Hollow Hourglass | Soul Torrent | Storm Spear |
-| Grave Scythe* | Leech Fang* | Widow's Embrace | Blood Lance: Crimson Harvest |
-| Hex Brand* | Warden's Lung | Hellbrand | Kindled Orb |
-| Blood Lance* | Grave Candle* | Sanguine Pike | Grave Scythe |
-| Gloom Crossbow* | Soulward Censer | Arbalest of the Damned | Pale Daggers |
+| Rusted Blade | Rosary Whip | lashes ahead and leaps to the next foe | Executioner's Gyre / Stone Litany |
+| Pale Daggers | Martyr's Nails | a stream of iron nails at the nearest foes | Thousandfold Volley / Shattered Martyrdom |
+| Kindled Orb | Holy Water | a flask that bursts into a slowing, searing pool | Cinderstorm / Burning Font |
+| Chime of Warding | Halo | a ring of light breathing out and back | Requiem of Bells / Incense Crown |
+| Wraith Lanterns | Swinging Censer | censers in a figure of eight, trailing smoke | (with the Chime / Halo) |
+| Storm Spear | Judgement Blade | a great sword falling on the wicked | Wrath of the Pale Sky / Verdict of Heaven |
+| Crescent Axe | Gargoyle Familiar | swoops at the strongest foe and back | (with the Blade / Rosary) |
+| Soulbolt | Psalm Runes | letters circling, then seeking | (with the Spear / Judgement) |
+| Grave Scythe | Crozier | a crook swept round you, knocking foes off their feet | Crimson Harvest / Shepherd's Requiem |
+| Hex Brand | Candelabrum | candles set down that spit flame at foes near them | (with the Orb / Holy Water) |
+| Blood Lance | Organ Pipes | pipes bursting from the ground in a line ahead | (with the Scythe / Crozier) |
+| Gloom Crossbow | Stained Glass | shards all around that split on impact | (with the Daggers / Nails) |
 
-New fusions: Blade + Scythe = Reaper's Waltz, Daggers + Soulbolt = Ghostfang Storm, Orb + Storm Spear = Thunderpyre, Chime + Hex Brand = Tolling Brand, Lanterns + Blood Lance = Lantern Pike, Crescent Axe + Gloom Crossbow = Moonfall Barrage.
-
-\* unlocked in the Reliquary. Classes Reaper, Hexblade, Blood Knight and Arbalist start with the new weapons and are unlocked there too.
+Second fusions: Reaper's Waltz / Pilgrim's Scourge (Blade or Rosary with Scythe or Crozier), Ghostfang Storm / Written in Iron, Thunderpyre / Baptism of Fire, Tolling Brand / Vigil Light, Lantern Pike / Smoke and Psalm, Moonfall Barrage / Broken Spire.
 
 ## Assets
 

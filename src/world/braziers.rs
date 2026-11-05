@@ -49,11 +49,12 @@ impl World {
                 b.burn = (b.burn - dt).max(0.0);
                 continue;
             }
-            let near = self.heroes.iter().any(|h| h.alive() && h.p.pos.distance(b.pos) < 48.0);
-            b.kindle = if near { b.kindle + dt } else { (b.kindle - dt).max(0.0) };
+            let near = self.heroes.iter().filter(|h| h.alive() && h.p.pos.distance(b.pos) < 48.0).map(|h| h.class).collect::<Vec<_>>();
+            b.kindle = if !near.is_empty() { b.kindle + dt } else { (b.kindle - dt).max(0.0) };
             if b.kindle >= BRAZIER_KINDLE {
                 b.kindle = 0.0;
-                b.burn = BRAZIER_BURN;
+                // A Lantern Warden's fire lasts twice as long.
+                b.burn = BRAZIER_BURN * if near.contains(&Class::LanternWarden) { 2.0 } else { 1.0 };
                 lit.push(i);
             }
         }
@@ -84,6 +85,10 @@ impl World {
         let dps = 5.0 * (1.0 + self.time / 300.0);
         for e in self.enemies.iter_mut().filter(|e| !e.boss && !e.dead) {
             if burning.iter().any(|b| b.distance(e.pos) < BRAZIER_REACH) {
+                if e.burn <= 0.0 {
+                    // The brazier's own fire: no hero's weapon gets the credit.
+                    e.burn_src = Src { hero: usize::MAX, weapon: WeaponKind::Blade };
+                }
                 e.burn = e.burn.max(1.0);
                 e.burn_dps = e.burn_dps.max(dps);
             }

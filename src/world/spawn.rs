@@ -58,7 +58,7 @@ impl World {
             burn_acc: 0.0,
             burn_src: Src { hero: 0, weapon: WeaponKind::Blade },
             slow: 0.0,
-            last_hit: [-10.0; 12],
+            last_hit: [-10.0; ALL_WEAPONS.len()],
             timer: gen_range(0.5, 2.5),
             elite: false,
             boss: false,
@@ -328,7 +328,7 @@ impl World {
         } else {
             hp * BOSS_GROWTH.powf((self.time / 60.0 - 5.0).max(0.0))
         };
-        e.hp = grown * if finale { 1.25 } else { 1.0 } * self.diff.boss_hp * coop;
+        e.hp = grown * if finale { 1.25 } else { 1.0 } * self.diff.at(self.time).boss_hp * coop;
         e.max_hp = e.hp;
         e.r = r;
         e.speed = speed * self.diff.at(self.time).speed;

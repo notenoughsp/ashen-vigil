@@ -103,6 +103,83 @@ pub fn weapon_icon(kind: WeaponKind, c: Vec2, s: f32, col: Color) {
             line(c, s, vec2(0.0, 0.4), vec2(0.0, -0.4), 0.08, dark);
             tri(c, s, vec2(0.0, -0.44), vec2(-0.08, -0.3), vec2(0.08, -0.3), col);
         }
+        WeaponKind::Rosary => {
+            // A loop of beads with a little cross hanging from it.
+            for k in 0..9 {
+                let a = k as f32 / 9.0 * TAU;
+                circle(c, s, vec2(0.0, -0.08) + Vec2::from_angle(a) * 0.26, 0.06, col);
+            }
+            line(c, s, vec2(0.0, 0.18), vec2(0.0, 0.44), 0.06, dark);
+            line(c, s, vec2(-0.1, 0.3), vec2(0.1, 0.3), 0.06, dark);
+        }
+        WeaponKind::Nails => {
+            for dx in [-0.2, 0.0, 0.2] {
+                line(c, s, vec2(dx, -0.3), vec2(dx, 0.36), 0.06, col);
+                line(c, s, vec2(dx - 0.08, -0.3), vec2(dx + 0.08, -0.3), 0.07, dark);
+            }
+        }
+        WeaponKind::HolyWater => {
+            circle(c, s, vec2(0.0, 0.1), 0.26, col);
+            draw_rectangle(c.x - 0.07 * s, c.y - 0.36 * s, 0.14 * s, 0.22 * s, dark);
+            line(c, s, vec2(-0.1, 0.1), vec2(0.1, 0.1), 0.05, WHITE);
+            line(c, s, vec2(0.0, 0.0), vec2(0.0, 0.22), 0.05, WHITE);
+        }
+        WeaponKind::Halo => {
+            arc(c, s, Vec2::ZERO, 0.32, 0.0, TAU, 0.1, col);
+            arc(c, s, Vec2::ZERO, 0.18, 0.0, TAU, 0.05, darker(col, 0.8));
+        }
+        WeaponKind::Censer => {
+            line(c, s, vec2(0.0, -0.44), vec2(0.0, -0.1), 0.04, dark);
+            circle(c, s, vec2(0.0, 0.08), 0.2, col);
+            draw_rectangle(c.x - 0.2 * s, c.y + 0.02 * s, 0.4 * s, 0.06 * s, dark);
+            circle(c, s, vec2(0.18, -0.22), 0.07, darker(col, 0.7));
+            circle(c, s, vec2(0.28, -0.34), 0.05, darker(col, 0.6));
+        }
+        WeaponKind::Judgement => {
+            line(c, s, vec2(0.0, -0.42), vec2(0.0, 0.26), 0.12, col);
+            line(c, s, vec2(-0.2, 0.22), vec2(0.2, 0.22), 0.08, dark);
+            line(c, s, vec2(0.0, 0.22), vec2(0.0, 0.42), 0.07, dark);
+            tri(c, s, vec2(-0.06, -0.42), vec2(0.06, -0.42), vec2(0.0, -0.5), col);
+        }
+        WeaponKind::Gargoyle => {
+            circle(c, s, vec2(0.0, 0.06), 0.18, col);
+            tri(c, s, vec2(-0.14, 0.0), vec2(-0.46, -0.24), vec2(-0.22, 0.2), dark);
+            tri(c, s, vec2(0.14, 0.0), vec2(0.46, -0.24), vec2(0.22, 0.2), dark);
+            tri(c, s, vec2(-0.12, -0.08), vec2(-0.04, -0.08), vec2(-0.1, -0.24), col);
+            tri(c, s, vec2(0.12, -0.08), vec2(0.04, -0.08), vec2(0.1, -0.24), col);
+        }
+        WeaponKind::Runes => {
+            line(c, s, vec2(-0.26, -0.3), vec2(-0.26, 0.3), 0.07, col);
+            line(c, s, vec2(-0.26, -0.3), vec2(-0.06, -0.1), 0.06, col);
+            line(c, s, vec2(0.1, -0.3), vec2(0.3, 0.3), 0.07, col);
+            line(c, s, vec2(0.3, -0.3), vec2(0.1, 0.3), 0.07, col);
+        }
+        WeaponKind::Crozier => {
+            line(c, s, vec2(0.04, 0.44), vec2(0.04, -0.16), 0.08, dark);
+            arc(c, s, vec2(-0.1, -0.16), 0.15, PI, TAU + PI * 0.5, 0.09, col);
+        }
+        WeaponKind::Candles => {
+            for (dx, h) in [(-0.22, 0.28), (0.0, 0.4), (0.22, 0.28)] {
+                draw_rectangle(c.x + (dx - 0.05) * s, c.y + (0.32 - h) * s, 0.1 * s, h * s, col);
+                tri(c, s, vec2(dx - 0.04, 0.32 - h), vec2(dx + 0.04, 0.32 - h), vec2(dx, 0.2 - h), Color::new(1.0, 0.7, 0.3, 1.0));
+            }
+            line(c, s, vec2(-0.3, 0.36), vec2(0.3, 0.36), 0.06, dark);
+        }
+        WeaponKind::Organ => {
+            for (k, h) in [0.4, 0.62, 0.8, 0.62, 0.4].iter().enumerate() {
+                let dx = -0.32 + k as f32 * 0.16;
+                draw_rectangle(c.x + (dx - 0.05) * s, c.y + (0.4 - h) * s, 0.1 * s, h * s, if k % 2 == 0 { col } else { dark });
+            }
+        }
+        WeaponKind::Glass => {
+            let cols = [Color::new(0.9, 0.3, 0.3, 1.0), Color::new(0.3, 0.6, 1.0, 1.0), Color::new(1.0, 0.85, 0.3, 1.0), Color::new(0.4, 0.85, 0.5, 1.0)];
+            for (k, cc) in cols.iter().enumerate() {
+                let a = k as f32 / 4.0 * TAU + 0.4;
+                let q = Vec2::from_angle(a) * 0.2;
+                tri(c, s, q * 0.2, q + Vec2::from_angle(a + 1.2) * 0.18, q + Vec2::from_angle(a - 0.6) * 0.22, *cc);
+            }
+            arc(c, s, Vec2::ZERO, 0.4, 0.0, TAU, 0.05, dark);
+        }
     }
 }
 

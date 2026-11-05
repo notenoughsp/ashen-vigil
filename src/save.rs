@@ -317,6 +317,8 @@ pub struct Save {
     /// Souls and Ashen Marks given away in the Reliquary's offerings.
     pub offered_souls: u64,
     pub offered_marks: u64,
+    /// The marks for weapons bought before every weapon was free have been given back.
+    pub weapons_refunded: bool,
     /// Classes that have kept a vigil until dawn, one bit per class.
     pub won_classes: u16,
     /// Best ten vigils, best first.
@@ -350,6 +352,7 @@ impl Default for Save {
             shrine_levels: 0,
             offered_souls: 0,
             offered_marks: 0,
+            weapons_refunded: false,
             won_classes: 0,
             runs: Vec::new(),
             best_kills: 0,
@@ -448,6 +451,7 @@ impl Save {
 
     pub fn from_text(text: &str) -> Save {
         let mut s = Save::default();
+        let mut bought = 0u64;
         let st = &mut s.settings;
         for line in text.lines() {
             let Some((k, v)) = line.split_once('=') else { continue };
@@ -457,7 +461,11 @@ impl Save {
                 "souls" => s.souls = v.parse().unwrap_or(0),
                 "marks" => s.marks = v.parse().unwrap_or(0),
                 // Older saves predate unlocks; never take away the defaults.
-                "unlocks" => s.profile.unlocks = v.parse::<u64>().unwrap_or(0) | default_unlocks(),
+                "unlocks" => {
+                    bought = v.parse::<u64>().unwrap_or(0);
+                    s.profile.unlocks = bought | default_unlocks();
+                }
+                "weapons_refunded" => s.weapons_refunded = flag(v),
                 "bucket" => s.bucket_unlocked = flag(v),
                 "best" => s.best_time = f(0.0),
                 "vigils" => s.vigils = v.parse().unwrap_or(0),
@@ -471,7 +479,9 @@ impl Save {
                 "offered_marks" => s.offered_marks = v.parse().unwrap_or(0),
                 "won_classes" => s.won_classes = v.parse().unwrap_or(0),
                 "boss_rush" => st.boss_rush = flag(v),
-                "biome" => st.biome = v.parse::<u8>().unwrap_or(0).min(2),
+                // Before the marsh was drained: 2 was the cathedral, 1 the marsh.
+                "biome" => st.biome = u8::from(v.parse::<u8>().unwrap_or(0) == 2),
+                "field" => st.biome = v.parse::<u8>().unwrap_or(0).min(1),
                 "pause_unfocused" => st.pause_unfocused = flag(v),
                 "mute_unfocused" => st.mute_unfocused = flag(v),
                 "hurt_flash" => st.hurt_flash = flag(v),
@@ -545,6 +555,11 @@ impl Save {
                 "diff_dmg" => st.diff.dmg = f(1.0),
                 "diff_speed" => st.diff.speed = f(1.0),
                 "diff_boss" => st.diff.boss_hp = f(1.0),
+                "diff_boost" => {
+                    for (i, n) in v.split(',').take(3).enumerate() {
+                        st.diff.boost[i] = n.parse::<u8>().unwrap_or(0).min(BOOST_MAX[i]);
+                    }
+                }
                 _ => {
                     if let Some(i) = META.iter().position(|m| m.key == k) {
                         s.profile.meta[i] = v.parse::<u32>().unwrap_or(0).min(META[i].max);
@@ -554,8 +569,22 @@ impl Save {
                 }
             }
         }
-        if s.profile.skin > 0 && s.skins & 1 << (s.profile.skin - 1) == 0 {
+        // A skin is kept if it was bought or if what was offered earns it.
+        let earned = |skin: u8| match SKINS.get(skin as usize - 1).and_then(|d| d.offering) {
+            Some((true, n)) => s.offered_souls >= n,
+            Some((false, n)) => s.offered_marks >= n,
+            None => false,
+        };
+        if s.profile.skin > 0 && s.skins & 1 << (s.profile.skin - 1) == 0 && !earned(s.profile.skin) {
             s.profile.skin = 0;
+        }
+        if !s.weapons_refunded {
+            s.weapons_refunded = true;
+            for (w, cost) in FREED_WEAPONS {
+                if bought & Unlock::Weapon(w).bit() != 0 {
+                    s.marks += cost;
+                }
+            }
         }
         s
     }
@@ -605,7 +634,7 @@ impl Save {
             out += &format!("remnant={:.0},{:.0},{}\n", p.x, p.y, n);
         }
         out += &format!("name={}\nlast_ip={}\nui_scale={}\n", st.name, st.last_ip, st.ui_scale);
-        out += &format!("cute={}\ncute_found={}\nboss_rush={}\nbiome={}\ncurses={}\n", b(st.cute), b(self.cute_found), b(st.boss_rush), st.biome, self.curses);
+        out += &format!("cute={}\ncute_found={}\nboss_rush={}\nfield={}\ncurses={}\n", b(st.cute), b(self.cute_found), b(st.boss_rush), st.biome, self.curses);
         out += &format!(
             "pause_unfocused={}\nmute_unfocused={}\nhurt_flash={}\nbrightness={}\nboss_lines={}\ndiscord={}\ncheck_updates={}\n",
             b(st.pause_unfocused),
@@ -621,7 +650,7 @@ impl Save {
             "skins={}\nskin={}\nshrine_levels={}\nwon_classes={}\nmarker_inset={}\n",
             self.skins, self.profile.skin, self.shrine_levels, self.won_classes, st.marker_inset
         );
-        out += &format!("offered_souls={}\noffered_marks={}\n", self.offered_souls, self.offered_marks);
+        out += &format!("offered_souls={}\noffered_marks={}\nweapons_refunded={}\n", self.offered_souls, self.offered_marks, b(self.weapons_refunded));
         for (a, k) in ACTIONS.iter().zip(st.binds) {
             out += &format!("bind_{}={}\n", a.key(), key_name(k));
         }
@@ -649,6 +678,7 @@ impl Save {
             b(st.shake)
         );
         out += &format!("diff_count={}\ndiff_hp={}\ndiff_dmg={}\ndiff_speed={}\ndiff_boss={}\n", st.diff.count, st.diff.hp, st.diff.dmg, st.diff.speed, st.diff.boss_hp);
+        out += &format!("diff_boost={},{},{}\n", st.diff.boost[0], st.diff.boost[1], st.diff.boost[2]);
         for (i, m) in META.iter().enumerate() {
             out += &format!("{}={}\n", m.key, self.profile.meta[i]);
         }

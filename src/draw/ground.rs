@@ -3,7 +3,6 @@
 use super::*;
 
 const TILE: f32 = 64.0;
-const OUTLINE_DARK: Color = Color::new(0.02, 0.016, 0.024, 1.0);
 const REGION: i32 = 6;
 /// Tiles per side of a cached floor chunk, and how many chunks stay cached.
 const CHUNK: i32 = 8;
@@ -178,8 +177,6 @@ impl World {
         } else {
             match self.biome {
                 Biome::Graveyard => Color::new((base + red) / 255.0, (base - 1.5) / 255.0, (base + 1.0) / 255.0, 1.0),
-                // Mossy, greener stone.
-                Biome::Marsh => Color::new((base - 3.0) / 255.0, (base + 2.5) / 255.0, (base - 2.0) / 255.0, 1.0),
                 // Warm marble, alternately light and dark like a cathedral floor.
                 Biome::Cathedral => {
                     let check = if (tx + ty).rem_euclid(2) == 0 { 6.0 } else { -2.0 };
@@ -188,7 +185,6 @@ impl World {
             }
         };
         match self.biome {
-            Biome::Marsh if !self.cute && hash(tx, ty, 140).is_multiple_of(4) => self.water_tile(tx, ty, px, py),
             Biome::Cathedral if !self.cute => self.marble_tile(tx, ty, px, py, c),
             _ => self.flagstones(tx, ty, px, py, c),
         }
@@ -201,25 +197,6 @@ impl World {
                 draw_circle(fx + o.x, fy + o.y, 1.9, petal);
             }
             draw_circle(fx, fy, 1.4, rgba(255, 200, 90, 255));
-        }
-    }
-
-    /// Black marsh water with a sheen, a few lily pads and a muddy rim.
-    fn water_tile(&self, tx: i32, ty: i32, px: f32, py: f32) {
-        draw_rectangle(px, py, TILE, TILE, rgba(14, 18, 14, 255));
-        draw_rectangle(px + 3.0, py + 3.0, TILE - 6.0, TILE - 6.0, rgba(8, 20, 22, 255));
-        for k in 0..3 {
-            let y = py + 14.0 + k as f32 * 16.0 + hf(tx, ty, 141 + k) * 6.0;
-            let x = px + 8.0 + hf(tx, ty, 144 + k) * 20.0;
-            draw_line(x, y, x + 14.0 + hf(tx, ty, 147 + k) * 14.0, y, 1.0, rgba(40, 70, 72, 255));
-        }
-        if hash(tx, ty, 150).is_multiple_of(2) {
-            let (lx, ly) = (px + 14.0 + hf(tx, ty, 151) * 36.0, py + 14.0 + hf(tx, ty, 152) * 36.0);
-            draw_circle(lx, ly, 6.0, rgba(34, 64, 30, 255));
-            draw_triangle(vec2(lx, ly), vec2(lx + 7.0, ly - 2.0), vec2(lx + 7.0, ly + 2.0), rgba(8, 20, 22, 255));
-            if hash(tx, ty, 153).is_multiple_of(3) {
-                draw_circle(lx - 2.0, ly - 2.0, 1.8, rgba(200, 170, 190, 255));
-            }
         }
     }
 
@@ -318,7 +295,6 @@ impl World {
         } else {
             match self.biome {
                 Biome::Graveyard => (Color::new(0.12, 0.085, 0.06, 0.6), Color::new(0.14, 0.2, 0.09, 0.95)),
-                Biome::Marsh => (Color::new(0.08, 0.09, 0.05, 0.7), Color::new(0.16, 0.24, 0.1, 0.95)),
                 // Ash and soot instead of earth, and no grass grows.
                 Biome::Cathedral => (Color::new(0.09, 0.085, 0.08, 0.55), Color::new(0.0, 0.0, 0.0, 0.0)),
             }
@@ -369,7 +345,7 @@ impl World {
                 if !inside_world(vec2(ox, oy), 90.0) {
                     continue;
                 }
-                // The marsh and the cathedral have props of their own; candles stay everywhere.
+                // The cathedral has props of its own; candles stay everywhere.
                 if self.biome != Biome::Graveyard && !(171..=176).contains(&d) {
                     self.field_prop(d, tx, ty, ox, oy);
                     continue;
@@ -424,46 +400,10 @@ impl World {
         }
     }
 
-    /// Props of the marsh and the cathedral.
+    /// Props of the cathedral.
     fn field_prop(&self, d: u32, tx: i32, ty: i32, ox: f32, oy: f32) {
         let t = self.time;
         match (self.biome, d) {
-            (Biome::Marsh, 0..=40) => {
-                // Reeds with cattails, swaying.
-                for k in 0..6 {
-                    let bx = ox + (k as f32 - 2.5) * 3.5;
-                    let h = 18.0 + hf(tx, ty, 20 + k) * 16.0;
-                    let lean = (t * 1.2 + bx * 0.05).sin() * 2.5;
-                    draw_line(bx, oy, bx + lean, oy - h, 1.5, rgba(60, 74, 34, 255));
-                    if k % 2 == 0 {
-                        draw_ellipse(bx + lean, oy - h, 1.8, 4.5, 0.0, rgba(70, 46, 28, 255));
-                    }
-                }
-            }
-            (Biome::Marsh, 41..=60) => dead_tree(ox, oy, hash(tx, ty, 8)),
-            (Biome::Marsh, 61..=80) => {
-                // A mound of mud with a skull sinking into it.
-                draw_ellipse(ox, oy, 18.0, 8.0, 0.0, rgba(30, 28, 18, 255));
-                draw_ellipse(ox - 3.0, oy - 2.0, 12.0, 5.0, 0.0, rgba(40, 38, 24, 255));
-                draw_circle(ox + 4.0, oy - 3.0, 4.0, rgba(140, 132, 112, 255));
-                draw_circle(ox + 3.0, oy - 3.0, 1.0, OUTLINE_DARK);
-                draw_circle(ox + 5.5, oy - 3.0, 1.0, OUTLINE_DARK);
-            }
-            (Biome::Marsh, 81..=95) => {
-                // Bubbles rising from a stagnant pool.
-                draw_ellipse(ox, oy, 14.0, 7.0, 0.0, rgba(14, 26, 20, 220));
-                let k = (t * 0.8 + hf(tx, ty, 9) * 5.0).fract();
-                draw_circle_lines(ox + 3.0, oy - k * 4.0, 1.5 + k * 3.0, 1.0, Color::new(0.4, 0.6, 0.5, 0.6 * (1.0 - k)));
-            }
-            (Biome::Marsh, 96..=110) => skull_pile(ox, oy),
-            (Biome::Marsh, 111..=150) => {
-                // Hanging moss from an old stake.
-                draw_line(ox, oy + 4.0, ox, oy - 30.0, 3.0, rgba(50, 40, 30, 255));
-                for k in 0..4 {
-                    let x = ox - 6.0 + k as f32 * 4.0;
-                    draw_line(x, oy - 30.0, x + (t + k as f32).sin(), oy - 16.0 + k as f32 * 2.0, 1.2, rgba(54, 70, 40, 255));
-                }
-            }
             (Biome::Cathedral, 0..=25) => {
                 // A broken pillar: base, a stump of column, rubble around it.
                 draw_ellipse(ox, oy + 10.0, 20.0, 6.0, 0.0, rgba(0, 0, 0, 110));
@@ -596,7 +536,6 @@ impl World {
                     } else {
                         match self.biome {
                             Biome::Graveyard => Color::new(0.5, 0.5, 0.55, 0.022),
-                            Biome::Marsh => Color::new(0.4, 0.55, 0.45, 0.03),
                             Biome::Cathedral => Color::new(0.45, 0.35, 0.3, 0.025),
                         }
                     };

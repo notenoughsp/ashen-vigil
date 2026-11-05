@@ -964,23 +964,28 @@ fn cute_mode_softens_the_red() {
 
 #[test]
 fn every_weapon_ends_as_the_last_flame() {
-    let mut w = world_with(1, PRESETS[1].1);
-    w.heroes[0].weapons = ALL_WEAPONS
-        .iter()
-        .map(|k| {
-            let mut wp = Weapon::new(*k);
-            wp.level = WEAPON_MAX_LEVEL;
-            wp
-        })
-        .collect();
-    w.check_fusion(0);
-    let h = &w.heroes[0];
-    assert_eq!(h.weapons.len(), 1, "every weapon should have gone into one slot");
-    let last = &h.weapons[0];
-    assert!(last.whole && last.tier() == 4);
-    assert_eq!(last.parts().len(), ALL_WEAPONS.len());
-    assert!(last.parts().iter().all(|p| p.mult == LAST_MULT));
-    assert_eq!(last.display_name(), LAST_FLAME);
+    // Each field's arsenal ends in its own last weapon.
+    for (cathedral, name) in [(false, LAST_FLAME), (true, LAST_HYMN)] {
+        let mut w = world_with(1, PRESETS[1].1);
+        w.heroes[0].arm_for(cathedral);
+        w.heroes[0].weapons = w.heroes[0]
+            .arsenal()
+            .iter()
+            .map(|k| {
+                let mut wp = Weapon::new(*k);
+                wp.level = WEAPON_MAX_LEVEL;
+                wp
+            })
+            .collect();
+        w.check_fusion(0);
+        let h = &w.heroes[0];
+        assert_eq!(h.weapons.len(), 1, "every weapon should have gone into one slot");
+        let last = &h.weapons[0];
+        assert!(last.whole && last.tier() == 4);
+        assert_eq!(last.parts().len(), ARSENAL);
+        assert!(last.parts().iter().all(|p| p.mult == LAST_MULT));
+        assert_eq!(last.display_name(), name);
+    }
 
     // While a new weapon can still come, leftovers wait instead of merging.
     let mut w = world_with(1, PRESETS[1].1);
@@ -1350,11 +1355,11 @@ fn each_field_has_its_own_lords_and_foes() {
         assert!(ALL_BIOMES.iter().any(|b| b.lords().contains(lord)), "{:?} never comes", lord);
     }
     let mut w = world_with(1, PRESETS[1].1);
-    w.biome = Biome::Marsh;
+    w.biome = Biome::Cathedral;
     w.time = 5.0 * 60.0;
     w.next_boss = w.time;
     simulate(&mut w, 1.0, true, |_, _| {});
-    assert_eq!(w.boss_kind, Some(Biome::Marsh.lords()[0]));
+    assert_eq!(w.boss_kind, Some(Biome::Cathedral.lords()[0]));
 }
 
 #[test]
@@ -2050,4 +2055,78 @@ fn a_wager_stakes_no_more_than_its_cap() {
     let g = w.heroes[0].wager.expect("no bet was placed");
     assert!(g.stake <= crate::world::wager_cap(600.0), "staked {}", g.stake);
     assert!(g.stake >= 900, "the cap is not tiny: {}", g.stake);
+}
+
+#[test]
+fn the_cathedral_has_its_own_arsenal_and_every_weapon_in_it_hurts() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.biome = Biome::Cathedral;
+    w.heroes.clear();
+    let profile = Profile { unlocks: u64::MAX, ..Profile::default() };
+    w.add_hero(0, "Tester", Class::Reaper, profile, false);
+    // The Reaper's scythe becomes the crozier in the cathedral.
+    assert_eq!(w.heroes[0].weapons[0].kind, WeaponKind::Crozier);
+    for _ in 0..40 {
+        for c in w.heroes[0].roll_choices() {
+            if let Choice::NewWeapon(k) = c {
+                assert!(k.is_cathedral(), "{:?} is not the cathedral's", k);
+            }
+        }
+    }
+    // Every partner pair is a cathedral pair, and every pair has a name of its own.
+    for k in CATHEDRAL_WEAPONS {
+        for p in k.fusion_partners() {
+            assert!(p.is_cathedral() && p.fusion_partners().contains(&k), "{:?} and {:?}", k, p);
+            assert!(!fusion_name(k, p).is_empty());
+        }
+    }
+    // Each weapon alone, against a crowd: it must deal damage.
+    for k in CATHEDRAL_WEAPONS {
+        let mut w = world_with(1, PRESETS[1].1);
+        w.time = 60.0;
+        w.next_boss = f32::MAX;
+        w.heroes[0].arm_for(true);
+        w.heroes[0].weapons = vec![Weapon { level: 5, ..Weapon::new(k) }];
+        w.heroes[0].recompute_stats();
+        let p = w.heroes[0].p.pos;
+        for i in 0..30 {
+            let mut e = w.make_enemy(EnemyKind::Knight, p + Vec2::from_angle(i as f32 * 0.7) * (70.0 + (i % 5) as f32 * 30.0));
+            e.speed = 0.0;
+            e.hp = 1e6;
+            e.max_hp = 1e6;
+            w.enemies.push(e);
+        }
+        for _ in 0..240 {
+            w.heroes[0].input = Input::default();
+            w.heroes[0].p.hp = w.heroes[0].stats.max_hp;
+            w.update(1.0 / 60.0);
+        }
+        assert!(w.heroes[0].dmg_weapon[k.idx()] > 0.0, "{:?} dealt no damage", k);
+    }
+}
+
+#[test]
+fn the_lantern_warden_and_the_stormcaller_have_their_gifts() {
+    // One more lantern than anyone else with the same lanterns.
+    let warden = Hero::new(0, "A", Class::LanternWarden, Profile::default());
+    let mut other = Hero::new(0, "B", Class::LanternWarden, Profile::default());
+    other.class = Class::BellAcolyte;
+    assert_eq!(warden.lantern_positions().len(), other.lantern_positions().len() + 1);
+    assert_eq!(warden.weapons[0].kind, WeaponKind::Lanterns);
+
+    // A Stormcaller's crit leaps to a second foe.
+    let mut w = world_with(1, PRESETS[1].1);
+    w.heroes.clear();
+    w.add_hero(0, "Tester", Class::Stormcaller, Profile::default(), false);
+    w.heroes[0].stats.crit = 1.0;
+    let p = w.heroes[0].p.pos + vec2(300.0, 0.0);
+    for k in 0..2 {
+        let mut e = w.make_enemy(EnemyKind::Knight, p + vec2(k as f32 * 60.0, 0.0));
+        e.hp = 1e6;
+        e.max_hp = 1e6;
+        w.enemies.push(e);
+    }
+    w.grid.rebuild(&w.enemies);
+    w.hit(0, 100.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Spear }, false);
+    assert!(w.enemies[1].hp < 1e6, "the crit did not leap");
 }

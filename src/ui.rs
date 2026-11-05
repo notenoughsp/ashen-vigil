@@ -550,8 +550,24 @@ impl<'a> Ui<'a> {
         draw_poly(sx - 24.0, sh - 35.0, 4, 9.0, 45.0, Color::new(0.7, 0.85, 1.0, 1.0));
         draw_poly(sx - 24.0, sh - 35.0, 4, 4.0, 45.0, WHITE);
         self.text(&souls, sx, sh - 25.0, 28.0, PALE);
+        // The weight of the souls carried, and what it gives; banking them gives it up.
+        let burden = crate::world::soul_burden(pl.souls);
+        let mut note_y = sh - 62.0;
+        if burden > 0 {
+            let b = burden as f32;
+            let line = format!(
+                "Soul burden {}/{}: +{:.0}% might, +{:.0}% area, +{:.0}% speed",
+                burden,
+                crate::world::BURDEN_MAX,
+                crate::world::BURDEN_MIGHT * b * 100.0,
+                crate::world::BURDEN_AREA * b * 100.0,
+                crate::world::BURDEN_SPEED * b * 100.0
+            );
+            self.text_r(&line, sw - 30.0, note_y, 14.0, Color::new(0.6, 0.85, 1.0, 0.95));
+            note_y -= 18.0;
+        }
         if me.banked > 0 {
-            self.text_r(&format!("banked {}", me.banked), sw - 30.0, sh - 62.0, 14.0, DIM);
+            self.text_r(&format!("banked {}", me.banked), sw - 30.0, note_y, 14.0, DIM);
         }
 
         if let Some(k) = w.boss_kind {

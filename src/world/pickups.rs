@@ -302,7 +302,16 @@ impl World {
                 let who = if self.multiplayer() { format!("{} rests", self.heroes[h].name) } else { "You rest".to_string() };
                 self.toast(&format!("{} a while by a small fire. The dark can wait.", who));
                 // A harmless little fire to sit by.
-                self.pools.push(FirePool { pos: at, r: 12.0, life: 12.0, max_life: 12.0, dps: 0.0, tick: 1.0, src: Src { hero: h, weapon: WeaponKind::Orb }, hex: false });
+                self.pools.push(FirePool {
+                    pos: at,
+                    r: 12.0,
+                    life: 12.0,
+                    max_life: 12.0,
+                    dps: 0.0,
+                    tick: 1.0,
+                    src: Src { hero: h, weapon: WeaponKind::Orb },
+                    kind: PoolKind::Fire,
+                });
                 self.sfx_at("kindle", 0.6, at);
             }
         }

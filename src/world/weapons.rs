@@ -58,6 +58,49 @@ impl World {
                 }
                 return;
             }
+            WeaponKind::Halo => {
+                // The ring breathes out and back; whatever its edge passes is seared.
+                spin += s.speed * dt;
+                self.store_part(h, wi, part.slot, timer, spin);
+                let max = 135.0 * area;
+                let r = 40.0 + (max - 40.0) * (0.5 - 0.5 * spin.cos());
+                let band = 18.0 * area.sqrt();
+                let mut q = std::mem::take(&mut self.qbuf);
+                self.grid.query(p, r + band, &mut q);
+                let mut hit = Vec::new();
+                for &i in &q {
+                    let e = &self.enemies[i];
+                    let d = e.pos.distance(p);
+                    if !e.dead && (d - r).abs() < band + e.r && self.time - e.last_hit[kind.idx()] >= cd * 0.5 {
+                        hit.push(i);
+                    }
+                }
+                self.qbuf = q;
+                for i in hit {
+                    let k = (self.enemies[i].pos - p).normalize_or_zero() * 90.0;
+                    self.hit(i, dmg, k, src, true);
+                }
+                self.damage_bullets_where(|b, pad| (b.distance(p) - r).abs() < band + pad, dmg);
+                return;
+            }
+            WeaponKind::Censer => {
+                // Censers swing in a figure of eight and leave a choking smoke behind.
+                spin += s.speed * dt;
+                timer -= dt;
+                let smoke = timer <= 0.0;
+                if smoke {
+                    timer = 0.45;
+                }
+                self.store_part(h, wi, part.slot, timer, spin);
+                for (cp, r) in self.heroes[h].censer_positions() {
+                    self.hit_circle(cp, r, dmg, 140.0, src, Some(cd));
+                    if smoke {
+                        let life = if evo { 2.2 } else { 1.4 };
+                        self.pools.push(FirePool { pos: cp, r: r * 1.5, life, max_life: life, dps: dmg * 0.9, tick: 0.2, src, kind: PoolKind::Smoke });
+                    }
+                }
+                return;
+            }
             WeaponKind::Chime => {
                 timer -= dt;
                 let fire = timer <= 0.0;
@@ -87,7 +130,7 @@ impl World {
             return;
         }
         timer = cd;
-        if kind == WeaponKind::Crossbow {
+        if matches!(kind, WeaponKind::Crossbow | WeaponKind::Glass) {
             // Each volley turns a little so the gaps between quarrels move.
             spin += PI / amount as f32 * 0.5;
         }
@@ -174,7 +217,7 @@ impl World {
             WeaponKind::Hex => {
                 let r = 28.0 * area;
                 let life = s.speed;
-                self.pools.push(FirePool { pos: p + rand_dir() * 4.0, r, life, max_life: life, dps: dmg, tick: 0.1, src, hex: true });
+                self.pools.push(FirePool { pos: p + rand_dir() * 4.0, r, life, max_life: life, dps: dmg, tick: 0.1, src, kind: PoolKind::Hex });
             }
             WeaponKind::Orb => {
                 let targets = self.nearest_enemies(p, 700.0, amount as usize);
@@ -233,7 +276,143 @@ impl World {
                 }
                 self.sfx_gap_at("knife", 0.2, 0.1, p);
             }
-            WeaponKind::Lanterns | WeaponKind::Chime => {}
+            WeaponKind::Rosary => {
+                // The beads lash ahead (and behind, and to the sides with more), and each lash
+                // leaps on to the next foe beyond its tip.
+                let mut angles = vec![base];
+                if amount >= 2 || evo {
+                    angles.push(base + PI);
+                }
+                if amount >= 3 {
+                    angles.push(base + PI * 0.5);
+                }
+                if amount >= 4 {
+                    angles.push(base - PI * 0.5);
+                }
+                let radius = 155.0 * area;
+                for a in angles {
+                    self.sector_hit(p, a, 0.42, radius, dmg, 120.0, src, false);
+                    let tip = p + Vec2::from_angle(a) * radius;
+                    self.fx.push(Fx { pos: p, life: 0.22, max_life: 0.22, kind: FxKind::Whip { to: tip } });
+                    let leaps = if evo { 3 } else { 1 };
+                    let mut from = tip;
+                    let mut struck: Vec<u32> = Vec::new();
+                    for _ in 0..leaps {
+                        let next = self.nearest_enemies(from, 170.0, 6).into_iter().find(|&j| !struck.contains(&self.enemies[j].id));
+                        let Some(j) = next else { break };
+                        struck.push(self.enemies[j].id);
+                        let to = self.enemies[j].pos;
+                        self.hit(j, dmg * 0.6, (to - from).normalize_or_zero() * 80.0, src, false);
+                        self.fx.push(Fx { pos: from, life: 0.2, max_life: 0.2, kind: FxKind::Whip { to } });
+                        from = to;
+                    }
+                }
+                self.sfx_at("slash", 0.45, p);
+            }
+            WeaponKind::Nails => {
+                let dirs = self.shot_dirs(p, amount as usize, face);
+                for (k, aim) in dirs.into_iter().enumerate() {
+                    let spread = (k as f32 - (amount as f32 - 1.0) * 0.5) * 0.05 + gen_range(-0.04, 0.04);
+                    let dir = Vec2::from_angle(aim.to_angle() + spread);
+                    self.projs.push(proj(p + dir * 10.0, dir, s.speed, 4.5, s.pierce, 0.9, PKind::Nail));
+                }
+                self.sfx_gap_at("knife", 0.25, 0.06, p);
+            }
+            WeaponKind::HolyWater => {
+                let targets = self.nearest_enemies(p, 600.0, amount as usize);
+                for k in 0..amount as usize {
+                    let dir = match targets.get(k).or(targets.first()) {
+                        Some(&i) => (self.enemies[i].pos - p).normalize_or_zero(),
+                        None => Vec2::from_angle(base + k as f32 * 0.6),
+                    };
+                    self.projs.push(proj(p, dir, s.speed, 7.0, 0, 1.2, PKind::Flask));
+                }
+                self.sfx_gap_at("chime", 0.25, 0.1, p);
+            }
+            WeaponKind::Judgement => {
+                let candidates = self.nearest_enemies(p, 600.0, 40);
+                if candidates.is_empty() {
+                    self.store_part(h, wi, part.slot, 0.2, spin);
+                    return;
+                }
+                for _ in 0..amount {
+                    let i = candidates[gen_range(0, candidates.len())];
+                    let at = self.enemies[i].pos;
+                    let r = 62.0 * area;
+                    self.hit_circle(at, r, dmg * 1.3, 140.0, src, None);
+                    self.fx.push(Fx { pos: at, life: 0.4, max_life: 0.4, kind: FxKind::Sword { r } });
+                    self.add_decal(at, 22.0 * area, Color::from_rgba(20, 18, 24, 150), DecalKind::Scorch, 12.0);
+                }
+                self.shake = self.shake.max(3.0);
+                self.sfx_gap_at("slam", 0.4, 0.12, p);
+            }
+            WeaponKind::Gargoyle => {
+                // At the strongest foes in reach, not the nearest.
+                let mut near = self.nearest_enemies(p, AIM_RANGE, 30);
+                near.sort_by(|a, b| self.enemies[*b].hp.total_cmp(&self.enemies[*a].hp));
+                for k in 0..amount as usize {
+                    let dir = match near.get(k % near.len().max(1)) {
+                        Some(&i) => (self.enemies[i].pos - p).normalize_or_zero(),
+                        None => Vec2::from_angle(base + k as f32 * TAU / amount as f32),
+                    };
+                    let dir = if dir == Vec2::ZERO { face } else { dir };
+                    self.projs.push(proj(p, dir, s.speed, 16.0 * area, 999, 3.0, PKind::Gargoyle));
+                }
+                self.sfx_gap_at("roar", 0.15, 0.3, p);
+            }
+            WeaponKind::Runes => {
+                // The letters start circling the hero, then seek (see `update_projs`).
+                for k in 0..amount {
+                    let a = base + k as f32 / amount as f32 * TAU;
+                    let at = p + Vec2::from_angle(a) * 30.0;
+                    let tangent = Vec2::from_angle(a + PI * 0.5);
+                    self.projs.push(proj(at, tangent, 140.0, 6.0, 0, 3.5, PKind::Rune));
+                }
+                self.sfx_gap_at("chime", 0.2, 0.15, p);
+            }
+            WeaponKind::Crozier => {
+                let radius = 130.0 * area;
+                for k in 0..amount {
+                    let r = radius * (1.0 - k as f32 * 0.25);
+                    self.hit_circle(p, r, dmg, 60.0, src, None);
+                    // Hooked off their feet: a moment of near standstill.
+                    let stun = if evo { 1.2 } else { 0.8 };
+                    for e in self.enemies.iter_mut().filter(|e| !e.boss && !e.dead && e.pos.distance(p) < r + e.r) {
+                        e.slow = e.slow.max(stun);
+                    }
+                    self.fx.push(Fx { pos: p, life: 0.35, max_life: 0.35, kind: FxKind::Crook { radius: r, owner: h as u8 } });
+                }
+                self.sfx_at("slash", 0.6, p);
+            }
+            WeaponKind::Candles => {
+                // A candle set down where the hero stands; it spits flame at foes near it.
+                let life = s.speed;
+                self.pools.push(FirePool { pos: p + rand_dir() * 6.0, r: 10.0, life, max_life: life, dps: dmg, tick: 0.3, src, kind: PoolKind::Candle });
+                self.sfx_gap_at("kindle", 0.3, 0.3, p);
+            }
+            WeaponKind::Organ => {
+                // Pipes burst up in a line ahead, one after another.
+                let aim = self.shot_dirs(p, 1, face)[0];
+                let n = 4 + amount;
+                let side = vec2(-aim.y, aim.x);
+                for k in 0..n {
+                    let at = p + aim * (55.0 + k as f32 * 52.0) * area.sqrt() + side * if k % 2 == 0 { 8.0 } else { -8.0 };
+                    let r = 30.0 * area;
+                    self.hit_circle(at, r, dmg, 110.0, src, None);
+                    let life = 0.35 + k as f32 * 0.04;
+                    self.fx.push(Fx { pos: at, life, max_life: life, kind: FxKind::Pipe { r } });
+                }
+                self.sfx_gap_at("bell", 0.3, 0.15, p);
+            }
+            WeaponKind::Glass => {
+                let turn = spin;
+                for k in 0..amount {
+                    let dir = Vec2::from_angle(turn + k as f32 / amount as f32 * TAU);
+                    self.projs.push(proj(p + dir * 12.0, dir, s.speed, 6.0, s.pierce, 1.1, PKind::Shard));
+                }
+                self.sfx_gap_at("hit", 0.35, 0.08, p);
+            }
+            WeaponKind::Lanterns | WeaponKind::Chime | WeaponKind::Halo | WeaponKind::Censer => {}
         }
     }
 
@@ -309,7 +488,17 @@ impl World {
         pr.vel = pr.vel.lerp(desired, (turn * dt).min(1.0)).normalize_or_zero() * speed;
     }
 
+    /// Holy water bursting: a pool that sears and slows what wades in it.
+    fn holy_pool(&mut self, c: Vec2, area: f32, dmg: f32, evo: bool, src: Src) {
+        let life = if evo { 4.5 } else { 3.0 };
+        let r = 52.0 * area * if evo { 1.3 } else { 1.0 };
+        self.pools.push(FirePool { pos: c, r, life, max_life: life, dps: dmg * 1.1, tick: 0.0, src, kind: PoolKind::Holy });
+        self.fx.push(Fx { pos: c, life: 0.3, max_life: 0.3, kind: FxKind::Ring { r, color: Color::from_rgba(150, 210, 255, 255) } });
+        self.sfx_gap_at("hit", 0.3, 0.08, c);
+    }
+
     pub(crate) fn update_projs(&mut self, dt: f32) {
+        let mut splinters: Vec<Proj> = Vec::new();
         for pi in 0..self.projs.len() {
             let (kind, evo, src) = (self.projs[pi].kind, self.projs[pi].evo, self.projs[pi].src);
             {
@@ -318,7 +507,7 @@ impl World {
                 pr.life -= dt;
             }
             // The axe flies out, slows down and comes back to its thrower.
-            if kind == PKind::Axe {
+            if matches!(kind, PKind::Axe | PKind::Gargoyle) {
                 let home = self.heroes.get(src.hero).map(|h| h.p.pos).unwrap_or(self.projs[pi].pos);
                 let pr = &mut self.projs[pi];
                 if pr.age < 0.55 {
@@ -332,9 +521,20 @@ impl World {
                     }
                 }
             }
-            // Only the soulbolt seeks; everything else flies where it was aimed.
+            // Only the soulbolt and the runes seek; everything else flies where it was aimed.
             if kind == PKind::Bolt {
                 self.home_in(pi, 5.0, dt);
+            }
+            if kind == PKind::Rune {
+                let pr = &mut self.projs[pi];
+                if pr.age < 0.45 {
+                    // Circling the hero a moment before they go.
+                    pr.vel = Vec2::from_angle(pr.vel.to_angle() + 5.5 * dt) * pr.vel.length();
+                } else {
+                    let speed = (pr.vel.length() + 1600.0 * dt).min(440.0);
+                    pr.vel = pr.vel.normalize_or_zero() * speed;
+                    self.home_in(pi, 9.0, dt);
+                }
             }
             let pr = &mut self.projs[pi];
             pr.pos += pr.vel * dt;
@@ -343,9 +543,12 @@ impl World {
             }
             if pr.life <= 0.0 {
                 pr.dead = true;
+                let (c, a, d) = (pr.pos, pr.area, pr.dmg);
                 if kind == PKind::Orb {
-                    let (c, a, d) = (pr.pos, pr.area, pr.dmg);
                     self.explode(c, 55.0 * a, d, evo, src);
+                }
+                if kind == PKind::Flask {
+                    self.holy_pool(c, a, d, evo, src);
                 }
                 continue;
             }
@@ -372,8 +575,8 @@ impl World {
                     continue;
                 }
                 let id = e.id;
-                if kind == PKind::Axe {
-                    if self.time - e.last_hit[WeaponKind::Axe.idx()] < 0.3 {
+                if matches!(kind, PKind::Axe | PKind::Gargoyle) {
+                    if self.time - e.last_hit[src.weapon.idx()] < 0.3 {
                         continue;
                     }
                 } else if self.projs[pi].hits.contains(&id) {
@@ -389,7 +592,36 @@ impl World {
                     self.explode(pos, 55.0 * a, dmg, evo, src);
                     break;
                 }
-                self.hit(i, dmg, knock, src, kind == PKind::Axe);
+                if kind == PKind::Flask {
+                    let a = pr.area;
+                    self.projs[pi].dead = true;
+                    self.holy_pool(pos, a, dmg, evo, src);
+                    break;
+                }
+                if kind == PKind::Shard && pr.r > 4.5 {
+                    // A big shard breaks in two on what it strikes.
+                    let (d, a) = (pr.vel.normalize_or_zero(), pr.area);
+                    for turn in [-0.7, 0.7] {
+                        let dir = Vec2::from_angle(d.to_angle() + turn);
+                        splinters.push(Proj {
+                            pos,
+                            vel: dir * 380.0,
+                            dir,
+                            r: 3.5,
+                            dmg: dmg * 0.5,
+                            pierce: 0,
+                            life: 0.45,
+                            age: 0.0,
+                            kind: PKind::Shard,
+                            evo,
+                            area: a,
+                            src,
+                            hits: vec![id],
+                            dead: false,
+                        });
+                    }
+                }
+                self.hit(i, dmg, knock, src, matches!(kind, PKind::Axe | PKind::Gargoyle));
                 if kind == PKind::Lance {
                     // The blood lance feeds its wielder.
                     let gain = if evo { 1.0 } else { 0.3 };
@@ -407,5 +639,6 @@ impl World {
             self.qbuf = q;
         }
         self.projs.retain(|p| !p.dead);
+        self.projs.extend(splinters);
     }
 }

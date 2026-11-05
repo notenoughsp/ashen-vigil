@@ -623,6 +623,9 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
                 FxKind::Explosion { r, .. } | FxKind::Ring { r, .. } => view.sees(f.pos, r),
                 FxKind::Slash { radius, .. } | FxKind::Sweep { radius, .. } => view.sees(f.pos, radius),
                 FxKind::Ghost => view.sees(f.pos, 30.0),
+                FxKind::Whip { to } => view.sees(f.pos, 40.0) || view.sees(to, 40.0),
+                FxKind::Sword { r } | FxKind::Pipe { r } => view.sees(f.pos, r + 80.0),
+                FxKind::Crook { radius, .. } => view.sees(f.pos, radius),
             }
         })
         .take(255)
@@ -663,18 +666,35 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
                 rgb(&mut e.w, color);
             }
             FxKind::Ghost => e.w.u8(4),
+            FxKind::Whip { to } => {
+                e.w.u8(6);
+                e.pos(to);
+            }
+            FxKind::Sword { r } => {
+                e.w.u8(7);
+                e.w.u16(r as u16);
+            }
+            FxKind::Crook { radius, owner } => {
+                e.w.u8(8);
+                e.w.u16(radius as u16);
+                e.w.u8(owner);
+            }
+            FxKind::Pipe { r } => {
+                e.w.u8(9);
+                e.w.u16(r as u16);
+            }
         }
     }
 
     let pools: Vec<&FirePool> = w.pools.iter().filter(|pl| view.sees(pl.pos, pl.r)).take(255).collect();
     e.w.u8(pools.len() as u8);
     for pl in pools {
-        let (pos, r, life, max_life, hex) = (pl.pos, pl.r, pl.life, pl.max_life, pl.hex);
+        let (pos, r, life, max_life, kind) = (pl.pos, pl.r, pl.life, pl.max_life, pl.kind);
         e.pos(pos);
         e.w.u16(r as u16);
         e.w.u16(ms(life));
         e.w.u16(ms(max_life));
-        e.w.bool(hex);
+        e.w.u8(kind as u8);
     }
     e.w.u8(w.waves.len().min(255) as u8);
     for i in 0..w.waves.len().min(255) {
@@ -986,7 +1006,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             burn_dps: 0.0,
             burn_acc: 0.0,
             slow: 0.0,
-            last_hit: [0.0; 12],
+            last_hit: [0.0; ALL_WEAPONS.len()],
             burn_src: Src { hero: 0, weapon: WeaponKind::Blade },
             timer: 0.0,
             elite,
@@ -1061,6 +1081,10 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             2 => FxKind::Lightning { from: d.pos() },
             3 => FxKind::Ring { r: d.r.u16() as f32, color: read_rgb(&mut d.r) },
             5 => FxKind::Sweep { radius: d.r.u16() as f32, evo: d.r.bool(), owner: d.r.u8() },
+            6 => FxKind::Whip { to: d.pos() },
+            7 => FxKind::Sword { r: d.r.u16() as f32 },
+            8 => FxKind::Crook { radius: d.r.u16() as f32, owner: d.r.u8() },
+            9 => FxKind::Pipe { r: d.r.u16() as f32 },
             _ => FxKind::Ghost,
         };
         w.fx.push(Fx { pos, life, max_life, kind });
@@ -1072,9 +1096,10 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         let r = d.r.u16() as f32;
         let life = d.r.u16() as f32 / 1000.0;
         let max_life = (d.r.u16() as f32 / 1000.0).max(0.02);
-        let hex = d.r.bool();
+        let kind = PoolKind::from_u8(d.r.u8());
         let src = Src { hero: 0, weapon: WeaponKind::Hex };
-        w.pools.push(FirePool { pos, r, life, max_life, dps: 0.0, tick: 0.0, src, hex });
+        // Clients only draw candles; a tick far off keeps them from spitting flame of their own.
+        w.pools.push(FirePool { pos, r, life, max_life, dps: 0.0, tick: f32::INFINITY, src, kind });
     }
     w.waves.clear();
     for _ in 0..d.r.u8() {

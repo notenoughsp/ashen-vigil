@@ -16,7 +16,9 @@ pub fn game_port() -> u16 {
     std::env::var("ASHEN_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PORT)
 }
 // The last byte is the protocol version; different builds refuse to talk to each other.
-const MAGIC: [u8; 3] = [0xA5, 0x1C, 15];
+const MAGIC: [u8; 3] = [0xA5, 0x1C, 16];
+/// The highest field number, see `world::ALL_BIOMES`.
+const ALL_FIELDS_MAX: u8 = crate::world::ALL_BIOMES.len() as u8 - 1;
 /// Shown in menus, so players can tell whether they run the same build.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const FRAG_PAYLOAD: usize = 1100;
@@ -826,6 +828,9 @@ impl HostNet {
             for v in [diff.count, diff.hp, diff.dmg, diff.speed, diff.boss_hp] {
                 w.f32(v);
             }
+            for b in diff.boost {
+                w.u8(b);
+            }
             w.bool(rush);
             w.u8(challenges);
             w.u8(biome);
@@ -960,10 +965,13 @@ impl ClientNet {
                     for _ in 0..n {
                         players.push(LobbyPlayer { slot: r.u8(), name: r.str(), class: r.u8() });
                     }
-                    let diff = crate::data::Difficulty { count: r.f32(), hp: r.f32(), dmg: r.f32(), speed: r.f32(), boss_hp: r.f32() };
+                    let mut diff = crate::data::Difficulty { count: r.f32(), hp: r.f32(), dmg: r.f32(), speed: r.f32(), boss_hp: r.f32(), boost: [0; 3] };
+                    for i in 0..3 {
+                        diff.boost[i] = r.u8().min(crate::data::BOOST_MAX[i]);
+                    }
                     let rush = r.bool();
                     let challenges = r.u8() & 7;
-                    let biome = r.u8().min(2);
+                    let biome = r.u8().min(ALL_FIELDS_MAX);
                     let curses = r.u8() & 63;
                     if r.ok {
                         out.push(ClientEvent::Lobby { started, players, diff, rush, challenges, biome, curses });

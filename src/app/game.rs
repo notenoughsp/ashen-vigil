@@ -401,6 +401,8 @@ impl App {
                 self.screen = Screen::Options;
                 self.options_in_game = true;
                 self.opt_sel = 0;
+                // The difficulty page is not there during a vigil.
+                self.opt_page = self.opt_page.min(3);
             }
             2 => self.audio.toggle_mute(),
             _ if !self.leave_armed => self.leave_armed = true,

@@ -112,7 +112,7 @@ impl World {
                 out.push((h.p.pos, 90.0, Color::new(0.5, 0.1, 0.08, 1.0)));
             } else {
                 let warm = if self.cute { Color::new(1.0, 0.8, 0.9, 1.0) } else { Color::new(1.0, 0.82, 0.62, 1.0) };
-                let reach = if self.cursed_by(Curse::DarkHour) { 0.55 } else { 1.0 };
+                let reach = if self.cursed_by(Curse::DarkHour) { 0.55 } else { 1.0 } * if h.class == Class::LanternWarden { 1.35 } else { 1.0 };
                 out.push((h.p.pos, 400.0 * flicker * reach, warm));
                 out.push((h.p.pos, 170.0, Color::new(0.45, 0.38, 0.3, 1.0)));
                 if h.buff(Buff::Fury) > 0.0 {
@@ -161,8 +161,14 @@ impl World {
         }
         for p in &self.pools {
             let k = (p.life / p.max_life * 2.0).min(1.0) * 0.6;
-            let c = if p.hex { Color::new(0.6, 0.15, 0.8, 1.0) } else { Color::new(1.0, 0.45, 0.12, 1.0) };
-            out.push((p.pos, p.r * 2.6, tint(c, k)));
+            let (c, reach) = match p.kind {
+                PoolKind::Hex => (Color::new(0.6, 0.15, 0.8, 1.0), 2.6),
+                PoolKind::Holy => (Color::new(0.45, 0.65, 0.9, 1.0), 2.2),
+                PoolKind::Candle => (Color::new(1.0, 0.65, 0.3, 1.0), 9.0),
+                PoolKind::Smoke => continue,
+                PoolKind::Fire => (Color::new(1.0, 0.45, 0.12, 1.0), 2.6),
+            };
+            out.push((p.pos, p.r * reach, tint(c, k)));
         }
         for f in &self.fx {
             let k = f.life / f.max_life;
@@ -179,6 +185,9 @@ impl World {
                 PKind::Orb => out.push((pr.pos, pr.r * 9.0, Color::new(0.9, 0.45, 0.12, 1.0))),
                 PKind::Bolt => out.push((pr.pos, 70.0, Color::new(0.25, 0.5, 0.6, 1.0))),
                 PKind::Lance => out.push((pr.pos, 80.0, Color::new(0.6, 0.06, 0.06, 1.0))),
+                PKind::Rune => out.push((pr.pos, 60.0, Color::new(0.7, 0.55, 0.25, 1.0))),
+                PKind::Ember => out.push((pr.pos, 50.0, Color::new(0.8, 0.45, 0.15, 1.0))),
+                PKind::Shard => out.push((pr.pos, 40.0, Color::new(0.3, 0.5, 0.7, 1.0))),
                 _ => {}
             }
         }
@@ -236,8 +245,6 @@ impl World {
         let k = (self.blood_moon / 3.0).clamp(0.0, 1.0).min(((MOON_LENGTH - self.blood_moon) / 3.0).clamp(0.0, 1.0));
         let field = match self.biome {
             Biome::Graveyard => AMBIENT,
-            // A greener, mistier night over the water.
-            Biome::Marsh => Color::new(0.22, 0.29, 0.29, 1.0),
             // The fire never quite goes out.
             Biome::Cathedral => Color::new(0.33, 0.23, 0.22, 1.0),
         };

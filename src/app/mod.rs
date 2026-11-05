@@ -95,6 +95,7 @@ pub struct App {
     /// Reliquary page: 0 soul upgrades, 1 relics and unlocks.
     relic_page: usize,
     wardrobe_sel: usize,
+    wardrobe_page: usize,
     /// The selected button of the pause menu.
     pause_sel: usize,
     /// The options were opened from the pause menu: Back returns there.
@@ -232,6 +233,7 @@ impl App {
             relic_sel: 0,
             relic_page: 0,
             wardrobe_sel: 0,
+            wardrobe_page: 0,
             pause_sel: 0,
             options_in_game: false,
             leave_armed: false,
@@ -293,7 +295,24 @@ impl App {
 
     /// Classes this player may pick.
     fn classes(&self) -> Vec<Class> {
-        ALL_CLASSES.iter().copied().filter(|c| if *c == Class::BucketKnight { self.save.bucket_unlocked } else { self.save.profile.has(Unlock::Class(*c)) }).collect()
+        ALL_CLASSES
+            .iter()
+            .copied()
+            .filter(|c| {
+                if *c == Class::BucketKnight {
+                    self.save.bucket_unlocked
+                } else if let Some((_, souls, n)) = OFFERED_CLASSES.iter().find(|o| o.0 == *c) {
+                    // Given for offerings in the Reliquary.
+                    if *souls {
+                        self.save.offered_souls >= *n
+                    } else {
+                        self.save.offered_marks >= *n
+                    }
+                } else {
+                    self.save.profile.has(Unlock::Class(*c))
+                }
+            })
+            .collect()
     }
 
     fn class(&self) -> Class {

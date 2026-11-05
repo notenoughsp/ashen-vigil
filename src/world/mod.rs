@@ -132,17 +132,15 @@ pub enum BossKind {
 pub enum Biome {
     #[default]
     Graveyard,
-    Marsh,
     Cathedral,
 }
 
-pub const ALL_BIOMES: [Biome; 3] = [Biome::Graveyard, Biome::Marsh, Biome::Cathedral];
+pub const ALL_BIOMES: [Biome; 2] = [Biome::Graveyard, Biome::Cathedral];
 
 impl Biome {
     pub fn name(self) -> &'static str {
         match self {
             Biome::Graveyard => "The Graveyard",
-            Biome::Marsh => "The Sunken Marsh",
             Biome::Cathedral => "The Burning Cathedral",
         }
     }
@@ -150,7 +148,6 @@ impl Biome {
     pub fn desc(self) -> &'static str {
         match self {
             Biome::Graveyard => "Old stones, older dead. Archers and the restless.",
-            Biome::Marsh => "Black water and reeds. Leeches, ghouls and bloated things.",
             Biome::Cathedral => "Pews and pillars in flame. Zealots, knights and gargoyles.",
         }
     }
@@ -163,8 +160,7 @@ impl Biome {
     pub fn lords(self) -> [BossKind; 5] {
         use BossKind::*;
         match self {
-            Biome::Graveyard => [Gravewarden, Hound, Matriarch, Hermit, Seraph],
-            Biome::Marsh => [Hound, BogMother, Matriarch, Bride, Gravewarden],
+            Biome::Graveyard => [Gravewarden, Hound, Matriarch, BogMother, Hermit],
             Biome::Cathedral => [Seraph, Choir, Hermit, Penitent, Bride],
         }
     }
@@ -175,8 +171,6 @@ impl Biome {
         match (self, kind) {
             (Biome::Graveyard, Hollow | Archer | Necromancer | Moth) => 1.5,
             (Biome::Graveyard, Leech) => 0.4,
-            (Biome::Marsh, Ghoul | Bloat | Leech) => 1.8,
-            (Biome::Marsh, Archer | Gargoyle) => 0.4,
             (Biome::Cathedral, Cultist | Knight | Gargoyle | Banshee | Shieldbearer) => 1.7,
             (Biome::Cathedral, Ghoul | Leech) => 0.5,
             _ => 1.0,
@@ -412,7 +406,7 @@ pub struct Enemy {
     pub burn_acc: f32,
     pub burn_src: Src,
     pub slow: f32,
-    pub last_hit: [f32; 12],
+    pub last_hit: [f32; ALL_WEAPONS.len()],
     pub timer: f32,
     pub elite: bool,
     pub boss: bool,
@@ -448,6 +442,12 @@ pub enum PKind {
     Bolt,
     Lance,
     Quarrel,
+    Nail,
+    Shard,
+    Flask,
+    Gargoyle,
+    Rune,
+    Ember,
 }
 
 impl PKind {
@@ -462,6 +462,12 @@ impl PKind {
             2 => PKind::Axe,
             3 => PKind::Bolt,
             4 => PKind::Lance,
+            6 => PKind::Nail,
+            7 => PKind::Shard,
+            8 => PKind::Flask,
+            9 => PKind::Gargoyle,
+            10 => PKind::Rune,
+            11 => PKind::Ember,
             _ => PKind::Quarrel,
         }
     }
@@ -500,12 +506,46 @@ pub struct EBullet {
 
 #[derive(Clone, Copy, Debug)]
 pub enum FxKind {
-    Slash { ang: f32, radius: f32, evo: bool, owner: u8 },
-    Sweep { radius: f32, evo: bool, owner: u8 },
-    Explosion { r: f32, color: Color },
-    Lightning { from: Vec2 },
-    Ring { r: f32, color: Color },
+    Slash {
+        ang: f32,
+        radius: f32,
+        evo: bool,
+        owner: u8,
+    },
+    Sweep {
+        radius: f32,
+        evo: bool,
+        owner: u8,
+    },
+    Explosion {
+        r: f32,
+        color: Color,
+    },
+    Lightning {
+        from: Vec2,
+    },
+    Ring {
+        r: f32,
+        color: Color,
+    },
     Ghost,
+    /// The rosary's lash from `pos` to `to`.
+    Whip {
+        to: Vec2,
+    },
+    /// The judgement blade falling on `pos`.
+    Sword {
+        r: f32,
+    },
+    /// The crozier's sweep round its owner.
+    Crook {
+        radius: f32,
+        owner: u8,
+    },
+    /// An organ pipe bursting from the ground.
+    Pipe {
+        r: f32,
+    },
 }
 
 pub struct Fx {
@@ -515,7 +555,24 @@ pub struct Fx {
     pub kind: FxKind,
 }
 
-/// Burning ground from orbs and hex brands.
+/// What a patch of ground does: burns, hexes, sears with holy water, holds a candle that
+/// spits flame, or chokes with censer smoke.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PoolKind {
+    Fire,
+    Hex,
+    Holy,
+    Candle,
+    Smoke,
+}
+
+impl PoolKind {
+    pub fn from_u8(v: u8) -> PoolKind {
+        [PoolKind::Fire, PoolKind::Hex, PoolKind::Holy, PoolKind::Candle, PoolKind::Smoke].get(v as usize).copied().unwrap_or(PoolKind::Fire)
+    }
+}
+
+/// Burning ground from orbs and hex brands, and the cathedral's pools and candles.
 pub struct FirePool {
     pub pos: Vec2,
     pub r: f32,
@@ -524,7 +581,7 @@ pub struct FirePool {
     pub dps: f32,
     pub tick: f32,
     pub src: Src,
-    pub hex: bool,
+    pub kind: PoolKind,
 }
 
 pub struct Shockwave {
@@ -814,6 +871,8 @@ pub struct World {
     pub next_boss: f32,
     /// Seconds until the next lord arrives while the warning shows, else 0. Sent to clients.
     pub boss_warning: f32,
+    /// A Stormcaller's crit is leaping right now: it does not leap again from there.
+    pub leaping: bool,
     /// The hourglass ran past a lord: its warning lasts the whole wait.
     pub long_warning: bool,
     /// Lord after lord with only a short breather, no warning, and thin hordes.
@@ -969,6 +1028,7 @@ impl World {
             arena: None,
             next_boss: BOSS_INTERVAL,
             boss_warning: 0.0,
+            leaping: false,
             long_warning: false,
             boss_rush: false,
             curses: 0,
@@ -1019,6 +1079,8 @@ impl World {
     pub fn add_hero(&mut self, slot: u8, name: &str, class: Class, profile: Profile, remote: bool) -> usize {
         let mut h = Hero::new(slot, name, class, profile);
         h.remote = remote;
+        // The cathedral has an arsenal of its own.
+        h.arm_for(self.biome == Biome::Cathedral);
         self.heroes.push(h);
         self.heroes.sort_by_key(|h| h.slot);
         self.heroes.iter().position(|h| h.slot == slot).unwrap()
@@ -1345,6 +1407,7 @@ impl World {
         self.update_events(dt);
         self.update_quests(dt);
         self.update_omens(dt);
+        self.update_burden();
         self.boss_hp = match &self.boss {
             Some(b) => self.enemies.iter().find(|e| e.id == b.id).map(|e| (e.hp, e.max_hp)).unwrap_or((0.0, 1.0)),
             None => (0.0, 1.0),
@@ -1371,6 +1434,26 @@ impl World {
 
     /// Client-side frame: predict our own hero and move the rest along their velocities.
     /// Returns true when our hero started a roll.
+    /// Heroes grow stronger with the souls they carry; the stats follow every step.
+    fn update_burden(&mut self) {
+        let mut notes = Vec::new();
+        let multi = self.heroes.len() > 1;
+        for h in self.heroes.iter_mut() {
+            let b = soul_burden(h.p.souls);
+            if b != h.burden {
+                let up = b > h.burden;
+                h.burden = b;
+                h.recompute_stats();
+                if up {
+                    notes.push(format!("{}The souls you carry weigh in: burden {} of {}", if multi { format!("{}: ", h.name) } else { String::new() }, b, BURDEN_MAX));
+                }
+            }
+        }
+        for n in notes {
+            self.toast(&n);
+        }
+    }
+
     pub fn client_update(&mut self, dt: f32) -> bool {
         self.fit_field();
         let mut rolled = false;

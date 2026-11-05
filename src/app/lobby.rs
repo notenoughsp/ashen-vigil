@@ -71,8 +71,20 @@ impl App {
     /// Steps through the difficulty presets; the host's choice applies to everyone.
     pub(super) fn cycle_difficulty(&mut self, dir: i32) {
         let st = &mut self.save.settings;
-        let now = PRESETS.iter().position(|(_, d)| *d == st.diff).map(|i| i as i32).unwrap_or(if dir > 0 { -1 } else { 0 });
+        let now = PRESETS.iter().position(|(_, d)| *d == st.diff.base()).map(|i| i as i32).unwrap_or(if dir > 0 { -1 } else { 0 });
+        // The empowerments stay as they were.
+        let boost = st.diff.boost;
         st.diff = PRESETS[(now + dir).rem_euclid(PRESETS.len() as i32) as usize].1;
+        st.diff.boost = boost;
+        self.lobby.diff = st.diff;
+        self.save.store();
+        self.audio.play("select", 0.5);
+    }
+
+    /// One step more or less of empowerment `i`.
+    pub(super) fn change_boost(&mut self, i: usize, dir: i32) {
+        let st = &mut self.save.settings;
+        st.diff.boost[i] = (st.diff.boost[i] as i32 + dir).clamp(0, BOOST_MAX[i] as i32) as u8;
         self.lobby.diff = st.diff;
         self.save.store();
         self.audio.play("select", 0.5);
@@ -274,6 +286,7 @@ impl App {
                     1 if dir != 0 => self.cycle_difficulty(dir),
                     2 if dir != 0 => self.toggle_boss_rush(),
                     3 if dir != 0 => self.cycle_biome(dir),
+                    s @ 4..=6 if dir != 0 => self.change_boost(s - 4, dir),
                     s if (LOBBY_TOGGLES..LOBBY_TOGGLES + TOGGLES).contains(&s) && (confirm() || mouse.left || mouse.right) => {
                         let k = s - LOBBY_TOGGLES;
                         if k < ALL_CHALLENGES.len() {
@@ -425,12 +438,13 @@ impl App {
                 let d = self.lobby.diff;
                 ui.text(
                     &format!(
-                        "{}   Difficulty: {}  (enemies {:.0}%, health {:.0}%, damage {:.0}%)",
+                        "{}   Difficulty: {}  (enemies {:.0}%, health {:.0}%, damage {:.0}%){}",
                         if self.lobby.rush { "Boss Rush" } else { Biome::from_u8(self.lobby.biome).name() },
                         d.preset_name(),
                         d.count * 100.0,
                         d.hp * 100.0,
-                        d.dmg * 100.0
+                        d.dmg * 100.0,
+                        if d.boost == [0; 3] { String::new() } else { format!("   Empowered: {}", d.boost_text()) }
                     ),
                     x,
                     y + 18.0,
@@ -463,6 +477,11 @@ impl App {
                     value_row(1, "Difficulty", &format!("<  {}  >", self.save.settings.diff.preset_name()), &mut y);
                     value_row(2, "Mode", &format!("<  {}  >", mode_name(self.save.settings.boss_rush)), &mut y);
                     value_row(3, "Field", &format!("<  {}  >", Biome::from_u8(self.save.settings.biome).name()), &mut y);
+                    let d = self.save.settings.diff;
+                    for i in 0..3 {
+                        let value = format!("<  +{:.0}%  >   souls and marks x{:.2}", d.boost[i] as f32 * BOOST_STEP[i], d.soul_mult());
+                        value_row(4 + i, BOOST_NAMES[i], &value, &mut y);
+                    }
                     // Challenges and curses as a grid of toggles, three to a line.
                     let cw = (w - 8.0) / 3.0;
                     for k in 0..TOGGLES {
@@ -494,8 +513,9 @@ impl App {
     }
 }
 
-/// Rows before the challenge and curse toggles while hosting, and how many toggles there are.
-const LOBBY_TOGGLES: usize = 4;
+/// Rows before the challenge and curse toggles while hosting (class, difficulty, mode, field
+/// and the three empowerments), and how many toggles there are.
+const LOBBY_TOGGLES: usize = 7;
 const TOGGLES: usize = ALL_CHALLENGES.len() + ALL_CURSES.len();
 
 /// The mode as the menus show it.

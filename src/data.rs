@@ -13,8 +13,9 @@ pub const MEGA_MULT: f32 = 1.9;
 pub const ULTRA_MULT: f32 = 2.4;
 /// Damage of each part once every weapon has become one.
 pub const LAST_MULT: f32 = 3.0;
-/// The name of the weapon that holds all the others.
+/// The name of the weapon that holds all the others, on the graveyard and in the cathedral.
 pub const LAST_FLAME: &str = "The Last Flame";
+pub const LAST_HYMN: &str = "The Final Hymn";
 
 // ---------------------------------------------------------------- weapons
 
@@ -32,9 +33,27 @@ pub enum WeaponKind {
     Hex,
     Lance,
     Crossbow,
+    // The cathedral's own arsenal, in the same order: each mirrors the graveyard weapon twelve
+    // places before it, and fuses with the mirrors of that weapon's partners.
+    Rosary,
+    Nails,
+    HolyWater,
+    Halo,
+    Censer,
+    Judgement,
+    Gargoyle,
+    Runes,
+    Crozier,
+    Candles,
+    Organ,
+    Glass,
 }
 
-pub const ALL_WEAPONS: [WeaponKind; 12] = [
+/// Weapons of one field's arsenal.
+pub const ARSENAL: usize = 12;
+
+/// The graveyard's weapons, then the cathedral's.
+pub const GRAVE_WEAPONS: [WeaponKind; ARSENAL] = [
     WeaponKind::Blade,
     WeaponKind::Daggers,
     WeaponKind::Orb,
@@ -47,6 +66,47 @@ pub const ALL_WEAPONS: [WeaponKind; 12] = [
     WeaponKind::Hex,
     WeaponKind::Lance,
     WeaponKind::Crossbow,
+];
+pub const CATHEDRAL_WEAPONS: [WeaponKind; ARSENAL] = [
+    WeaponKind::Rosary,
+    WeaponKind::Nails,
+    WeaponKind::HolyWater,
+    WeaponKind::Halo,
+    WeaponKind::Censer,
+    WeaponKind::Judgement,
+    WeaponKind::Gargoyle,
+    WeaponKind::Runes,
+    WeaponKind::Crozier,
+    WeaponKind::Candles,
+    WeaponKind::Organ,
+    WeaponKind::Glass,
+];
+
+pub const ALL_WEAPONS: [WeaponKind; 24] = [
+    WeaponKind::Blade,
+    WeaponKind::Daggers,
+    WeaponKind::Orb,
+    WeaponKind::Chime,
+    WeaponKind::Lanterns,
+    WeaponKind::Spear,
+    WeaponKind::Axe,
+    WeaponKind::Bolt,
+    WeaponKind::Scythe,
+    WeaponKind::Hex,
+    WeaponKind::Lance,
+    WeaponKind::Crossbow,
+    WeaponKind::Rosary,
+    WeaponKind::Nails,
+    WeaponKind::HolyWater,
+    WeaponKind::Halo,
+    WeaponKind::Censer,
+    WeaponKind::Judgement,
+    WeaponKind::Gargoyle,
+    WeaponKind::Runes,
+    WeaponKind::Crozier,
+    WeaponKind::Candles,
+    WeaponKind::Organ,
+    WeaponKind::Glass,
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -66,6 +126,25 @@ impl WeaponKind {
 
     pub fn from_idx(i: u8) -> WeaponKind {
         ALL_WEAPONS[(i as usize).min(ALL_WEAPONS.len() - 1)]
+    }
+
+    /// One of the cathedral's weapons.
+    pub fn is_cathedral(self) -> bool {
+        self.idx() >= ARSENAL
+    }
+
+    /// The same place in the other field's arsenal.
+    pub fn mirror(self) -> WeaponKind {
+        ALL_WEAPONS[(self.idx() + ARSENAL) % ALL_WEAPONS.len()]
+    }
+
+    /// This weapon's place in the arsenal of `cathedral`.
+    pub fn for_field(self, cathedral: bool) -> WeaponKind {
+        if self.is_cathedral() == cathedral {
+            self
+        } else {
+            self.mirror()
+        }
     }
 
     pub fn name(self, evolved: bool) -> &'static str {
@@ -95,6 +174,30 @@ impl WeaponKind {
             (Lance, true) => "Sanguine Pike",
             (Crossbow, false) => "Gloom Crossbow",
             (Crossbow, true) => "Arbalest of the Damned",
+            (Rosary, false) => "Rosary Whip",
+            (Rosary, true) => "Penitent's Rosary",
+            (Nails, false) => "Martyr's Nails",
+            (Nails, true) => "Crown of Nails",
+            (HolyWater, false) => "Holy Water",
+            (HolyWater, true) => "Font of Wrath",
+            (Halo, false) => "Halo",
+            (Halo, true) => "Corona of Saints",
+            (Censer, false) => "Swinging Censer",
+            (Censer, true) => "Thurible of Embers",
+            (Judgement, false) => "Judgement Blade",
+            (Judgement, true) => "Sword of Heaven",
+            (Gargoyle, false) => "Gargoyle Familiar",
+            (Gargoyle, true) => "Spire Guardian",
+            (Runes, false) => "Psalm Runes",
+            (Runes, true) => "Living Scripture",
+            (Crozier, false) => "Crozier",
+            (Crozier, true) => "Shepherd's Hook",
+            (Candles, false) => "Candelabrum",
+            (Candles, true) => "Altar of Candles",
+            (Organ, false) => "Organ Pipes",
+            (Organ, true) => "The Great Organ",
+            (Glass, false) => "Stained Glass",
+            (Glass, true) => "Rose Window",
         }
     }
 
@@ -113,12 +216,28 @@ impl WeaponKind {
             Hex => "Your footsteps leave burning sigils behind.",
             Lance => "A lance of blood that pierces a whole line.",
             Crossbow => "Quarrels fly in every direction at once.",
+            Rosary => "A string of beads lashes ahead and leaps to the next foe.",
+            Nails => "A stream of iron nails at the nearest foes.",
+            HolyWater => "A thrown flask that leaves a slowing, searing pool.",
+            Halo => "A ring of light pulses out from you and back.",
+            Censer => "Censers swing about you in a figure of eight, trailing smoke.",
+            Judgement => "A great sword falls from the sky on the wicked.",
+            Gargoyle => "A stone familiar swoops at the strongest foe and back.",
+            Runes => "Letters of light circle a moment, then seek their foes.",
+            Crozier => "A shepherd's crook swept round you, hooking foes off their feet.",
+            Candles => "Candles set down where you stand spit flame at foes near them.",
+            Organ => "Organ pipes burst from the ground in a line ahead.",
+            Glass => "Shards of coloured glass burst all around and split on impact.",
         }
     }
 
     /// Weapons this one fuses with when both reach max level; the first is its classic partner.
     pub fn fusion_partners(self) -> [WeaponKind; 2] {
         use WeaponKind::*;
+        if self.is_cathedral() {
+            let [a, b] = self.mirror().fusion_partners();
+            return [a.mirror(), b.mirror()];
+        }
         match self {
             Blade => [Axe, Scythe],
             Axe => [Blade, Crossbow],
@@ -132,6 +251,7 @@ impl WeaponKind {
             Bolt => [Spear, Daggers],
             Scythe => [Lance, Blade],
             Lance => [Scythe, Lanterns],
+            _ => unreachable!("cathedral weapons take their partners from the graveyard's"),
         }
     }
 
@@ -155,12 +275,43 @@ impl WeaponKind {
             Hex => Color::from_rgba(200, 60, 220, 255),
             Lance => Color::from_rgba(190, 20, 30, 255),
             Crossbow => Color::from_rgba(110, 100, 80, 255),
+            Rosary => Color::from_rgba(190, 150, 100, 255),
+            Nails => Color::from_rgba(160, 160, 172, 255),
+            HolyWater => Color::from_rgba(140, 200, 255, 255),
+            Halo => Color::from_rgba(255, 225, 140, 255),
+            Censer => Color::from_rgba(200, 175, 120, 255),
+            Judgement => Color::from_rgba(225, 230, 255, 255),
+            Gargoyle => Color::from_rgba(140, 135, 130, 255),
+            Runes => Color::from_rgba(255, 205, 120, 255),
+            Crozier => Color::from_rgba(210, 175, 95, 255),
+            Candles => Color::from_rgba(255, 180, 90, 255),
+            Organ => Color::from_rgba(175, 145, 110, 255),
+            Glass => Color::from_rgba(120, 200, 255, 255),
         }
     }
 
     /// Numbers for a weapon at a given level, before player stats are applied.
     pub fn stats(self, level: u32, evolved: bool) -> WStat {
         use WeaponKind::*;
+        if self.is_cathedral() {
+            // Built on the graveyard weapon in its place, with a pace of its own.
+            let mut s = self.mirror().stats(level, evolved);
+            let l = level.saturating_sub(1) as f32;
+            match self {
+                Nails => s.speed = 820.0,
+                Glass => s.speed = 430.0,
+                HolyWater => s.speed = 400.0,
+                // How fast the halo breathes and the censers swing.
+                Halo => s.speed = 2.2 + 0.08 * l,
+                Censer => s.speed = 2.4 + 0.1 * l,
+                Gargoyle => s.speed = 500.0,
+                Runes => s.speed = 420.0,
+                // How long a candle burns.
+                Candles => s.speed = 5.0 + 0.3 * l,
+                _ => {}
+            }
+            return s;
+        }
         let l = level.saturating_sub(1) as f32;
         let at = |lvls: &[u32]| lvls.iter().filter(|&&x| level >= x).count() as u32;
         let mut s = match self {
@@ -176,6 +327,7 @@ impl WeaponKind {
             Hex => WStat { dmg: 6.0 + 2.0 * l, cd: 0.35 - 0.01 * l, amount: 1, area: 1.0 + 0.1 * at(&[3, 6, 9]) as f32, speed: 2.5, pierce: 0 },
             Lance => WStat { dmg: 25.0 + 8.0 * l, cd: 1.6 - 0.07 * l, amount: 1 + at(&[4, 8]), area: 1.0 + 0.1 * at(&[5, 10]) as f32, speed: 900.0, pierce: 999 },
             Crossbow => WStat { dmg: 10.0 + 3.0 * l, cd: 1.2 - 0.05 * l, amount: 4 + 2 * at(&[3, 6, 9]), area: 1.0, speed: 560.0, pierce: 2 + at(&[5, 10]) as i32 },
+            _ => unreachable!("the cathedral's weapons are built on the graveyard's"),
         };
         if evolved {
             match self {
@@ -236,6 +388,7 @@ impl WeaponKind {
                     s.pierce = 5;
                     s.cd = 0.6;
                 }
+                _ => {}
             }
         }
         s
@@ -278,6 +431,18 @@ pub fn fusion_name(a: WeaponKind, b: WeaponKind) -> &'static str {
         (Chime, Hex) => "Tolling Brand",
         (Lanterns, Lance) => "Lantern Pike",
         (Axe, Crossbow) => "Moonfall Barrage",
+        (Rosary, Gargoyle) => "Stone Litany",
+        (Nails, Glass) => "Shattered Martyrdom",
+        (HolyWater, Candles) => "Burning Font",
+        (Halo, Censer) => "Incense Crown",
+        (Judgement, Runes) => "Verdict of Heaven",
+        (Crozier, Organ) => "Shepherd's Requiem",
+        (Rosary, Crozier) => "Pilgrim's Scourge",
+        (Nails, Runes) => "Written in Iron",
+        (HolyWater, Judgement) => "Baptism of Fire",
+        (Halo, Candles) => "Vigil Light",
+        (Censer, Organ) => "Smoke and Psalm",
+        (Gargoyle, Glass) => "Broken Spire",
         _ => names_for(&[a, b], &ODD_NAMES),
     }
 }
@@ -296,12 +461,16 @@ fn names_for(kinds: &[WeaponKind], names: &[&'static str]) -> &'static str {
     names[h % names.len()]
 }
 
+const MEGA_HOLY: [&str; 8] =
+    ["The Great Nave", "Choir of Embers", "Reliquary of Wrath", "The Bleeding Saint", "Sanctum Engine", "The Iron Psalm", "Vault of Heaven", "The Long Mass"];
+const ULTRA_HOLY: [&str; 4] = ["Cathedral Ascendant", "The Eternal Rite", "Heaven's Forge", "The Burning Choir"];
+
 pub fn mega_name(kinds: &[WeaponKind]) -> &'static str {
-    names_for(kinds, &MEGA_NAMES)
+    names_for(kinds, if kinds.first().is_some_and(|k| k.is_cathedral()) { &MEGA_HOLY } else { &MEGA_NAMES })
 }
 
 pub fn ultra_name(kinds: &[WeaponKind]) -> &'static str {
-    names_for(kinds, &ULTRA_NAMES)
+    names_for(kinds, if kinds.first().is_some_and(|k| k.is_cathedral()) { &ULTRA_HOLY } else { &ULTRA_NAMES })
 }
 
 // ---------------------------------------------------------------- items
@@ -444,10 +613,27 @@ pub enum Class {
     BloodKnight,
     Arbalist,
     BucketKnight,
+    LanternWarden,
+    Stormcaller,
 }
 
-pub const ALL_CLASSES: [Class; 9] =
-    [Class::Wanderer, Class::GraveHunter, Class::CinderAdept, Class::BellAcolyte, Class::Reaper, Class::Hexblade, Class::BloodKnight, Class::Arbalist, Class::BucketKnight];
+pub const ALL_CLASSES: [Class; 11] = [
+    Class::Wanderer,
+    Class::GraveHunter,
+    Class::CinderAdept,
+    Class::BellAcolyte,
+    Class::Reaper,
+    Class::Hexblade,
+    Class::BloodKnight,
+    Class::Arbalist,
+    Class::BucketKnight,
+    Class::LanternWarden,
+    Class::Stormcaller,
+];
+
+/// Classes given for what was offered in the Reliquary: souls (true) or Ashen Marks, and
+/// how many.
+pub const OFFERED_CLASSES: [(Class, bool, u64); 2] = [(Class::LanternWarden, true, 25_000), (Class::Stormcaller, false, 250)];
 
 impl Class {
     pub fn name(self) -> &'static str {
@@ -461,6 +647,8 @@ impl Class {
             Class::BloodKnight => "Blood Knight",
             Class::Arbalist => "Arbalist",
             Class::BucketKnight => "The Bucket Knight",
+            Class::LanternWarden => "Lantern Warden",
+            Class::Stormcaller => "Stormcaller",
         }
     }
 
@@ -475,6 +663,8 @@ impl Class {
             Class::BloodKnight => "Blood Lance. +20 max health.",
             Class::Arbalist => "Gloom Crossbow. -10% weapon cooldown, +10 max health.",
             Class::BucketKnight => "Crescent Axe. +2 armor. Cheap rolls. Clang.",
+            Class::LanternWarden => "Wraith Lanterns. One more lantern, a wider light, braziers burn twice as long.",
+            Class::Stormcaller => "Storm Spear. +10% crit; a crit leaps on to a second foe.",
         }
     }
 
@@ -489,6 +679,8 @@ impl Class {
             Class::BloodKnight => WeaponKind::Lance,
             Class::Arbalist => WeaponKind::Crossbow,
             Class::BucketKnight => WeaponKind::Axe,
+            Class::LanternWarden => WeaponKind::Lanterns,
+            Class::Stormcaller => WeaponKind::Spear,
         }
     }
 }
@@ -506,6 +698,8 @@ impl Class {
             Class::BloodKnight => ("Blood Rite", "Fury for nine seconds and two fifths of your health back.", 28.0),
             Class::Arbalist => ("Bolt Storm", "Forty-eight quarrels fly out in every direction.", 17.0),
             Class::BucketKnight => ("CLANG", "A deafening clang hurts and stuns every foe around you.", 21.0),
+            Class::LanternWarden => ("Beacon", "A blinding light: foes around you are slowed and burnt, heroes nearby healed.", 22.0),
+            Class::Stormcaller => ("Tempest", "Eight bolts fall on the strongest foes in reach.", 20.0),
         }
     }
 }
@@ -598,15 +792,15 @@ pub enum Unlock {
     Item(ItemKind),
 }
 
-pub const UNLOCKS: [(Unlock, u64); 11] = [
+/// Weapons that once had to be bought, and what they cost: every weapon is free now, and
+/// whoever bought one gets the marks back once.
+pub const FREED_WEAPONS: [(WeaponKind, u64); 4] = [(WeaponKind::Scythe, 22), (WeaponKind::Hex, 22), (WeaponKind::Lance, 30), (WeaponKind::Crossbow, 30)];
+
+pub const UNLOCKS: [(Unlock, u64); 7] = [
     (Unlock::Class(Class::Reaper), 45),
     (Unlock::Class(Class::Hexblade), 45),
     (Unlock::Class(Class::BloodKnight), 60),
     (Unlock::Class(Class::Arbalist), 60),
-    (Unlock::Weapon(WeaponKind::Scythe), 22),
-    (Unlock::Weapon(WeaponKind::Hex), 22),
-    (Unlock::Weapon(WeaponKind::Lance), 30),
-    (Unlock::Weapon(WeaponKind::Crossbow), 30),
     (Unlock::Item(ItemKind::LeechFang), 15),
     (Unlock::Item(ItemKind::CrackedCrown), 15),
     (Unlock::Item(ItemKind::GraveCandle), 18),
@@ -642,7 +836,8 @@ impl Unlock {
 /// Everything available without buying anything.
 pub fn default_unlocks() -> u64 {
     let mut m = 0;
-    for w in &ALL_WEAPONS[..8] {
+    // Every weapon is there from the start (the cathedral's never needed unlocking).
+    for w in &GRAVE_WEAPONS {
         m |= Unlock::Weapon(*w).bit();
     }
     for i in &ALL_ITEMS[..10] {
@@ -738,6 +933,16 @@ pub enum Helm {
     StarHat,
     LastCrown,
     Strawberry,
+    AlmsHood,
+    PilgrimHat,
+    Mitre,
+    MarkVeil,
+    Thorns,
+    CharityLamp,
+    AlmonerCrown,
+    WingedCrown,
+    Wimple,
+    SixWings,
 }
 
 /// A look for the hero that wins over the class look.
@@ -750,28 +955,178 @@ pub struct SkinDef {
     /// Breastplate and pauldrons.
     pub metal: (u8, u8, u8),
     pub helm: Helm,
+    /// Not bought: worn once this much has been offered in the Reliquary, souls (true) or
+    /// Ashen Marks (false).
+    pub offering: Option<(bool, u64)>,
 }
 
 /// Skin 0 is the class look; these are bought with souls in the Wardrobe.
-pub const SKINS: [SkinDef; 18] = [
-    SkinDef { name: "Ashen Knight", desc: "Grey as the dust of old fires.", cost: 2_000, body: (96, 92, 90), metal: (150, 150, 156), helm: Helm::Class(Class::Wanderer) },
-    SkinDef { name: "Tin Pail", desc: "A bucket for any class. Clang.", cost: 3_000, body: (90, 70, 50), metal: (140, 140, 150), helm: Helm::Class(Class::BucketKnight) },
-    SkinDef { name: "Crimson Paladin", desc: "Red cloth and horned steel.", cost: 5_000, body: (150, 24, 30), metal: (190, 170, 120), helm: Helm::Class(Class::BloodKnight) },
-    SkinDef { name: "Berry Knight", desc: "Sweet, red and slightly seedy.", cost: 6_000, body: (210, 60, 80), metal: (120, 190, 90), helm: Helm::Strawberry },
-    SkinDef { name: "Plague Doctor", desc: "A beaked mask against the miasma.", cost: 8_000, body: (34, 30, 32), metal: (90, 70, 50), helm: Helm::PlagueMask },
-    SkinDef { name: "Pumpkin Lord", desc: "A grin that glows all night.", cost: 10_000, body: (200, 100, 30), metal: (70, 110, 50), helm: Helm::Pumpkin },
-    SkinDef { name: "Antlered Druid", desc: "The forest walks with you.", cost: 12_000, body: (60, 100, 54), metal: (120, 96, 70), helm: Helm::Antlers },
-    SkinDef { name: "Frost Warden", desc: "Pale blue, with a crown of ice.", cost: 15_000, body: (110, 160, 200), metal: (200, 225, 240), helm: Helm::IceCrown },
-    SkinDef { name: "Bone Monarch", desc: "A skull wearing a crown, or the other way round.", cost: 15_000, body: (190, 180, 150), metal: (220, 210, 180), helm: Helm::SkullCrown },
-    SkinDef { name: "Moth Priest", desc: "Drawn to every flame on the field.", cost: 18_000, body: (150, 130, 160), metal: (190, 170, 150), helm: Helm::Moth },
-    SkinDef { name: "Hollow Jester", desc: "The joke is on the dark.", cost: 20_000, body: (110, 40, 140), metal: (60, 150, 90), helm: Helm::Jester },
-    SkinDef { name: "Lantern Bearer", desc: "A little light that never goes out.", cost: 22_000, body: (40, 110, 110), metal: (150, 150, 140), helm: Helm::LanternHood },
-    SkinDef { name: "Gilded Saint", desc: "Gold leaf over old iron, and a halo.", cost: 25_000, body: (200, 160, 70), metal: (240, 210, 120), helm: Helm::Halo },
-    SkinDef { name: "Ember Wraith", desc: "A head of living fire.", cost: 30_000, body: (40, 24, 22), metal: (90, 60, 50), helm: Helm::Flame },
-    SkinDef { name: "Iron Duke", desc: "A great helm and a proud plume.", cost: 35_000, body: (70, 74, 90), metal: (175, 178, 190), helm: Helm::Greathelm },
-    SkinDef { name: "Grave Cat", desc: "Ears up, tail high, nine lives.", cost: 40_000, body: (26, 24, 30), metal: (60, 56, 66), helm: Helm::CatHood },
-    SkinDef { name: "Starlit Wanderer", desc: "The night sky, stitched into a hat.", cost: 50_000, body: (30, 40, 100), metal: (150, 160, 210), helm: Helm::StarHat },
-    SkinDef { name: "The Last Flame", desc: "White fire and a burning crown.", cost: 250_000, body: (235, 225, 205), metal: (255, 220, 140), helm: Helm::LastCrown },
+pub const SKINS: [SkinDef; 28] = [
+    SkinDef {
+        name: "Ashen Knight",
+        desc: "Grey as the dust of old fires.",
+        cost: 2_000,
+        body: (96, 92, 90),
+        metal: (150, 150, 156),
+        helm: Helm::Class(Class::Wanderer),
+        offering: None,
+    },
+    SkinDef {
+        name: "Tin Pail",
+        desc: "A bucket for any class. Clang.",
+        cost: 3_000,
+        body: (90, 70, 50),
+        metal: (140, 140, 150),
+        helm: Helm::Class(Class::BucketKnight),
+        offering: None,
+    },
+    SkinDef {
+        name: "Crimson Paladin",
+        desc: "Red cloth and horned steel.",
+        cost: 5_000,
+        body: (150, 24, 30),
+        metal: (190, 170, 120),
+        helm: Helm::Class(Class::BloodKnight),
+        offering: None,
+    },
+    SkinDef { name: "Berry Knight", desc: "Sweet, red and slightly seedy.", cost: 6_000, body: (210, 60, 80), metal: (120, 190, 90), helm: Helm::Strawberry, offering: None },
+    SkinDef { name: "Plague Doctor", desc: "A beaked mask against the miasma.", cost: 8_000, body: (34, 30, 32), metal: (90, 70, 50), helm: Helm::PlagueMask, offering: None },
+    SkinDef { name: "Pumpkin Lord", desc: "A grin that glows all night.", cost: 10_000, body: (200, 100, 30), metal: (70, 110, 50), helm: Helm::Pumpkin, offering: None },
+    SkinDef { name: "Antlered Druid", desc: "The forest walks with you.", cost: 12_000, body: (60, 100, 54), metal: (120, 96, 70), helm: Helm::Antlers, offering: None },
+    SkinDef { name: "Frost Warden", desc: "Pale blue, with a crown of ice.", cost: 15_000, body: (110, 160, 200), metal: (200, 225, 240), helm: Helm::IceCrown, offering: None },
+    SkinDef {
+        name: "Bone Monarch",
+        desc: "A skull wearing a crown, or the other way round.",
+        cost: 15_000,
+        body: (190, 180, 150),
+        metal: (220, 210, 180),
+        helm: Helm::SkullCrown,
+        offering: None,
+    },
+    SkinDef { name: "Moth Priest", desc: "Drawn to every flame on the field.", cost: 18_000, body: (150, 130, 160), metal: (190, 170, 150), helm: Helm::Moth, offering: None },
+    SkinDef { name: "Hollow Jester", desc: "The joke is on the dark.", cost: 20_000, body: (110, 40, 140), metal: (60, 150, 90), helm: Helm::Jester, offering: None },
+    SkinDef {
+        name: "Lantern Bearer",
+        desc: "A little light that never goes out.",
+        cost: 22_000,
+        body: (40, 110, 110),
+        metal: (150, 150, 140),
+        helm: Helm::LanternHood,
+        offering: None,
+    },
+    SkinDef { name: "Gilded Saint", desc: "Gold leaf over old iron, and a halo.", cost: 25_000, body: (200, 160, 70), metal: (240, 210, 120), helm: Helm::Halo, offering: None },
+    SkinDef { name: "Ember Wraith", desc: "A head of living fire.", cost: 30_000, body: (40, 24, 22), metal: (90, 60, 50), helm: Helm::Flame, offering: None },
+    SkinDef { name: "Iron Duke", desc: "A great helm and a proud plume.", cost: 35_000, body: (70, 74, 90), metal: (175, 178, 190), helm: Helm::Greathelm, offering: None },
+    SkinDef { name: "Grave Cat", desc: "Ears up, tail high, nine lives.", cost: 40_000, body: (26, 24, 30), metal: (60, 56, 66), helm: Helm::CatHood, offering: None },
+    SkinDef {
+        name: "Starlit Wanderer",
+        desc: "The night sky, stitched into a hat.",
+        cost: 50_000,
+        body: (30, 40, 100),
+        metal: (150, 160, 210),
+        helm: Helm::StarHat,
+        offering: None,
+    },
+    SkinDef {
+        name: "The Last Flame",
+        desc: "White fire and a burning crown.",
+        cost: 250_000,
+        body: (235, 225, 205),
+        metal: (255, 220, 140),
+        helm: Helm::LastCrown,
+        offering: None,
+    },
+    // Given, not bought: these come with what has been offered in the Reliquary.
+    SkinDef {
+        name: "Almsgiver",
+        desc: "A plain hood and a coin given freely.",
+        cost: 0,
+        body: (120, 104, 84),
+        metal: (200, 170, 90),
+        helm: Helm::AlmsHood,
+        offering: Some((true, 10_000)),
+    },
+    SkinDef {
+        name: "Pilgrim of Ash",
+        desc: "A wide hat and a shell from a far shore.",
+        cost: 0,
+        body: (96, 78, 60),
+        metal: (170, 150, 120),
+        helm: Helm::PilgrimHat,
+        offering: Some((true, 100_000)),
+    },
+    SkinDef {
+        name: "Saint of Ash",
+        desc: "A white mitre for one who gave a fortune away.",
+        cost: 0,
+        body: (225, 215, 195),
+        metal: (230, 190, 90),
+        helm: Helm::Mitre,
+        offering: Some((true, 1_000_000)),
+    },
+    SkinDef {
+        name: "The Marked",
+        desc: "A veil, and behind it a mark that glows.",
+        cost: 0,
+        body: (60, 30, 40),
+        metal: (200, 120, 70),
+        helm: Helm::MarkVeil,
+        offering: Some((false, 100)),
+    },
+    SkinDef {
+        name: "The Selfless",
+        desc: "A crown of thorns under a quiet light.",
+        cost: 0,
+        body: (70, 60, 56),
+        metal: (150, 130, 100),
+        helm: Helm::Thorns,
+        offering: Some((false, 1_000)),
+    },
+    SkinDef {
+        name: "Lamp of Charity",
+        desc: "A little lamp carried for others.",
+        cost: 0,
+        body: (70, 90, 110),
+        metal: (190, 170, 120),
+        helm: Helm::CharityLamp,
+        offering: Some((true, 50_000)),
+    },
+    SkinDef {
+        name: "Gilded Almoner",
+        desc: "A circlet hung with coins, all of them given.",
+        cost: 0,
+        body: (130, 40, 50),
+        metal: (235, 200, 100),
+        helm: Helm::AlmonerCrown,
+        offering: Some((true, 500_000)),
+    },
+    SkinDef {
+        name: "The Unburdened",
+        desc: "Nothing kept, and wings for it.",
+        cost: 0,
+        body: (235, 235, 240),
+        metal: (210, 220, 235),
+        helm: Helm::WingedCrown,
+        offering: Some((true, 5_000_000)),
+    },
+    SkinDef {
+        name: "Ember Sister",
+        desc: "A wimple, and an ember kept in prayer.",
+        cost: 0,
+        body: (40, 36, 44),
+        metal: (180, 120, 80),
+        helm: Helm::Wimple,
+        offering: Some((false, 300)),
+    },
+    SkinDef {
+        name: "Ashen Seraph",
+        desc: "Six wings of light, folded about the head.",
+        cost: 0,
+        body: (240, 220, 190),
+        metal: (255, 210, 130),
+        helm: Helm::SixWings,
+        offering: Some((false, 5_000)),
+    },
 ];
 
 /// The skin with number `skin`, if any; 0 is the class look.
@@ -905,7 +1260,17 @@ pub struct Difficulty {
     pub dmg: f32,
     pub speed: f32,
     pub boss_hp: f32,
+    /// Empowered foes on top of all that, in steps of `BOOST_STEP`: more health (lords too),
+    /// more speed, more of them. Each step pays more souls and marks.
+    pub boost: [u8; 3],
 }
+
+/// The empowerments: their names, the percent each step adds, the most steps, and how much
+/// more each full +100% pays.
+pub const BOOST_NAMES: [&str; 3] = ["Foes' health", "Foes' speed", "Foes' numbers"];
+pub const BOOST_STEP: [f32; 3] = [25.0, 10.0, 25.0];
+pub const BOOST_MAX: [u8; 3] = [12, 10, 8];
+const BOOST_PAY: [f32; 3] = [0.35, 1.0, 0.45];
 
 /// Seconds over which a harder difficulty ramps up to its full strength.
 const DIFF_RAMP: f32 = 180.0;
@@ -916,7 +1281,37 @@ impl Difficulty {
     pub fn at(self, time: f32) -> Difficulty {
         let k = 0.33 + 0.67 * (time / DIFF_RAMP).clamp(0.0, 1.0);
         let ramp = |v: f32| if v > 1.0 { 1.0 + (v - 1.0) * k } else { v };
-        Difficulty { count: ramp(self.count), hp: ramp(self.hp), dmg: ramp(self.dmg), speed: ramp(self.speed), boss_hp: self.boss_hp }
+        let b = |i: usize| self.boost_mult(i);
+        Difficulty {
+            count: ramp(self.count) * b(2),
+            hp: ramp(self.hp) * b(0),
+            dmg: ramp(self.dmg),
+            speed: ramp(self.speed) * b(1),
+            boss_hp: self.boss_hp * b(0),
+            boost: self.boost,
+        }
+    }
+
+    /// How much empowerment `i` multiplies its value by.
+    pub fn boost_mult(&self, i: usize) -> f32 {
+        1.0 + self.boost[i].min(BOOST_MAX[i]) as f32 * BOOST_STEP[i] / 100.0
+    }
+
+    /// What the empowerments pay on top: more souls and marks the stronger the foes.
+    pub fn boost_reward(&self) -> f32 {
+        1.0 + (0..3).map(|i| (self.boost_mult(i) - 1.0) * BOOST_PAY[i]).sum::<f32>()
+    }
+
+    /// The empowerments in words, or nothing when there are none.
+    pub fn boost_text(&self) -> String {
+        let parts: Vec<String> =
+            (0..3).filter(|&i| self.boost[i] > 0).map(|i| format!("{} +{:.0}%", ["health", "speed", "numbers"][i], self.boost[i] as f32 * BOOST_STEP[i])).collect();
+        parts.join(", ")
+    }
+
+    /// The same settings without empowerments, to compare with the presets.
+    pub fn base(&self) -> Difficulty {
+        Difficulty { boost: [0; 3], ..*self }
     }
 }
 
@@ -927,10 +1322,10 @@ pub const DIFF_SPEED: [f32; 6] = [0.8, 0.9, 1.0, 1.15, 1.3, 1.5];
 pub const DIFF_BOSS: [f32; 6] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0];
 
 pub const PRESETS: [(&str, Difficulty); 4] = [
-    ("Pilgrim", Difficulty { count: 0.75, hp: 0.75, dmg: 0.5, speed: 0.9, boss_hp: 0.75 }),
-    ("Knight", Difficulty { count: 1.0, hp: 1.0, dmg: 1.0, speed: 1.0, boss_hp: 1.0 }),
-    ("Lord", Difficulty { count: 1.5, hp: 1.5, dmg: 1.5, speed: 1.15, boss_hp: 1.5 }),
-    ("Abyss", Difficulty { count: 2.0, hp: 3.0, dmg: 2.0, speed: 1.3, boss_hp: 3.0 }),
+    ("Pilgrim", Difficulty { count: 0.75, hp: 0.75, dmg: 0.5, speed: 0.9, boss_hp: 0.75, boost: [0; 3] }),
+    ("Knight", Difficulty { count: 1.0, hp: 1.0, dmg: 1.0, speed: 1.0, boss_hp: 1.0, boost: [0; 3] }),
+    ("Lord", Difficulty { count: 1.5, hp: 1.5, dmg: 1.5, speed: 1.15, boss_hp: 1.5, boost: [0; 3] }),
+    ("Abyss", Difficulty { count: 2.0, hp: 3.0, dmg: 2.0, speed: 1.3, boss_hp: 3.0, boost: [0; 3] }),
 ];
 
 impl Default for Difficulty {
@@ -943,11 +1338,11 @@ impl Difficulty {
     /// Harder settings pay out more souls and marks.
     pub fn soul_mult(&self) -> f32 {
         let m = 1.0 + (self.count - 1.0) * 0.3 + (self.hp - 1.0) * 0.25 + (self.dmg - 1.0) * 0.3 + (self.speed - 1.0) * 0.8 + (self.boss_hp - 1.0) * 0.1;
-        m.clamp(0.4, 4.0)
+        m.clamp(0.4, 4.0) * self.boost_reward()
     }
 
     pub fn preset_name(&self) -> &'static str {
-        PRESETS.iter().find(|p| p.1 == *self).map(|p| p.0).unwrap_or("Custom")
+        PRESETS.iter().find(|p| p.1 == self.base()).map(|p| p.0).unwrap_or("Custom")
     }
 }
 

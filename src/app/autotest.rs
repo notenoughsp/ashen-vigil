@@ -114,8 +114,9 @@ impl AutoTest {
 fn arm(w: &mut World, h: usize) {
     let hero = &mut w.heroes[h];
     hero.weapons.clear();
+    // The same places in the cathedral's own arsenal there.
     for k in [WeaponKind::Blade, WeaponKind::Axe, WeaponKind::Scythe, WeaponKind::Hex, WeaponKind::Lance, WeaponKind::Crossbow] {
-        hero.weapons.push(Weapon::new(k));
+        hero.weapons.push(Weapon::new(k.for_field(hero.cathedral)));
     }
     hero.weapons[0].level = WEAPON_MAX_LEVEL;
     hero.weapons[1].level = WEAPON_MAX_LEVEL;
@@ -375,11 +376,17 @@ impl App {
                 }
             }
             1900 => want.push("rush"),
-            1901 => self.field_showcase(Biome::Marsh, BossKind::Bride),
-            2000 => want.push("marsh"),
-            2001 => self.field_showcase(Biome::Cathedral, BossKind::Penitent),
+            1901 => self.field_showcase(Biome::Cathedral, BossKind::Penitent),
             2100 => want.push("cathedral"),
             2101 => {
+                // The rest of the cathedral's arsenal at work.
+                if let Some(h) = self.world.as_mut().and_then(|w| w.heroes.first_mut()) {
+                    h.weapons = [WeaponKind::HolyWater, WeaponKind::Halo, WeaponKind::Censer, WeaponKind::Judgement, WeaponKind::Runes, WeaponKind::Nails]
+                        .into_iter()
+                        .map(|k| Weapon { level: 7, ..Weapon::new(k) })
+                        .collect();
+                    h.recompute_stats();
+                }
                 // Drive the lord into its last phase to hear it.
                 if let Some(e) = self.world.as_mut().and_then(|w| w.enemies.iter_mut().find(|e| e.boss)) {
                     e.hp = e.max_hp * 0.2;
@@ -567,8 +574,8 @@ impl App {
         let p = w.heroes[0].p.pos;
         w.cam = p;
         let kinds: &[EnemyKind] = match biome {
-            Biome::Marsh => &[EnemyKind::Leech, EnemyKind::Ghoul, EnemyKind::Bloat, EnemyKind::Leech, EnemyKind::Wraith],
-            _ => &[EnemyKind::Gargoyle, EnemyKind::Banshee, EnemyKind::Cultist, EnemyKind::Knight, EnemyKind::Shieldbearer],
+            Biome::Cathedral => &[EnemyKind::Gargoyle, EnemyKind::Banshee, EnemyKind::Cultist, EnemyKind::Knight, EnemyKind::Shieldbearer],
+            Biome::Graveyard => &[EnemyKind::Hollow, EnemyKind::Archer, EnemyKind::Necromancer, EnemyKind::Moth, EnemyKind::Wraith],
         };
         for i in 0..40 {
             let at = p + Vec2::from_angle(i as f32 * 0.43) * (220.0 + (i % 5) as f32 * 40.0);

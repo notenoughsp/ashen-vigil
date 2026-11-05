@@ -156,7 +156,7 @@ impl Weather {
 impl WeaponKind {
     /// Weapons that burn, for the ash rain.
     pub fn is_fire(self) -> bool {
-        matches!(self, WeaponKind::Orb | WeaponKind::Hex)
+        matches!(self, WeaponKind::Orb | WeaponKind::Hex | WeaponKind::Candles | WeaponKind::Censer)
     }
 }
 
@@ -266,7 +266,7 @@ impl World {
             let coop = 1.0 + 0.6 * (self.heroes.len().max(1) - 1) as f32;
             // Far tougher than it was, and like the lords and Sven no blow takes more than a
             // sliver of it: it can no longer be felled the moment it steps out of the fog.
-            e.hp = 9000.0 * (1.0 + t / 300.0).powf(1.7) * self.diff.hp * coop;
+            e.hp = 9000.0 * (1.0 + t / 300.0).powf(1.7) * self.diff.at(t).hp * coop;
             e.dmg *= 1.3 * (1.0 + t / 600.0);
             e.max_hp = e.hp;
             e.elite = true;
@@ -305,7 +305,7 @@ impl World {
                 // every time he comes back he has grown, in health, in force and in pace.
                 let coop = 1.0 + 0.6 * (self.heroes.len().max(1) - 1) as f32;
                 let n = self.rivals_come as f32;
-                e.hp = 1600.0 * (1.0 + t / 300.0).powf(1.6) * self.diff.hp * coop * 1.5f32.powf(n);
+                e.hp = 1600.0 * (1.0 + t / 300.0).powf(1.6) * self.diff.at(t).hp * coop * 1.5f32.powf(n);
                 e.max_hp = e.hp;
                 e.dmg *= 1.4 * (1.0 + t / 600.0) * 1.2f32.powf(n);
                 e.speed *= 1.15 * (1.0 + 0.05 * n).min(1.3);

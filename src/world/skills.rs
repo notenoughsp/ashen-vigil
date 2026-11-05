@@ -29,11 +29,13 @@ impl World {
         self.heroes[h].skill_cd = cd * self.heroes[h].cooldown().max(0.5);
         // Skills grow with the vigil, like everything else.
         let power = might * (1.0 + 0.08 * self.level as f32);
-        let src = Src { hero: h, weapon: class.weapon() };
+        let src = Src { hero: h, weapon: class.weapon().for_field(self.heroes[h].cathedral) };
         crate::log!("{} uses {}", self.heroes[h].name, name);
         let color = match class {
             Class::CinderAdept | Class::BloodKnight => Color::from_rgba(255, 120, 60, 255),
             Class::BellAcolyte => Color::from_rgba(255, 220, 140, 255),
+            Class::LanternWarden => Color::from_rgba(150, 220, 255, 255),
+            Class::Stormcaller => Color::from_rgba(170, 190, 255, 255),
             Class::Hexblade => Color::from_rgba(200, 90, 255, 255),
             _ => Color::from_rgba(220, 220, 240, 255),
         };
@@ -106,7 +108,7 @@ impl World {
                 self.sfx_at("slash", 1.0, p);
             }
             Class::Hexblade => {
-                self.pools.push(FirePool { pos: p, r: 210.0, life: 8.0, max_life: 8.0, dps: 45.0 * power, tick: 0.1, src, hex: true });
+                self.pools.push(FirePool { pos: p, r: 210.0, life: 8.0, max_life: 8.0, dps: 45.0 * power, tick: 0.1, src, kind: PoolKind::Hex });
                 self.sfx_at("fire", 1.0, p);
             }
             Class::BloodKnight => {
@@ -116,6 +118,41 @@ impl World {
                 hero.heal(max * 0.4);
                 self.blood_spray(p, rand_dir(), Color::from_rgba(150, 10, 12, 255), 16.0, 20);
                 self.sfx_at("roar", 0.6, p);
+            }
+            Class::LanternWarden => {
+                let r = 380.0;
+                self.hit_circle(p, r, 60.0 * power, 120.0, src, None);
+                for e in self.enemies.iter_mut().filter(|e| !e.dead && e.pos.distance(p) < r) {
+                    e.slow = e.slow.max(if e.boss { 1.0 } else { 3.0 });
+                    if !e.boss {
+                        e.burn = e.burn.max(3.0);
+                        e.burn_dps = e.burn_dps.max(20.0 * power);
+                        e.burn_src = src;
+                    }
+                }
+                for hero in self.heroes.iter_mut().filter(|o| o.alive() && o.p.pos.distance(p) < r) {
+                    let max = hero.stats.max_hp;
+                    hero.heal(max * 0.3);
+                }
+                self.fx.push(Fx { pos: p, life: 0.8, max_life: 0.8, kind: FxKind::Explosion { r: 140.0, color: Color::from_rgba(150, 220, 255, 255) } });
+                self.fx.push(Fx { pos: p, life: 0.8, max_life: 0.8, kind: FxKind::Ring { r, color } });
+                self.sfx_at("bell", 0.9, p);
+            }
+            Class::Stormcaller => {
+                // On the strongest foes in reach, the lords first.
+                let mut near = self.nearest_enemies(p, 650.0, 40);
+                near.sort_by(|a, b| self.enemies[*b].hp.total_cmp(&self.enemies[*a].hp));
+                for k in 0..8 {
+                    let at = match near.get(k % near.len().max(1)) {
+                        Some(&i) => self.enemies[i].pos,
+                        None => p + Vec2::from_angle(k as f32 / 8.0 * TAU) * 220.0,
+                    };
+                    self.hit_circle(at, 75.0, 150.0 * power, 160.0, src, None);
+                    self.fx.push(Fx { pos: at, life: 0.35, max_life: 0.35, kind: FxKind::Lightning { from: at + vec2(gen_range(-80.0, 80.0), -650.0) } });
+                    self.add_decal(at, 30.0, Color::from_rgba(15, 15, 22, 160), DecalKind::Scorch, 15.0);
+                }
+                self.shake = self.shake.max(12.0);
+                self.sfx_at("zap", 1.0, p);
             }
             Class::BucketKnight => {
                 self.hit_circle(p, 340.0, 50.0 * power, 0.0, src, None);

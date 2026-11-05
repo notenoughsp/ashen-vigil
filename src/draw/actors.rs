@@ -251,6 +251,33 @@ impl World {
         let steel = rgba(122, 122, 132, 255);
         let slit = rgba(10, 10, 12, 255);
         match class {
+            Class::LanternWarden => {
+                // A deep hood with a small lantern hung from its peak.
+                let hood = rgba(36, 62, 70, 255);
+                draw_triangle(head + vec2(-7.0, 2.0), head + vec2(7.0, 2.0), head + vec2(-fx * 4.0, -12.0), hood);
+                ball(head, 6.8, hood, hi);
+                draw_circle(head.x + fx * 1.8, head.y + 0.8, 4.4, rgba(6, 10, 12, 255));
+                eyes(head + vec2(fx * 2.4, 0.6), 1.7, 0.8, rgba(150, 220, 255, 255));
+                let lamp = head + vec2(-fx * 6.0, -12.0 + (self.time * 2.5).sin());
+                draw_circle(lamp.x, lamp.y, 6.0, Color::new(0.6, 0.85, 1.0, 0.18));
+                draw_rectangle(lamp.x - 2.0, lamp.y - 2.4, 4.0, 4.8, rgba(50, 60, 66, 255));
+                draw_rectangle(lamp.x - 1.2, lamp.y - 1.6, 2.4, 3.2, rgba(170, 225, 255, 255));
+            }
+            Class::Stormcaller => {
+                // A winged helm, a crackle of blue between its wings.
+                ball(head, 6.8, steel, hi);
+                draw_line(head.x - 4.5 + fx * 2.0, head.y + 1.0, head.x + 4.5 + fx * 2.0, head.y + 1.0, 1.6, slit);
+                for s in [-1.0, 1.0] {
+                    let a = head + vec2(s * 5.5, -3.0);
+                    draw_triangle(a, a + vec2(s * 5.0, -8.0), a + vec2(s * 1.0, -4.0), rgba(200, 205, 220, 255));
+                }
+                if (self.time * 6.0).sin() > 0.2 {
+                    let y = head.y - 9.0;
+                    draw_line(head.x - 4.0, y, head.x - 1.0, y - 2.0, 1.0, rgba(180, 200, 255, 255));
+                    draw_line(head.x - 1.0, y - 2.0, head.x + 1.5, y + 0.5, 1.0, rgba(180, 200, 255, 255));
+                    draw_line(head.x + 1.5, y + 0.5, head.x + 4.0, y - 1.5, 1.0, rgba(180, 200, 255, 255));
+                }
+            }
             Class::BucketKnight => {
                 draw_rectangle(head.x - 7.5, head.y - 8.0, 15.0, 15.0, OUTLINE);
                 draw_rectangle(head.x - 6.5, head.y - 7.0, 13.0, 13.0, rgba(140, 140, 150, 255));
@@ -488,6 +515,132 @@ impl World {
                     draw_triangle(vec2(x - 0.8, head.y - 5.0), vec2(x + 0.8, head.y - 5.0), vec2(x, head.y - 5.0 - h * 0.6), WHITE);
                 }
             }
+            Helm::AlmsHood => {
+                let cloth = rgba(110, 96, 78, 255);
+                draw_triangle(head + vec2(-7.0, 3.0), head + vec2(7.0, 3.0), head + vec2(-fx * 2.0, -10.0), cloth);
+                ball(head, 6.8, cloth, hi);
+                draw_circle(head.x + fx * 1.8, head.y + 0.8, 4.4, rgba(14, 12, 10, 255));
+                eyes(head + vec2(fx * 2.4, 0.6), 1.6, 0.8, rgba(230, 210, 170, 255));
+                // A coin on a cord, catching the light.
+                let coin = head + vec2(fx * 3.0, 8.5);
+                draw_line(head.x + fx * 1.0, head.y + 5.0, coin.x, coin.y - 2.0, 0.8, rgba(90, 70, 40, 255));
+                draw_circle(coin.x, coin.y, 2.3, rgba(230, 190, 80, 255));
+                draw_circle(coin.x - 0.6, coin.y - 0.6, 0.8 * fl, rgba(255, 245, 200, 255));
+            }
+            Helm::PilgrimHat => {
+                ball(head, 6.2, rgba(220, 196, 170, 255), hi);
+                eyes(head + vec2(fx * 2.2, 1.0), 1.6, 0.8, rgba(40, 30, 24, 255));
+                let felt = rgba(70, 54, 40, 255);
+                draw_ellipse(head.x, head.y - 4.0, 13.5, 3.2, 0.0, felt);
+                draw_rectangle(head.x - 5.0, head.y - 10.0, 10.0, 6.5, felt);
+                draw_ellipse(head.x, head.y - 10.0, 5.0, 1.6, 0.0, shade(felt, 1.2));
+                // The scallop shell on the brim.
+                let sh = head + vec2(fx * 4.0, -7.0);
+                draw_circle(sh.x, sh.y, 2.4, rgba(240, 225, 200, 255));
+                for k in 0..3 {
+                    let a = -PI * 0.5 + (k as f32 - 1.0) * 0.6;
+                    let q = sh + Vec2::from_angle(a) * 2.2;
+                    draw_line(sh.x, sh.y + 1.0, q.x, q.y, 0.6, rgba(170, 140, 110, 255));
+                }
+            }
+            Helm::Mitre => {
+                ball(head, 6.2, rgba(235, 220, 200, 255), hi);
+                eyes(head + vec2(fx * 2.2, 1.2), 1.6, 0.8, rgba(40, 30, 24, 255));
+                let white = rgba(240, 236, 226, 255);
+                let gold = rgba(230, 190, 90, 255);
+                draw_triangle(head + vec2(-6.0, -3.5), head + vec2(6.0, -3.5), head + vec2(0.0, -19.0), white);
+                draw_line(head.x, head.y - 4.0, head.x, head.y - 17.5, 1.6, gold);
+                draw_line(head.x - 3.0, head.y - 11.0, head.x + 3.0, head.y - 11.0, 1.6, gold);
+                draw_rectangle(head.x - 6.5, head.y - 5.0, 13.0, 2.2, gold);
+                draw_circle(head.x, head.y - 12.0, 9.0 * fl, Color::new(1.0, 0.95, 0.75, 0.1));
+            }
+            Helm::MarkVeil => {
+                let veil = rgba(50, 26, 34, 255);
+                ball(head, 6.8, veil, hi);
+                draw_triangle(head + vec2(-6.5, 0.0), head + vec2(6.5, 0.0), head + vec2(-fx * 1.0, 10.0), shade(veil, 0.8));
+                // The mark on the brow glows and breathes.
+                let mark = head + vec2(fx * 1.8, -2.5);
+                draw_circle(mark.x, mark.y, 4.0 * fl, Color::new(1.0, 0.5, 0.25, 0.25));
+                draw_triangle(mark + vec2(0.0, -2.2), mark + vec2(-1.9, 1.3), mark + vec2(1.9, 1.3), rgba(255, 160, 80, 255));
+                draw_circle(mark.x, mark.y + 0.2, 0.7, rgba(255, 240, 200, 255));
+            }
+            Helm::Thorns => {
+                ball(head, 6.2, rgba(215, 196, 176, 255), hi);
+                eyes(head + vec2(fx * 2.2, 1.2), 1.5, 0.7, rgba(40, 30, 24, 255));
+                draw_circle(head.x, head.y - 9.0, 10.0 * fl, Color::new(1.0, 0.95, 0.8, 0.12));
+                let briar = rgba(70, 50, 34, 255);
+                draw_ellipse_lines(head.x, head.y - 4.5, 7.5, 2.4, 0.0, 1.6, briar);
+                for k in 0..7 {
+                    let a = k as f32 / 7.0 * TAU;
+                    let q = head + vec2(a.cos() * 7.5, -4.5 + a.sin() * 2.4);
+                    draw_line(q.x, q.y, q.x + a.cos() * 2.0, q.y - 2.2, 0.9, briar);
+                }
+            }
+            Helm::CharityLamp => {
+                let hood = rgba(64, 84, 104, 255);
+                ball(head, 6.8, hood, hi);
+                draw_circle(head.x + fx * 1.8, head.y + 0.8, 4.4, rgba(10, 12, 16, 255));
+                eyes(head + vec2(fx * 2.4, 0.6), 1.6, 0.8, rgba(255, 220, 150, 255));
+                // A small oil lamp on top, its flame swaying.
+                let lamp = head + vec2(0.0, -9.0);
+                draw_ellipse(lamp.x, lamp.y, 4.0, 1.8, 0.0, rgba(190, 160, 100, 255));
+                let tip = lamp + vec2((t * 5.0).sin() * 0.8, -5.0 * fl);
+                draw_triangle(lamp + vec2(-1.3, -1.0), lamp + vec2(1.3, -1.0), tip, rgba(255, 200, 90, 240));
+                draw_circle(lamp.x, lamp.y - 2.5, 6.0 * fl, Color::new(1.0, 0.8, 0.4, 0.15));
+            }
+            Helm::AlmonerCrown => {
+                ball(head, 6.2, rgba(225, 205, 185, 255), hi);
+                eyes(head + vec2(fx * 2.2, 1.2), 1.6, 0.8, rgba(40, 30, 24, 255));
+                let gold = rgba(235, 200, 100, 255);
+                draw_ellipse_lines(head.x, head.y - 4.0, 7.2, 2.0, 0.0, 1.8, gold);
+                for k in 0..5 {
+                    let x = head.x - 6.0 + k as f32 * 3.0;
+                    let y = head.y - 1.5 + (t * 3.0 + k as f32).sin() * 0.4;
+                    draw_line(x, head.y - 3.0, x, y, 0.6, gold);
+                    draw_circle(x, y + 1.0, 1.2, gold);
+                }
+                draw_circle(head.x, head.y - 7.0, 1.6, rgba(200, 40, 50, 255));
+            }
+            Helm::WingedCrown => {
+                draw_circle(head.x, head.y - 4.0, 12.0 * fl, Color::new(1.0, 1.0, 1.0, 0.08));
+                let feather = rgba(245, 245, 250, 255);
+                let beat = (t * 2.5).sin() * 1.5;
+                for s in [-1.0, 1.0] {
+                    for k in 0..3 {
+                        let base = head + vec2(s * 6.0, -2.0 + k as f32 * 2.5);
+                        draw_triangle(base, base + vec2(0.0, 2.5), base + vec2(s * (9.0 - k as f32 * 2.0), -4.0 - beat + k as f32), feather);
+                    }
+                }
+                ball(head, 6.4, rgba(240, 236, 230, 255), hi);
+                eyes(head + vec2(fx * 2.2, 1.0), 1.6, 0.8, rgba(120, 170, 230, 255));
+                draw_ellipse_lines(head.x, head.y - 10.0, 6.0, 1.8, 0.0, 1.4, Color::new(0.9, 0.95, 1.0, 0.95));
+            }
+            Helm::Wimple => {
+                let cloth = rgba(36, 32, 40, 255);
+                draw_triangle(head + vec2(-7.5, -2.0), head + vec2(7.5, -2.0), head + vec2(-fx * 2.0, 10.0), cloth);
+                ball(head, 7.0, cloth, hi);
+                draw_circle(head.x + fx * 1.8, head.y + 0.8, 4.6, rgba(230, 220, 205, 255));
+                eyes(head + vec2(fx * 2.4, 0.6), 1.4, 0.7, rgba(40, 30, 24, 255));
+                draw_ellipse_lines(head.x + fx * 1.8, head.y + 0.8, 4.6, 4.6, 0.0, 1.0, rgba(240, 236, 226, 255));
+                // An ember held before the face.
+                let ember = head + vec2(fx * 6.5, 6.0);
+                draw_circle(ember.x, ember.y, 3.5 * fl, Color::new(1.0, 0.45, 0.15, 0.3));
+                draw_circle(ember.x, ember.y, 1.4, rgba(255, 170, 80, 255));
+            }
+            Helm::SixWings => {
+                let gold = Color::new(1.0, 0.85, 0.5, 0.85);
+                for k in 0..3 {
+                    let a = 0.5 + k as f32 * 0.55 + (t * 1.5 + k as f32).sin() * 0.06;
+                    for s in [-1.0, 1.0] {
+                        let dir = vec2(s * a.cos(), -a.sin());
+                        let base = head + dir * 5.0;
+                        draw_triangle(base, base + vec2(-dir.y, dir.x) * 2.2, base + dir * (10.0 - k as f32 * 1.5), gold);
+                    }
+                }
+                ball(head, 6.2, rgba(245, 230, 205, 255), hi);
+                eyes(head + vec2(fx * 2.2, 1.0), 1.6, 0.9, rgba(255, 220, 120, 255));
+                draw_circle(head.x, head.y - 2.0, 13.0 * fl, Color::new(1.0, 0.85, 0.5, 0.1));
+            }
             Helm::Strawberry => {
                 ball(head, 6.0, rgba(240, 220, 205, 255), hi);
                 eyes(head + vec2(fx * 2.2, 1.5), 1.7, 0.9, rgba(30, 20, 20, 255));
@@ -513,6 +666,10 @@ impl World {
         let metal = rgba(175, 175, 185, 255);
         let wood = rgba(80, 58, 38, 255);
         let up = vec2(fx * 0.35, -1.0).normalize();
+        if kind.is_cathedral() {
+            self.draw_held_holy(kind, hand, f, fx, up);
+            return;
+        }
         match kind {
             WeaponKind::Blade | WeaponKind::Daggers => {
                 let len = if kind == WeaponKind::Blade { 18.0 } else { 10.0 };
@@ -578,6 +735,87 @@ impl World {
                     draw_rectangle(low.x - 3.0, low.y, 6.0, 7.0, rgba(60, 60, 66, 255));
                     draw_rectangle(low.x - 2.0, low.y + 1.0, 4.0, 5.0, rgba(140, 210, 255, 255));
                 }
+            }
+            _ => {}
+        }
+    }
+
+    /// The cathedral's weapons in the hero's hand.
+    fn draw_held_holy(&self, kind: WeaponKind, hand: Vec2, f: Vec2, fx: f32, up: Vec2) {
+        let col = kind.color();
+        let wood = rgba(80, 58, 38, 255);
+        let gold = rgba(200, 165, 80, 255);
+        let fl = 0.8 + 0.2 * (self.time * 9.0).sin();
+        match kind {
+            WeaponKind::Judgement => {
+                let dir = (f * 0.5 + up * 0.85).normalize();
+                let tip = hand + dir * 22.0;
+                draw_line(hand.x, hand.y, tip.x, tip.y, 4.0, OUTLINE);
+                draw_line(hand.x, hand.y, tip.x, tip.y, 3.0, rgba(215, 220, 240, 255));
+                let guard = vec2(-dir.y, dir.x) * 5.0;
+                draw_line(hand.x - guard.x, hand.y - guard.y, hand.x + guard.x, hand.y + guard.y, 2.2, gold);
+            }
+            WeaponKind::Crozier => {
+                let top = hand + up * 22.0;
+                let bottom = hand - up * 10.0;
+                draw_line(bottom.x, bottom.y, top.x, top.y, 2.6, gold);
+                let a = up.y.atan2(up.x).to_degrees();
+                draw_arc(top.x - fx * 4.0, top.y, 16, 4.5, a - 90.0 * fx, 2.4, 220.0, gold);
+            }
+            WeaponKind::Rosary | WeaponKind::Censer => {
+                // Beads or a censer swinging on a chain from the hand.
+                let swing = (self.time * 3.0).sin() * 4.0;
+                let low = hand + vec2(swing, 10.0);
+                if kind == WeaponKind::Rosary {
+                    for k in 0..5 {
+                        let q = hand.lerp(low, k as f32 / 4.0);
+                        draw_circle(q.x, q.y, 1.6, col);
+                    }
+                    draw_line(low.x, low.y, low.x, low.y + 5.0, 1.2, gold);
+                    draw_line(low.x - 2.0, low.y + 2.0, low.x + 2.0, low.y + 2.0, 1.2, gold);
+                } else {
+                    draw_line(hand.x, hand.y, low.x, low.y, 0.9, rgba(90, 90, 96, 255));
+                    draw_circle(low.x, low.y + 2.0, 3.6, gold);
+                    draw_circle(low.x, low.y - 3.0, 4.0 * fl, Color::new(0.8, 0.8, 0.75, 0.2));
+                }
+            }
+            WeaponKind::HolyWater => {
+                let at = hand + vec2(fx * 2.0, -3.0);
+                draw_circle(at.x, at.y, 4.0, OUTLINE);
+                draw_circle(at.x, at.y, 3.2, col);
+                draw_rectangle(at.x - 1.0, at.y - 7.0, 2.0, 4.0, rgba(200, 200, 210, 255));
+            }
+            WeaponKind::Gargoyle => {
+                // The familiar perches on the shoulder.
+                let at = hand + up * 12.0 + vec2(-fx * 4.0, 0.0);
+                draw_circle(at.x, at.y, 3.6, col);
+                draw_triangle(at + vec2(-2.0, 0.0), at + vec2(-7.0, -4.0 + fl), at + vec2(-3.0, 3.0), shade(col, 0.7));
+                draw_triangle(at + vec2(2.0, 0.0), at + vec2(7.0, -4.0 + fl), at + vec2(3.0, 3.0), shade(col, 0.7));
+            }
+            WeaponKind::Halo => {
+                let at = hand + up * 8.0;
+                draw_ellipse_lines(at.x, at.y, 6.0, 2.0, 0.0, 1.6, with_alpha(col, 0.9));
+                draw_circle(at.x, at.y, 7.0 * fl, with_alpha(col, 0.15));
+            }
+            WeaponKind::Organ | WeaponKind::Runes | WeaponKind::Nails => {
+                // A book of psalms, or a hammer for the nails.
+                if kind == WeaponKind::Nails {
+                    let top = hand + up * 11.0;
+                    draw_line(hand.x, hand.y, top.x, top.y, 2.4, wood);
+                    draw_rectangle(top.x - 4.0, top.y - 2.0, 8.0, 4.0, rgba(120, 120, 130, 255));
+                } else {
+                    draw_rectangle(hand.x - 4.0, hand.y - 3.0, 8.0, 7.0, rgba(70, 30, 26, 255));
+                    draw_rectangle(hand.x - 3.0, hand.y - 2.0, 6.0, 5.0, rgba(230, 215, 180, 255));
+                    draw_circle(hand.x, hand.y - 6.0, 4.0 * fl, with_alpha(col, 0.25));
+                }
+            }
+            _ => {
+                // A staff crowned with a light: candles or a shard of coloured glass.
+                let top = hand + up * 20.0;
+                let bottom = hand - up * 8.0;
+                draw_line(bottom.x, bottom.y, top.x, top.y, 2.4, if kind == WeaponKind::Candles { gold } else { wood });
+                draw_circle(top.x, top.y, 7.0 * fl, with_alpha(col, 0.2));
+                draw_circle(top.x, top.y, 3.0, col);
             }
         }
     }

@@ -82,6 +82,17 @@ impl World {
             self.blood_spray(pos, knock.normalize_or_zero(), kind.blood(), r, if crit { 5 } else { 2 });
         }
         self.sfx_gap_at("hit", 0.25, 0.06, pos);
+        // A Stormcaller's crit leaps on to the next foe, once.
+        if crit && !self.leaping && self.heroes.get(src.hero).is_some_and(|h| h.class == Class::Stormcaller) {
+            let next = self.nearest_enemies(pos, 170.0, 4).into_iter().find(|&j| j != i && !self.enemies[j].dead);
+            if let Some(j) = next {
+                let to = self.enemies[j].pos;
+                self.fx.push(Fx { pos: to, life: 0.2, max_life: 0.2, kind: FxKind::Lightning { from: pos } });
+                self.leaping = true;
+                self.hit(j, base * 0.5, Vec2::ZERO, src, false);
+                self.leaping = false;
+            }
+        }
         if killed {
             self.enemies[i].dead = true;
             self.on_kill(i, src);
@@ -491,7 +502,7 @@ impl World {
         self.add_decal(c, r * 0.6, Color::from_rgba(20, 14, 10, 160), DecalKind::Scorch, 25.0);
         self.sfx_gap_at("explode", 0.35, 0.08, c);
         if evo {
-            self.pools.push(FirePool { pos: c, r: r * 0.8, life: 3.0, max_life: 3.0, dps: dmg * 0.6, tick: 0.0, src, hex: false });
+            self.pools.push(FirePool { pos: c, r: r * 0.8, life: 3.0, max_life: 3.0, dps: dmg * 0.6, tick: 0.0, src, kind: PoolKind::Fire });
         }
     }
 
@@ -500,15 +511,52 @@ impl World {
             self.pools[k].life -= dt;
             self.pools[k].tick -= dt;
             if self.pools[k].tick <= 0.0 {
-                self.pools[k].tick = 0.3;
                 let p = &self.pools[k];
-                let (c, r, d, src) = (p.pos, p.r, p.dps * 0.3, p.src);
-                self.hit_circle(c, r, d, 0.0, src, None);
+                let (c, r, kind, src) = (p.pos, p.r, p.kind, p.src);
+                if kind == PoolKind::Candle {
+                    // A candle spits a flame at the nearest foe in reach.
+                    self.pools[k].tick = 0.55;
+                    let dmg = self.pools[k].dps;
+                    if let Some(&i) = self.nearest_enemies(c, 260.0, 1).first() {
+                        let dir = (self.enemies[i].pos - c).normalize_or_zero();
+                        let at = c + vec2(0.0, -14.0);
+                        self.projs.push(Proj {
+                            pos: at,
+                            vel: dir * 380.0,
+                            dir,
+                            r: 5.0,
+                            dmg,
+                            pierce: 0,
+                            life: 1.0,
+                            age: 0.0,
+                            kind: PKind::Ember,
+                            evo: false,
+                            area: 1.0,
+                            src,
+                            hits: Vec::new(),
+                            dead: false,
+                        });
+                    }
+                } else {
+                    self.pools[k].tick = 0.3;
+                    let d = self.pools[k].dps * 0.3;
+                    self.hit_circle(c, r, d, 0.0, src, None);
+                    if kind == PoolKind::Holy {
+                        for e in self.enemies.iter_mut().filter(|e| !e.dead && e.pos.distance(c) < r + e.r) {
+                            e.slow = e.slow.max(0.45);
+                        }
+                    }
+                }
             }
             if chance(0.4) {
                 let p = &self.pools[k];
                 let c = p.pos + rand_dir() * gen_range(0.0, p.r);
-                let col = if p.hex { Color::from_rgba(200, 60, 230, 255) } else { Color::from_rgba(255, 120, 30, 255) };
+                let col = match p.kind {
+                    PoolKind::Hex => Color::from_rgba(200, 60, 230, 255),
+                    PoolKind::Holy => Color::from_rgba(170, 220, 255, 255),
+                    PoolKind::Smoke => Color::from_rgba(150, 140, 130, 255),
+                    _ => Color::from_rgba(255, 120, 30, 255),
+                };
                 self.particle(c, vec2(0.0, -40.0), 0.5, 3.0, col, true);
             }
         }

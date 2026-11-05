@@ -31,6 +31,24 @@ pub struct Weapon {
     pub spins: Vec<f32>,
 }
 
+/// What each step of the soul burden gives.
+pub const BURDEN_MIGHT: f32 = 0.05;
+pub const BURDEN_AREA: f32 = 0.03;
+pub const BURDEN_SPEED: f32 = 0.02;
+pub const BURDEN_MAGNET: f32 = 0.06;
+pub const BURDEN_COOLDOWN: f32 = 0.01;
+/// The burden has at most this many steps.
+pub const BURDEN_MAX: u32 = 10;
+
+/// The steps of soul burden for `souls` carried: the first at 1,000 souls, and one more each
+/// time the purse doubles, up to `BURDEN_MAX` (512,000 souls).
+pub fn soul_burden(souls: u64) -> u32 {
+    if souls < 1_000 {
+        return 0;
+    }
+    ((souls / 1_000).ilog2() + 1).min(BURDEN_MAX)
+}
+
 /// Most health per second that lifesteal can return.
 pub const LEECH_RATE: f32 = 4.0;
 
@@ -93,6 +111,7 @@ impl Weapon {
             1 => fusion_name(self.kind, self.fused[0]),
             2 => mega_name(&self.kinds()),
             3 => ultra_name(&self.kinds()),
+            _ if self.kind.is_cathedral() => LAST_HYMN,
             _ => LAST_FLAME,
         }
     }
@@ -173,7 +192,7 @@ pub struct Hero {
     /// Remaining seconds per `Buff`.
     pub buffs: [f32; 3],
     pub dmg_total: f64,
-    pub dmg_weapon: [f64; 12],
+    pub dmg_weapon: [f64; ALL_WEAPONS.len()],
     /// Damage per second of the last minute, as (second, amount) ring.
     dmg_ring: [(i64, f32); 60],
     pub dmg_minute: f32,
@@ -199,6 +218,11 @@ pub struct Hero {
     /// Which tile of the wager stone the hero stands on, and for how long.
     pub wager_tile: usize,
     pub wager_kindle: f32,
+    /// The weight of the souls carried: each step makes the hero stronger, and banking them
+    /// at a shrine (or losing them) gives it up. See `soul_burden`.
+    pub burden: u32,
+    /// Fights with the cathedral's arsenal rather than the graveyard's.
+    pub cathedral: bool,
     pub rested: bool,
     /// Challenge bits (single player).
     pub challenges: u8,
@@ -251,7 +275,7 @@ impl Hero {
             rolls: 0,
             buffs: [0.0; 3],
             dmg_total: 0.0,
-            dmg_weapon: [0.0; 12],
+            dmg_weapon: [0.0; ALL_WEAPONS.len()],
             dmg_ring: [(-100, 0.0); 60],
             dmg_minute: 0.0,
             has_cat: false,
@@ -265,6 +289,8 @@ impl Hero {
             ember_ready_at: 0.0,
             wager_tile: 0,
             wager_kindle: 0.0,
+            burden: 0,
+            cathedral: false,
             rested: false,
             challenges: 0,
             aim: vec2(1.0, 0.0),
@@ -319,11 +345,40 @@ impl Hero {
         k
     }
 
+    /// The weapons this hero's field offers.
+    pub fn arsenal(&self) -> [WeaponKind; ARSENAL] {
+        if self.cathedral {
+            CATHEDRAL_WEAPONS
+        } else {
+            GRAVE_WEAPONS
+        }
+    }
+
+    /// Takes up the arsenal of a field: its weapons trade places with their mirrors.
+    pub fn arm_for(&mut self, cathedral: bool) {
+        self.cathedral = cathedral;
+        for w in self.weapons.iter_mut() {
+            let kind = w.kind.for_field(cathedral);
+            if kind != w.kind {
+                let fused = w.fused.iter().map(|k| k.for_field(cathedral)).collect();
+                let (level, evolved, whole) = (w.level, w.evolved, w.whole);
+                *w = Weapon::with_parts(kind, fused);
+                w.level = level;
+                w.evolved = evolved;
+                w.whole = whole;
+            }
+        }
+    }
+
+    /// Whether a weapon can come in a level-up: from this field, and unlocked (the
+    /// cathedral's need no unlocking).
+    fn offers(&self, k: WeaponKind) -> bool {
+        k.is_cathedral() == self.cathedral && (k.is_cathedral() || self.profile.has(Unlock::Weapon(k)))
+    }
+
     /// A new weapon can still come from a level-up.
     fn can_gain_weapon(&self) -> bool {
-        self.challenges & Challenge::OneWeapon.bit() == 0
-            && self.weapons.len() < self.max_weapons()
-            && ALL_WEAPONS.iter().any(|k| !self.owns_weapon(*k) && self.profile.has(Unlock::Weapon(*k)))
+        self.challenges & Challenge::OneWeapon.bit() == 0 && self.weapons.len() < self.max_weapons() && self.arsenal().iter().any(|k| !self.owns_weapon(*k) && self.offers(*k))
     }
 
     /// Might including temporary blessings.
@@ -398,6 +453,8 @@ impl Hero {
                 max_hp += 10.0;
             }
             Class::BucketKnight => armor += 2.0,
+            Class::LanternWarden => {}
+            Class::Stormcaller => crit += 0.1,
         }
         for it in &self.items {
             let l = it.level as f32;
@@ -429,6 +486,13 @@ impl Hero {
         if self.has_cat {
             luck += 0.13;
         }
+        // The souls carried: might, area, pace, reach and quicker weapons.
+        let b = self.burden as f32;
+        might += BURDEN_MIGHT * b;
+        area += BURDEN_AREA * b;
+        speed_mul += BURDEN_SPEED * b;
+        magnet_mul += BURDEN_MAGNET * b;
+        cooldown -= BURDEN_COOLDOWN * b;
         if self.challenges & Challenge::GlassCannon.bit() != 0 {
             max_hp *= 0.5;
             might += 0.6;
@@ -503,13 +567,50 @@ impl Hero {
         rolled
     }
 
+    /// Where the censers swing: a figure of eight about the hero, each a little behind the
+    /// last, and how big each one hits.
+    pub fn censer_positions(&self) -> Vec<(Vec2, f32)> {
+        let mut out = Vec::new();
+        for w in &self.weapons {
+            for part in w.parts().into_iter().filter(|p| p.kind == WeaponKind::Censer) {
+                let spin = w.spins.get(part.slot).copied().unwrap_or(0.0);
+                let s = WeaponKind::Censer.stats(w.level, part.evo);
+                let n = (s.amount + self.stats.amount).div_ceil(2).max(1) + u32::from(self.class == Class::LanternWarden);
+                let area = s.area * self.stats.area;
+                let r = 130.0 * area;
+                for k in 0..n {
+                    let t = spin + k as f32 / n as f32 * TAU;
+                    let d = 1.0 + t.sin() * t.sin();
+                    let at = vec2(r * t.cos() / d, r * t.sin() * t.cos() / d * 1.4);
+                    out.push((self.p.pos + at, 18.0 * area));
+                }
+            }
+        }
+        out
+    }
+
+    /// How far the halo has breathed out, for each halo the hero carries.
+    pub fn halo_radii(&self) -> Vec<f32> {
+        let mut out = Vec::new();
+        for w in &self.weapons {
+            for part in w.parts().into_iter().filter(|p| p.kind == WeaponKind::Halo) {
+                let spin = w.spins.get(part.slot).copied().unwrap_or(0.0);
+                let s = WeaponKind::Halo.stats(w.level, part.evo);
+                let max = 135.0 * s.area * self.stats.area;
+                out.push(40.0 + (max - 40.0) * (0.5 - 0.5 * spin.cos()));
+            }
+        }
+        out
+    }
+
     pub fn lantern_positions(&self) -> Vec<(Vec2, f32)> {
         let mut out = Vec::new();
         for w in &self.weapons {
             for part in w.parts().into_iter().filter(|p| p.kind == WeaponKind::Lanterns) {
                 let spin = w.spins.get(part.slot).copied().unwrap_or(0.0);
                 let s = WeaponKind::Lanterns.stats(w.level, part.evo);
-                let n = s.amount + self.stats.amount;
+                // The Lantern Warden keeps one more.
+                let n = s.amount + self.stats.amount + u32::from(self.class == Class::LanternWarden);
                 let area = s.area * self.stats.area;
                 let (inner, outer) = if part.evo { (n / 2, n - n / 2) } else { (n, 0) };
                 for k in 0..inner {
@@ -552,8 +653,8 @@ impl Hero {
             }
         } else if include_new {
             if self.weapons.len() < self.max_weapons() {
-                for k in ALL_WEAPONS {
-                    if !self.owns_weapon(k) && self.profile.has(Unlock::Weapon(k)) {
+                for k in self.arsenal() {
+                    if !self.owns_weapon(k) && self.offers(k) {
                         pool.push((Choice::NewWeapon(k), 1.6));
                     }
                 }
