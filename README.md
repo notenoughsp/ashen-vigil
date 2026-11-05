@@ -98,7 +98,7 @@ Five pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Aiming**: every weapon aims at the nearest foe on its own, or where you walk when none is near. Daggers, lances, axes and soulbolts spread several shots over several foes; only the soulbolt keeps seeking after it is fired. The crossbow fires in every direction.
 - **Sound** comes from where it happens: full volume near your hero, silent about a screen away. Announcements are heard everywhere.
 - **Mouse**: hover and click work in every menu and on the level-up cards; right click turns a value or class back.
-- **Level-up cards** show weapon and item icons and point out a card that fuses with or evolves something you carry. The HUD shows the same icons for weapons and items.
+- **Level-up cards** show weapon and item icons and point out a card that fuses with something you carry. The HUD shows the same icons for weapons and items.
 - **Volume** moves in 1% steps; hold the key or use the mouse wheel to go faster.
 - **Achievements**: 69, each paying Ashen Marks once, on three pages under Records. There are secrets to find, too.
 - **Logs**: every start writes a log to `%APPDATA%\AshenVigil\logs\` (the newest ten are kept), including crashes with their cause. A player who joined someone's vigil sends their log to the host at the end of each vigil and on a crash; the host keeps the last twenty under `logs\players\`. The log holds the game's own events and settings, not the Windows user name.
@@ -107,7 +107,7 @@ Five pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Bosses** every 5 minutes, announced five seconds ahead, inside a fog ring you cannot leave; which lords come depends on the field. All attacks are telegraphed. Each boss enters a second phase at half health. The finale at 30:00 is always the Sovereign.
 - **Enemy projectiles** are large and red. Your weapons destroy them: blades and sweeps cut them, projectiles and explosions shoot them down.
 - **Relics on the map** appear every 30-45 s near a player and vanish after a minute (marked on the screen edge): Bloodstone (+50% might), Quicksilver (weapons 40% faster), Aegis Ash (untouchable), a free item upgrade, a pyre bomb that burns everything around it, and grave bread (+60 health).
-- **Coffers** drop from bosses and gold-ringed elites. A weapon at level 10 plus its paired item evolves when you open a coffer.
+- **Coffers** drop from bosses and gold-ringed elites.
 - **Fusion**: when a weapon and one of its two partners both reach level 10, they merge into one weapon that fires both evolved forms at 150% damage and frees a slot. Two fusions merge into a **mega fusion** (four weapons at 190% each), two mega fusions into an **ultra fusion** (eight weapons at 240% each). Once nothing is left to level and no new weapon can come, the remaining slots merge too, until every weapon has become one: **The Last Flame** (every weapon at 300%).
 - **Enemy projectiles** can be shot down, but they grow tougher along with the foes: a weak hit dents a late one, a strong one breaks it.
 - **Markers** for things off screen sit well inside the screen edge; Options > General sets how far.
@@ -142,7 +142,7 @@ Five pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 
 New fusions: Blade + Scythe = Reaper's Waltz, Daggers + Soulbolt = Ghostfang Storm, Orb + Storm Spear = Thunderpyre, Chime + Hex Brand = Tolling Brand, Lanterns + Blood Lance = Lantern Pike, Crescent Axe + Gloom Crossbow = Moonfall Barrage.
 
-\* unlocked in the Reliquary. Cracked Crown* (+10% experience) has no evolution partner. Classes Reaper, Hexblade, Blood Knight and Arbalist start with the new weapons and are unlocked there too.
+\* unlocked in the Reliquary. Classes Reaper, Hexblade, Blood Knight and Arbalist start with the new weapons and are unlocked there too.
 
 ## Assets
 

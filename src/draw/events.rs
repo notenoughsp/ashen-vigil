@@ -7,6 +7,7 @@ impl World {
         let t = self.time;
         self.draw_lost_grave(t);
         self.draw_altars(t);
+        self.draw_hourglass(t);
         self.draw_wager_stone(t);
         self.draw_vault(t);
         if let Some(c) = &self.cursed {
@@ -191,6 +192,32 @@ impl World {
         }
     }
 
+    /// The hourglass shrine: a tall glass of pale sand between two stone plates.
+    fn draw_hourglass(&self, t: f32) {
+        let Some(g) = &self.hourglass else { return };
+        let p = g.pos;
+        let glow = 0.6 + 0.4 * (t * 2.0).sin();
+        draw_circle(p.x, p.y, 44.0, Color::new(0.55, 0.75, 1.0, 0.1 + 0.05 * glow));
+        draw_circle_lines(p.x, p.y, 36.0, 2.0, Color::new(0.65, 0.82, 1.0, 0.6));
+        draw_ellipse(p.x, p.y + 10.0, 20.0, 6.0, 0.0, rgba(0, 0, 0, 140));
+        draw_rectangle(p.x - 18.0, p.y + 2.0, 36.0, 7.0, rgba(60, 58, 66, 255));
+        draw_rectangle(p.x - 18.0, p.y - 50.0, 36.0, 7.0, rgba(60, 58, 66, 255));
+        let glass = Color::new(0.75, 0.85, 1.0, 0.35);
+        draw_triangle(vec2(p.x - 13.0, p.y - 43.0), vec2(p.x + 13.0, p.y - 43.0), vec2(p.x, p.y - 21.0), glass);
+        draw_triangle(vec2(p.x - 13.0, p.y + 2.0), vec2(p.x + 13.0, p.y + 2.0), vec2(p.x, p.y - 21.0), glass);
+        // Sand: draining from the top into the bottom as the shrine is held.
+        let k = (g.kindle / HOURGLASS_KINDLE).clamp(0.0, 1.0);
+        let sand = rgba(235, 215, 160, 255);
+        let top = 1.0 - k * 0.8;
+        draw_triangle(vec2(p.x - 11.0 * top, p.y - 21.0 - 20.0 * top), vec2(p.x + 11.0 * top, p.y - 21.0 - 20.0 * top), vec2(p.x, p.y - 22.0), sand);
+        let bottom = 0.2 + k * 0.8;
+        draw_triangle(vec2(p.x - 12.0, p.y + 1.0), vec2(p.x + 12.0, p.y + 1.0), vec2(p.x, p.y + 1.0 - 18.0 * bottom), sand);
+        draw_line(p.x, p.y - 21.0, p.x, p.y, 1.0, with_alpha(sand, 0.8));
+        if k > 0.0 {
+            draw_arc(p.x, p.y, 40, 50.0, -90.0, 4.0, 360.0 * k, Color::new(0.7, 0.85, 1.0, 0.9));
+        }
+    }
+
     /// The words on altars, the wager stone, the vault and cursed coffers, drawn after lighting
     /// and large, so they can always be read.
     pub(super) fn draw_omen_labels(&self) {
@@ -238,6 +265,10 @@ impl World {
                 say(&[(&top, 18.0, c), (&cost, 15.0, pale)], q.x, q.y + 44.0);
             }
         }
+        if let Some(g) = &self.hourglass {
+            let pale = rgba(225, 235, 250, 255);
+            say(&[("HOURGLASS SHRINE", 24.0, rgba(170, 210, 255, 255)), ("Stand here: a minute of the night passes at once", 18.0, pale)], g.pos.x, g.pos.y - 80.0);
+        }
         if let Some(v) = &self.vault {
             let label = if v.open {
                 "THE VAULT (OPEN)"
@@ -247,6 +278,9 @@ impl World {
                 "THE VAULT: sealed"
             };
             say(&[(label, 20.0, rgba(245, 205, 95, 255))], v.pos.x, v.pos.y - 64.0);
+        }
+        for e in self.enemies.iter().filter(|e| e.kind == EnemyKind::Rival && !e.dead) {
+            say(&[("SVEN", 18.0, rgba(240, 80, 70, 255))], e.pos.x, e.pos.y - e.r * 2.6);
         }
         for p in self.pickups.iter().filter(|p| matches!(p.kind, PickKind::CursedCoffer)) {
             say(&[("CURSED COFFER", 16.0, Color::new(0.85, 0.55, 1.0, 1.0))], p.pos.x, p.pos.y - 26.0);

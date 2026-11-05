@@ -46,6 +46,56 @@ thread_local! {
     static EFFECT_LAYER: std::cell::RefCell<Option<RenderTarget>> = const { std::cell::RefCell::new(None) };
 }
 
+/// A seamless cloud texture for the mist: fractal value noise on a wrapping grid, white with
+/// the cloud in its alpha. Made once, on first use.
+fn fog_texture() -> Texture2D {
+    thread_local! {
+        static FOG: std::cell::OnceCell<Texture2D> = const { std::cell::OnceCell::new() };
+    }
+    FOG.with(|f| {
+        f.get_or_init(|| {
+            const N: usize = 256;
+            let hash = |x: i32, y: i32, o: u32| {
+                let mut h = (x as u32).wrapping_mul(374_761_393) ^ (y as u32).wrapping_mul(668_265_263) ^ o.wrapping_mul(2_246_822_519);
+                h = (h ^ (h >> 13)).wrapping_mul(1_274_126_177);
+                ((h ^ (h >> 16)) & 0xffff) as f32 / 65535.0
+            };
+            // Value noise with `cells` cells across, wrapping at the edges.
+            let noise = |u: f32, v: f32, cells: i32, o: u32| {
+                let (x, y) = (u * cells as f32, v * cells as f32);
+                let (xi, yi) = (x.floor() as i32, y.floor() as i32);
+                let (fx, fy) = (x - xi as f32, y - yi as f32);
+                let s = |t: f32| t * t * (3.0 - 2.0 * t);
+                let g = |a: i32, b: i32| hash(a.rem_euclid(cells), b.rem_euclid(cells), o);
+                let top = g(xi, yi) + (g(xi + 1, yi) - g(xi, yi)) * s(fx);
+                let bottom = g(xi, yi + 1) + (g(xi + 1, yi + 1) - g(xi, yi + 1)) * s(fx);
+                top + (bottom - top) * s(fy)
+            };
+            let mut bytes = vec![0u8; N * N * 4];
+            for y in 0..N {
+                for x in 0..N {
+                    let (u, v) = (x as f32 / N as f32, y as f32 / N as f32);
+                    let mut n = 0.0;
+                    let mut amp = 0.5;
+                    for (octave, cells) in [4, 8, 16, 32, 64].into_iter().enumerate() {
+                        n += noise(u, v, cells, octave as u32 + 1) * amp;
+                        amp *= 0.5;
+                    }
+                    // Wisps: thin where the noise is low, dense banks where it is high.
+                    let a = ((n - 0.35) / 0.5).clamp(0.0, 1.0);
+                    let a = a * a * (3.0 - 2.0 * a);
+                    let i = (y * N + x) * 4;
+                    bytes[i..i + 4].copy_from_slice(&[255, 255, 255, (a * 255.0) as u8]);
+                }
+            }
+            let t = Texture2D::from_rgba8(N as u16, N as u16, &bytes);
+            t.set_filter(FilterMode::Linear);
+            t
+        })
+        .clone()
+    })
+}
+
 /// Takes the weapon and skill opacity setting (1.0 is opaque); called every frame.
 pub fn set_effect_alpha(k: f32) {
     EFFECT_ALPHA.with(|a| a.set(k.clamp(0.0, 1.0)));
@@ -607,18 +657,51 @@ impl World {
     /// Ash drifting down through the light of the camera, now and then an ember; petals
     /// in cute mode. Fixed to the world, so it moves with the field, not the screen.
     /// The mist and the grave mist: drifting banks of grey over everything but the lords' attacks.
+    /// The mist of the champion's event and the grave mist: banks of cloud drifting across the
+    /// field in three layers of different size, speed and direction, thickest at the edges of
+    /// the view, so the middle where the hero fights stays readable.
     fn draw_mist(&self) {
-        let k = (self.mist / 3.0).clamp(0.0, 1.0) + if self.weather.is_some_and(|(w, _)| w == Weather::GraveMist) { 0.5 } else { 0.0 };
+        let event = (self.mist / 3.0).clamp(0.0, 1.0);
+        let grave = if self.weather.is_some_and(|(w, _)| w == Weather::GraveMist) { 0.6 } else { 0.0 };
+        let k = (event + grave).min(1.3);
         if k <= 0.0 {
             return;
         }
+        let tex = fog_texture();
         let view = view_size();
-        for i in 0..14 {
-            let s = i as f32 * 7.31;
-            let drift = vec2((self.time * 0.07 + s).sin(), (self.time * 0.05 + s * 1.3).cos()) * view * 0.45;
-            let p = self.cam + drift;
-            let r = view.y * (0.35 + 0.1 * (s * 3.1).sin().abs());
-            draw_circle(p.x, p.y, r, Color::new(0.62, 0.64, 0.68, 0.06 * k.min(1.2)));
+        let (lo, hi) = (self.cam - view * 0.5, self.cam + view * 0.5);
+        // (world size of one tile, drift per second, strength, tint)
+        let layers = [
+            (1400.0, vec2(14.0, 5.0), 0.55, Color::new(0.58, 0.62, 0.68, 1.0)),
+            (900.0, vec2(-22.0, 9.0), 0.45, Color::new(0.66, 0.69, 0.74, 1.0)),
+            (520.0, vec2(30.0, -12.0), 0.3, Color::new(0.74, 0.76, 0.8, 1.0)),
+        ];
+        for (size, drift, strength, tint) in layers {
+            let off = drift * self.time;
+            // Tiles laid out on a grid that moves with the drift, covering the whole view.
+            let x0 = ((lo.x - off.x) / size).floor() as i32;
+            let y0 = ((lo.y - off.y) / size).floor() as i32;
+            let x1 = ((hi.x - off.x) / size).ceil() as i32;
+            let y1 = ((hi.y - off.y) / size).ceil() as i32;
+            let c = Color::new(tint.r, tint.g, tint.b, strength * k * 0.6);
+            for ty in y0..y1 {
+                for tx in x0..x1 {
+                    let x = tx as f32 * size + off.x;
+                    let y = ty as f32 * size + off.y;
+                    draw_texture_ex(&tex, x, y, c, DrawTextureParams { dest_size: Some(vec2(size, size)), ..Default::default() });
+                }
+            }
+        }
+        // Thicker toward the edges: the fog closes in around the hero.
+        let (l, r, t, bt) = (lo.x, hi.x, lo.y, hi.y);
+        let band = view.y * 0.3;
+        let col = Color::new(0.5, 0.53, 0.58, 0.07 * k);
+        for step in 0..6 {
+            let w = band * (1.0 - step as f32 / 6.0);
+            draw_rectangle(l, t, r - l, w * 0.6, col);
+            draw_rectangle(l, bt - w * 0.6, r - l, w * 0.6, col);
+            draw_rectangle(l, t, w, bt - t, col);
+            draw_rectangle(r - w, t, w, bt - t, col);
         }
     }
 

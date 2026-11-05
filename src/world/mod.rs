@@ -34,6 +34,11 @@ pub const VICTORY_TIME: f32 = 30.0 * 60.0;
 pub const MAX_ENEMIES: usize = 1600;
 /// Boss health grows by this factor every minute past 5:00.
 pub const BOSS_GROWTH: f32 = 1.17;
+/// How much tougher ordinary foes get every minute after the fifth, on top of the old ramp.
+pub const ENEMY_GROWTH: f32 = 1.08;
+/// The most of a lord's health that can go in one second: every lord fight lasts at least
+/// twenty seconds, however strong the heroes.
+pub const BOSS_SECOND_CAP: f32 = 0.05;
 /// Seconds a boss fight can last before its fog ring lifts.
 pub const BOSS_FOG_TIME: f32 = 180.0;
 /// A lone grave in the far south-west corner of the field, for those who wander.
@@ -74,6 +79,8 @@ pub const MIN_RESUME_DELAY: f32 = 0.7;
 const RESUME_SHRINK: f32 = 0.95;
 pub const MAX_HEROES: usize = 4;
 pub const REVIVE_TIME: f32 = 3.0;
+/// Seconds before a spent ember can rekindle the same hero again.
+pub const EMBER_COOLDOWN: f32 = 30.0;
 const MAX_DECALS: usize = 900;
 /// The field is a square from -WORLD_HALF to WORLD_HALF, walled in, with the abyss beyond.
 pub const WORLD_HALF: f32 = 3600.0;
@@ -766,6 +773,11 @@ pub struct World {
     /// The quest in hand, if any.
     pub quest: Option<Quest>,
     pub altars: Vec<Altar>,
+    /// The lord's damage in the current second, for `BOSS_SECOND_CAP`: when the second began
+    /// and how much it took.
+    boss_second: (f32, f32),
+    /// The hourglass shrine on the field, if any.
+    pub hourglass: Option<Hourglass>,
     /// The wager stone before a lord.
     pub stone: Option<WagerStone>,
     /// The lord number the last stone was raised for.
@@ -859,7 +871,10 @@ pub struct World {
 
 pub fn xp_for(level: u32) -> f32 {
     let l = level as f32;
-    6.0 + (l - 1.0) * 10.0 + l.powf(1.7)
+    // Past level 30 each level asks 8% more on top for every level beyond: a night ends
+    // nearer level 70 than 230.
+    let late = 1.0 + (l - 30.0).max(0.0) * 0.08;
+    (6.0 + (l - 1.0) * 10.0 + l.powf(1.7)) * late
 }
 
 pub(crate) fn rand_dir() -> Vec2 {
@@ -919,6 +934,8 @@ impl World {
             merchant: None,
             quest: None,
             altars: Vec::new(),
+            boss_second: (0.0, 0.0),
+            hourglass: None,
             stone: None,
             stone_made: u32::MAX,
             next_altar: 200.0,
@@ -1154,6 +1171,7 @@ impl World {
     fn begin_round(&mut self) {
         self.level_round = self.level_round.wrapping_add(1);
         let mut auto = Vec::new();
+        let mut rush_picks = Vec::new();
         for (h, hero) in self.heroes.iter_mut().enumerate() {
             hero.choices = hero.roll_choices();
             // Players who left can't choose; don't let them hold everyone up.
@@ -1165,7 +1183,19 @@ impl World {
                 hero.picked = true;
                 auto.push(h);
                 crate::log!("level {}: {} has everything maxed and takes 150 souls", self.level, hero.name);
+            } else if hero.connected && self.boss_rush && !hero.choices.is_empty() {
+                // A boss rush never stops for cards: each level takes one at random.
+                let c = hero.choices[gen_range(0, hero.choices.len())];
+                crate::log!("level {}: {} takes {} (boss rush)", self.level, hero.name, hero.choice_text(c).0);
+                hero.apply_choice(c);
+                hero.picked = true;
+                rush_picks.push((h, hero.choice_text(c).0));
             }
+        }
+        for (h, text) in rush_picks {
+            self.check_fusion(h);
+            let who = if self.multiplayer() { format!("{}: ", self.heroes[h].name) } else { String::new() };
+            self.toast(&format!("{}Level {}: {}", who, self.level, text));
         }
         if self.heroes.iter().all(|h| h.picked) {
             // Nobody has a choice to make: no pause, no countdown.
@@ -1175,7 +1205,8 @@ impl World {
                 self.sfx_at("pickup", 0.5, pos);
             }
             // After a real choice the usual countdown still follows; otherwise play straight on.
-            self.pause = if self.pause == Pause::Choosing && self.multiplayer() { Pause::Countdown(self.resume_delay()) } else { Pause::Running };
+            let counted = self.pause == Pause::Choosing && self.multiplayer() && !self.boss_rush;
+            self.pause = if counted { Pause::Countdown(self.resume_delay()) } else { Pause::Running };
             return;
         }
         self.pause = Pause::Choosing;

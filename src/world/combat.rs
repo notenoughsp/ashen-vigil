@@ -27,9 +27,19 @@ impl World {
         if self.weather.is_some_and(|(w, _)| w == Weather::AshRain) && src.weapon.is_fire() {
             dmg *= 1.4;
         }
-        if e.boss {
-            // No single blow takes more than a sliver of a lord: every fight lasts a while.
+        if e.boss || e.kind == EnemyKind::Rival {
+            // No single blow takes more than a sliver of a lord (or of Sven): every fight lasts
+            // a while.
             dmg = dmg.min(e.max_hp * BOSS_HIT_CAP);
+        }
+        if e.boss {
+            // Nor more than a twentieth of it in any one second.
+            if self.time - self.boss_second.0 >= 1.0 {
+                self.boss_second = (self.time, 0.0);
+            }
+            let left = (e.max_hp * BOSS_SECOND_CAP - self.boss_second.1).max(0.0);
+            dmg = dmg.min(left);
+            self.boss_second.1 += dmg;
         }
         let dealt = dmg.min(e.hp.max(0.0));
         e.hp -= dmg;
@@ -55,10 +65,11 @@ impl World {
             h.record_damage(src.weapon, dealt, self.time);
         }
         let num = DmgNum { pos: pos + vec2(gen_range(-6.0, 6.0), -10.0), val: dmg, life: 0.7, crit };
-        if self.show_numbers && self.nums.len() < 250 {
+        // A lord holding out against the cap takes nothing: no zeros to show.
+        if self.show_numbers && self.nums.len() < 250 && dmg >= 0.5 {
             self.nums.push(num);
         }
-        if self.record_net && self.net_nums.len() < 60 {
+        if self.record_net && self.net_nums.len() < 60 && dmg >= 0.5 {
             self.net_nums.push(num);
         }
         if chance(0.55) {
@@ -170,7 +181,7 @@ impl World {
                 if chance(0.35) {
                     self.pickups.push(Pickup::new(pos, PickKind::Coffer(false)));
                 }
-                self.banner("THE RIVAL FALLS", "Its souls are yours", Color::from_rgba(230, 80, 70, 255), 3.0);
+                self.banner("SVEN FALLS", "His souls are yours", Color::from_rgba(230, 80, 70, 255), 3.0);
             }
             _ => {}
         }
@@ -281,8 +292,10 @@ impl World {
             return;
         }
         let hero = &mut self.heroes[h];
-        if hero.p.revives > 0 {
+        // An ember rekindles a hero at most once in `EMBER_COOLDOWN` seconds.
+        if hero.p.revives > 0 && now >= hero.ember_ready_at {
             hero.p.revives -= 1;
+            hero.ember_ready_at = now + EMBER_COOLDOWN;
             hero.p.hp = hero.rise_health(0.5);
             hero.p.iframes = 2.0;
             let name = hero.name.clone();
@@ -579,6 +592,7 @@ impl World {
         let mut slams: Vec<Vec2> = Vec::new();
         let mut volleys: Vec<(Vec2, Vec2)> = Vec::new();
         let (anchor, anchor_facing, anchor_moving) = self.random_hero_pos();
+        let sight = self.spawn_ring_dist() * 0.9;
         // Where each hero stands, for a foe that hunts one of them.
         let hero_at: Vec<Option<Vec2>> = self.heroes.iter().map(|h| h.alive().then_some(h.p.pos)).collect();
         // In the grave mist everything wades.
@@ -720,8 +734,8 @@ impl World {
                 EnemyKind::Rival => {
                     // Circles at sword's length, dashes in, and throws volleys of three.
                     e.timer -= dt;
-                    if e.timer <= 0.0 && d < 600.0 {
-                        e.timer = gen_range(1.6, 2.2);
+                    if e.timer <= 0.0 && d < 650.0 {
+                        e.timer = gen_range(1.1, 1.5);
                         volleys.push((e.pos, dir));
                     }
                     if e.fuse > 0.0 {
@@ -749,14 +763,21 @@ impl World {
                 let mut a = ahead.to_angle() + gen_range(-0.9, 0.9);
                 let mut np = anchor + Vec2::from_angle(a) * far * 0.7;
                 // Near a wall, pick a spot that is still on the field.
-                for _ in 0..8 {
-                    if inside_world(np, 60.0) {
+                // Near a wall, or in another hero's view, pick a spot that is still on the
+                // field and out of everyone's sight.
+                let seen = |p: Vec2| hero_at.iter().flatten().any(|h| h.distance_squared(p) < sight * sight);
+                let mut ok = inside_world(np, 60.0) && !seen(np);
+                for _ in 0..10 {
+                    if ok {
                         break;
                     }
                     a = gen_range(0.0, TAU);
                     np = anchor + Vec2::from_angle(a) * far * 0.7;
+                    ok = inside_world(np, 60.0) && !seen(np);
                 }
-                e.pos = np;
+                if ok {
+                    e.pos = np;
+                }
             }
             e.pos = clamp_world(e.pos, e.r);
         }
@@ -780,9 +801,10 @@ impl World {
             self.sfx_at("slam", 0.8, at);
         }
         for (at, dir) in volleys {
-            let dmg = 9.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
-            for k in -1..=1 {
-                let v = Vec2::from_angle(dir.to_angle() + k as f32 * 0.18) * 330.0;
+            // Sven throws five blades in a fan, fast.
+            let dmg = 12.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
+            for k in -2..=2 {
+                let v = Vec2::from_angle(dir.to_angle() + k as f32 * 0.16) * 380.0;
                 self.enemy_bullet(at, v, 6.0, dmg, 0.0, 2.5);
             }
             self.sfx_gap_at("knife", 0.35, 0.1, at);

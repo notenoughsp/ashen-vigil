@@ -77,8 +77,27 @@ pub fn edit_text(s: &mut String, max: usize, allowed: fn(char) -> bool) {
             s.push(c);
         }
     }
+    let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
+    let shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+    // Ctrl+V (or Shift+Insert) pastes; whatever the field does not take, such as the spaces
+    // and line breaks that come along when copying an address, is left out.
+    if (ctrl && is_key_pressed(KeyCode::V)) || (shift && is_key_pressed(KeyCode::Insert)) {
+        if let Some(text) = macroquad::miniquad::window::clipboard_get() {
+            for c in text.trim().chars().filter(|c| allowed(*c)) {
+                if s.chars().count() >= max {
+                    break;
+                }
+                s.push(c);
+            }
+        }
+    }
     if is_key_pressed(KeyCode::Backspace) {
-        s.pop();
+        // Ctrl+Backspace clears the whole field.
+        if ctrl {
+            s.clear();
+        } else {
+            s.pop();
+        }
     }
 }
 

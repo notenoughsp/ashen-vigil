@@ -71,7 +71,7 @@ impl App {
         check(w.bosses_killed >= 1, Achievement::Gravebreaker);
         check(w.kills >= 10_000, Achievement::Legion);
         check(me.weapons.iter().any(|wp| wp.is_fused()), Achievement::Fusionist);
-        check(me.weapons.iter().any(|wp| wp.evolved && !wp.is_fused()), Achievement::Evolved);
+        check(me.weapons.iter().any(|wp| wp.level >= WEAPON_MAX_LEVEL || wp.is_fused()), Achievement::Evolved);
         check(me.rolls == 0 && w.time >= 600.0 && !me.downed, Achievement::Steadfast);
         check(me.has_cat, Achievement::CatPerson);
         check(me.purchases >= 3, Achievement::Patron);

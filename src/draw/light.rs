@@ -147,6 +147,9 @@ impl World {
         if let Some(m) = &self.merchant {
             out.push((m.pos + vec2(22.0, -25.0), 260.0 * flicker, Color::new(0.85, 0.6, 0.3, 1.0)));
         }
+        if let Some(g) = &self.hourglass {
+            out.push((g.pos, 220.0, Color::new(0.55, 0.72, 1.0, 1.0)));
+        }
         for a in &self.altars {
             out.push((a.pos, 230.0 * flicker, Color::new(0.85, 0.12, 0.1, 1.0)));
         }

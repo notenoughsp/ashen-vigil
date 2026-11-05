@@ -938,7 +938,7 @@ fn the_permanent_shop_feeds_the_stats() {
 }
 
 #[test]
-fn level_up_cards_point_out_fusions_and_evolutions() {
+fn level_up_cards_point_out_fusions() {
     let mut w = world_with(1, PRESETS[1].1);
     w.heroes[0].weapons = vec![Weapon::new(WeaponKind::Blade)];
     w.heroes[0].items.clear();
@@ -946,8 +946,8 @@ fn level_up_cards_point_out_fusions_and_evolutions() {
     assert!(h.choice_hint(Choice::NewWeapon(WeaponKind::Axe)).is_some_and(|(t, _)| t.contains("Rusted Blade")));
     assert!(h.choice_hint(Choice::NewWeapon(WeaponKind::Scythe)).is_some(), "the new second partner counts too");
     assert!(h.choice_hint(Choice::NewWeapon(WeaponKind::Orb)).is_none());
-    let evo = WeaponKind::Blade.evo_item();
-    assert!(h.choice_hint(Choice::NewItem(evo)).is_some_and(|(t, _)| t.starts_with("Evolves")));
+    // Items no longer evolve weapons, so they point out nothing.
+    assert!(ALL_ITEMS.iter().all(|k| h.choice_hint(Choice::NewItem(*k)).is_none()));
 }
 
 #[test]
@@ -1498,6 +1498,8 @@ fn a_fallen_lord_speaks_its_last_words() {
     let kind = w.boss_kind.expect("a lord kind");
     let src = Src { hero: 0, weapon: WeaponKind::Blade };
     while !w.enemies[i].dead {
+        // A lord loses at most a twentieth of its health a second.
+        w.time += 1.0;
         w.hit(i, 1e15, Vec2::ZERO, src, false);
     }
     assert_eq!(w.quote.as_ref().map(|q| q.0.as_str()), Some(kind.lines()[3]));
@@ -1890,7 +1892,8 @@ fn a_wager_pays_when_the_lord_falls_in_time_and_is_lost_when_not() {
         w.next_boss = 300.0;
         w.heroes[0].p.souls = 900;
         simulate(&mut w, 0.2, true, |_, _| {});
-        let stone = w.stone.as_ref().expect("no wager stone before the lord").tile(0);
+        // The 90-second bet: a lord takes at least twenty seconds to fall.
+        let stone = w.stone.as_ref().expect("no wager stone before the lord").tile(2);
         for _ in 0..40 {
             w.heroes[0].input = Input::default();
             w.heroes[0].p.pos = stone;
@@ -1910,19 +1913,20 @@ fn a_wager_pays_when_the_lord_falls_in_time_and_is_lost_when_not() {
         });
         let i = w.enemies.iter().position(|e| e.boss).expect("no lord came");
         if late {
-            w.time += 40.0;
+            w.time += 100.0;
         }
         let souls = w.heroes[0].p.souls;
         let src = Src { hero: 0, weapon: WeaponKind::Blade };
         while !w.enemies[i].dead {
+            w.time += 1.0;
             w.hit(i, 1e15, Vec2::ZERO, src, false);
         }
         assert!(w.heroes[0].wager.is_none(), "the bet was not settled");
         let gained = w.heroes[0].p.souls - souls;
         if won {
-            assert!(gained >= 900, "a won bet paid only {}", gained);
+            assert!(gained >= 450, "a won bet paid only {}", gained);
         } else {
-            assert!(gained < 900, "a lost bet still paid {}", gained);
+            assert!(gained < 450, "a lost bet still paid {}", gained);
         }
     }
 }
@@ -1943,4 +1947,47 @@ fn save_timing_report() {
     times.sort_by(|a, b| a.total_cmp(b));
     println!("save: median {:.1} ms, worst {:.1} ms", times[10], times[19]);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The balance of a whole night: level, lord fight lengths and how many of the best weapon's
+/// blows an ordinary foe takes, at 5, 10, 20 and 30 minutes.
+/// `cargo test --release balance_night -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn balance_night_report() {
+    for heroes in [1, 2] {
+        macroquad::rand::srand(11);
+        let mut w = world_with(heroes, PRESETS[1].1);
+        let mut started = None;
+        let mut fights: Vec<(u32, f32)> = Vec::new();
+        let mut marks: Vec<String> = Vec::new();
+        let checks = [300.0f32, 600.0, 1200.0, 1790.0];
+        let mut next = 0;
+        simulate(&mut w, VICTORY_TIME + 30.0, true, |w, _| {
+            match (w.boss.is_some(), started) {
+                (true, None) => started = Some(w.time),
+                (false, Some(t)) => {
+                    fights.push(((t / 60.0) as u32, w.time - t));
+                    started = None;
+                }
+                _ => {}
+            }
+            if next < checks.len() && w.time >= checks[next] {
+                next += 1;
+                let h = &w.heroes[0];
+                let best = h.weapons.iter().flat_map(|wp| wp.parts()).map(|p| p.kind.stats(wp_level(h, p.kind), p.evo).dmg).fold(0.0f32, f32::max) * h.might();
+                let foe = 10.0 * w.hp_scale();
+                marks.push(format!("{:.0} min: level {}, a Hollow has {:.0} hp, best blow {:.0} => {:.1} blows", w.time / 60.0, w.level, foe, best, foe / best.max(1.0)));
+            }
+        });
+        println!("== {} heroes", heroes);
+        for m in &marks {
+            println!("  {}", m);
+        }
+        println!("  lord fights (minute, seconds): {:?}", fights.iter().map(|(m, s)| (*m, (s * 10.0).round() / 10.0)).collect::<Vec<_>>());
+    }
+}
+
+fn wp_level(h: &Hero, k: WeaponKind) -> u32 {
+    h.weapons.iter().find(|w| w.has(k)).map(|w| w.level).unwrap_or(1)
 }

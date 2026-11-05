@@ -116,43 +116,6 @@ impl WeaponKind {
         }
     }
 
-    pub fn evo_desc(self) -> &'static str {
-        use WeaponKind::*;
-        match self {
-            Blade => "Twin burning arcs that set foes alight.",
-            Daggers => "An endless storm of piercing thorns.",
-            Orb => "A dying sun that scorches the earth.",
-            Chime => "A vast ward that mends its bearer.",
-            Lanterns => "Two choirs of the drowned, ever turning.",
-            Spear => "Lightning that leaps from foe to foe.",
-            Axe => "Great axes that carve the moon's path.",
-            Bolt => "A torrent of hungering souls.",
-            Scythe => "Every soul reaped mends its wielder.",
-            Hex => "The ground itself burns where you tread.",
-            Lance => "Each foe pierced feeds your blood.",
-            Crossbow => "A wall of quarrels in twelve directions.",
-        }
-    }
-
-    /// Passive item that evolves this weapon at max level.
-    pub fn evo_item(self) -> ItemKind {
-        use WeaponKind::*;
-        match self {
-            Blade => ItemKind::EmberHeart,
-            Daggers => ItemKind::Boots,
-            Orb => ItemKind::Lens,
-            Chime => ItemKind::Moss,
-            Lanterns => ItemKind::Sigil,
-            Spear => ItemKind::Feather,
-            Axe => ItemKind::Shell,
-            Bolt => ItemKind::Hourglass,
-            Scythe => ItemKind::LeechFang,
-            Hex => ItemKind::Lung,
-            Lance => ItemKind::GraveCandle,
-            Crossbow => ItemKind::Censer,
-        }
-    }
-
     /// Weapons this one fuses with when both reach max level; the first is its classic partner.
     pub fn fusion_partners(self) -> [WeaponKind; 2] {
         use WeaponKind::*;
@@ -1134,9 +1097,14 @@ pub enum Achievement {
     Gauntlet,
     Accursed,
     Lamplighter,
+    Alms,
+    Benefactor,
+    PatronOfAsh,
+    MarkGiver,
+    Selfless,
 }
 
-pub const ALL_ACHIEVEMENTS: [Achievement; 69] = [
+pub const ALL_ACHIEVEMENTS: [Achievement; 74] = [
     Achievement::FirstLight,
     Achievement::Gravebreaker,
     Achievement::Dawnbringer,
@@ -1206,6 +1174,11 @@ pub const ALL_ACHIEVEMENTS: [Achievement; 69] = [
     Achievement::Gauntlet,
     Achievement::Accursed,
     Achievement::Lamplighter,
+    Achievement::Alms,
+    Achievement::Benefactor,
+    Achievement::PatronOfAsh,
+    Achievement::MarkGiver,
+    Achievement::Selfless,
 ];
 
 impl Achievement {
@@ -1285,6 +1258,11 @@ impl Achievement {
             Gauntlet => "The Gauntlet",
             Accursed => "Accursed",
             Lamplighter => "Lamplighter",
+            Alms => "Alms",
+            Benefactor => "Benefactor",
+            PatronOfAsh => "Patron of Ash",
+            MarkGiver => "Giver of Marks",
+            Selfless => "Selfless",
         }
     }
 
@@ -1297,7 +1275,7 @@ impl Achievement {
             AbyssWalker => "Keep a vigil until dawn on Abyss.",
             Legion => "Fell 10,000 foes in one vigil.",
             Fusionist => "Fuse two weapons.",
-            Evolved => "Evolve a weapon.",
+            Evolved => "Bring a weapon to its highest level.",
             Steadfast => "Survive ten minutes without rolling.",
             CatPerson => "Befriend the Grave Cat.",
             Patron => "Buy three wares in one vigil.",
@@ -1360,6 +1338,11 @@ impl Achievement {
             Gauntlet => "Defeat all twelve lords of a boss rush.",
             Accursed => "Keep a vigil until dawn under three curses.",
             Lamplighter => "Have ten braziers burning at once.",
+            Alms => "Offer 10,000 souls in the Reliquary.",
+            Benefactor => "Offer 100,000 souls in the Reliquary.",
+            PatronOfAsh => "Offer 1,000,000 souls in the Reliquary.",
+            MarkGiver => "Offer 100 Ashen Marks in the Reliquary.",
+            Selfless => "Offer 1,000 Ashen Marks in the Reliquary.",
         }
     }
 
@@ -1385,6 +1368,9 @@ impl Achievement {
             Gauntlet => 50,
             Accursed => 50,
             Lamplighter => 20,
+            Alms | MarkGiver => 10,
+            Benefactor => 25,
+            PatronOfAsh | Selfless => 60,
             ThinTheHerd | Polished => 5,
             FullArsenal | Packrat | GentleDawn | Purrfect | Dressed | Dizzy | Impatient | Partygoer => 10,
             HalfNight | Ascendant => 15,

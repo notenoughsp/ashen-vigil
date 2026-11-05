@@ -7,7 +7,10 @@
 //! - The mist: a sudden fog in which a champion hunts.
 //! - Weather for a few minutes: ash rain (fire burns hotter) or grave mist (foes wade slower,
 //!   souls are richer, the light is shorter).
-//! - The rival: whoever goes long without a wound is hunted by a dark hero carrying many souls.
+//! - Sven, the rival: whoever goes long without a wound is hunted by a dark hero carrying many
+//!   souls; like the lords, no single blow takes more than 2.5% of his health.
+//! - Hourglass shrines, six times a vigil: stand on one to let a minute of the night pass at
+//!   once, for a quicker vigil.
 //! - The wager stone before each lord: bet a third of your carried souls on felling the lord
 //!   within 30, 60 or 90 seconds, for three, two or one and a half times the stake.
 //!
@@ -70,6 +73,19 @@ impl WagerStone {
     pub fn tile(&self, i: usize) -> Vec2 {
         self.pos + vec2((i as f32 - 1.0) * 110.0, 60.0)
     }
+}
+
+/// When hourglass shrines rise (seconds into a vigil) and how much of the night they skip.
+const HOURGLASS_AT: [f32; 6] = [150.0, 450.0, 750.0, 1050.0, 1350.0, 1620.0];
+pub const HOURGLASS_SKIP: f32 = 60.0;
+pub const HOURGLASS_KINDLE: f32 = 1.5;
+const HOURGLASS_STAY: f32 = 45.0;
+
+/// An hourglass shrine: stand on it and the night moves on.
+pub struct Hourglass {
+    pub pos: Vec2,
+    pub life: f32,
+    pub kindle: f32,
 }
 
 pub struct Altar {
@@ -136,6 +152,7 @@ impl World {
         if self.boss_rush {
             return;
         }
+        self.update_hourglass(dt);
         let t = self.time;
         self.update_altars(dt);
 
@@ -259,17 +276,66 @@ impl World {
                 self.next_rival = t + 240.0;
                 let at = self.heroes[h].p.pos;
                 let mut e = self.make_enemy(EnemyKind::Rival, clamp_world(at + rand_dir() * 460.0, 80.0));
-                e.hp = 900.0 * (1.0 + t / 300.0).powf(1.5) * self.diff.hp;
+                // Somewhat less than a lord of the hour, but it takes at least forty blows.
+                let coop = 1.0 + 0.6 * (self.heroes.len().max(1) - 1) as f32;
+                e.hp = 1600.0 * (1.0 + t / 300.0).powf(1.6) * self.diff.hp * coop;
                 e.max_hp = e.hp;
-                e.dmg *= 1.0 + t / 600.0;
+                e.dmg *= 1.4 * (1.0 + t / 600.0);
+                e.speed *= 1.15;
                 e.hunt = Some(h);
                 e.life_left = RIVAL_STAY;
                 self.enemies.push(e);
                 let name = self.heroes[h].name.clone();
-                self.banner("A RIVAL HUNTS YOU", &format!("Untouched too long, {} draws a hunter. It carries many souls.", name), Color::from_rgba(230, 80, 70, 255), 4.0);
+                self.banner("SVEN HUNTS YOU", &format!("Untouched too long, {} draws a rival. He carries many souls.", name), Color::from_rgba(230, 80, 70, 255), 4.0);
                 self.sfx("bell", 0.8);
             }
         }
+    }
+
+    /// Hourglass shrines: they rise at fixed times; standing on one skips a minute of the night,
+    /// but never past the warning of the next lord or past dawn.
+    fn update_hourglass(&mut self, dt: f32) {
+        let t = self.time;
+        if !self.endless && HOURGLASS_AT.iter().any(|at| t >= *at && t - dt < *at) {
+            let (at, _, _) = self.random_hero_pos();
+            let pos = clamp_world(at + rand_dir() * gen_range(300.0, 440.0), 160.0);
+            self.hourglass = Some(Hourglass { pos, life: HOURGLASS_STAY, kindle: 0.0 });
+            self.toast("An hourglass shrine rises. Stand on it to let a minute of the night pass.");
+        }
+        let Some(g) = self.hourglass.as_mut() else { return };
+        g.life -= dt;
+        let pos = g.pos;
+        let on = self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(pos) < 36.0);
+        match on {
+            Some(_) if self.boss.is_none() => g.kindle += dt,
+            _ => g.kindle = (g.kindle - dt * 2.0).max(0.0),
+        }
+        // Up to a minute, but the next lord still gets its warning and dawn its Sovereign.
+        let room = (self.next_boss - BOSS_WARNING - 1.0 - t).min(VICTORY_TIME - 2.0 - t);
+        let skip = HOURGLASS_SKIP.min(room).max(0.0);
+        if g.kindle >= HOURGLASS_KINDLE && skip < 5.0 {
+            // A lord is too near: the sand will not run.
+            g.kindle = 0.0;
+            self.toast("The hourglass will not turn while a lord draws near.");
+        } else if g.kindle >= HOURGLASS_KINDLE {
+            self.hourglass = None;
+            self.skip_time(skip);
+            let who = on.map(|h| self.heroes[h].name.clone()).unwrap_or_default();
+            self.banner("THE NIGHT MOVES ON", &format!("{} turns the hourglass: {:.0} seconds pass", who, skip), Color::from_rgba(170, 210, 255, 255), 3.0);
+            self.fx.push(Fx { pos, life: 0.8, max_life: 0.8, kind: FxKind::Ring { r: 220.0, color: Color::from_rgba(170, 210, 255, 255) } });
+            self.sfx("bell", 0.8);
+        } else if g.life <= 0.0 {
+            self.hourglass = None;
+        }
+    }
+
+    /// Lets `secs` of the night pass at once. Everything keyed to the clock (the next lord, the
+    /// next horde, shrines, relics) comes that much sooner; timed events in between pass by.
+    fn skip_time(&mut self, secs: f32) {
+        self.time += secs;
+        // Timers that count down by themselves keep their pace; the minute's cards are dealt.
+        let lost = secs / 60.0;
+        self.pending_levels += lost.round() as u32;
     }
 
     fn update_altars(&mut self, dt: f32) {

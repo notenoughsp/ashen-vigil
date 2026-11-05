@@ -220,6 +220,7 @@ fn hero_slow(h: &Hero) -> Vec<u8> {
         w.u8(it.kind.idx() as u8);
         w.u8(it.level as u8);
     }
+    w.f32(h.ember_ready_at);
     match &h.wager {
         Some(g) => {
             w.u8(1 + g.tier as u8);
@@ -276,6 +277,7 @@ fn read_hero_slow(data: &[u8], h: &mut Hero) -> bool {
         let level = r.u8() as u32;
         h.items.push(Item { kind, level });
     }
+    h.ember_ready_at = r.f32();
     h.wager = match r.u8() {
         0 => None,
         n => {
@@ -734,6 +736,14 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         }
         None => e.w.bool(false),
     }
+    match &w.hourglass {
+        Some(g) => {
+            e.w.bool(true);
+            e.pos(g.pos);
+            e.w.u8((g.kindle / HOURGLASS_KINDLE * 255.0).clamp(0.0, 255.0) as u8);
+        }
+        None => e.w.bool(false),
+    }
     // Omens: altars, the vault, the mist and the weather.
     e.w.u8(w.altars.len().min(8) as u8);
     for a in w.altars.iter().take(8) {
@@ -1117,6 +1127,13 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         None
     };
     w.stone = if d.r.bool() { Some(WagerStone { pos: d.pos() }) } else { None };
+    w.hourglass = if d.r.bool() {
+        let pos = d.pos();
+        let kindle = d.r.u8() as f32 / 255.0 * HOURGLASS_KINDLE;
+        Some(Hourglass { pos, life: 10.0, kindle })
+    } else {
+        None
+    };
     let n = d.r.u8() as usize;
     w.altars.clear();
     for _ in 0..n {

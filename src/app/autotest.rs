@@ -352,6 +352,14 @@ impl App {
                 self.screen = Screen::Reliquary;
                 self.relic_page = 1;
             }
+            1597 => {
+                self.relic_page = 2;
+                self.relic_sel = 1;
+                self.save.souls = 23_456;
+                self.save.offered_souls = 4_000;
+            }
+            1600 => want.push("offerings"),
+            1601 => self.relic_page = 1,
             1605 => want.push("relics"),
             1606 => {
                 // A boss rush: the first lord arrives within seconds.
@@ -415,6 +423,7 @@ impl App {
                 w.pickups.push(Pickup::new(p + vec2(-60.0, 190.0), PickKind::Key));
                 w.vault = Some(crate::world::Vault { pos: p + vec2(-520.0, 120.0), open: false });
                 w.vault_key = true;
+                w.hourglass = Some(crate::world::Hourglass { pos: p + vec2(180.0, 250.0), life: 40.0, kindle: 0.7 });
                 w.weather = Some((crate::world::Weather::AshRain, 120.0));
                 w.mist = 60.0;
                 for (kind, at) in [(EnemyKind::Champion, vec2(260.0, 120.0)), (EnemyKind::Rival, vec2(110.0, -120.0)), (EnemyKind::Courier, vec2(-250.0, 0.0))] {

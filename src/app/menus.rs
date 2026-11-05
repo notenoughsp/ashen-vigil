@@ -217,6 +217,9 @@ fn percent_step(v: f32, dir: i32) -> f32 {
     ((v * 100.0).round() + dir as f32).clamp(0.0, 100.0) / 100.0
 }
 
+/// The Reliquary's offerings: souls (true) or Ashen Marks, and how many (0 for everything).
+const OFFERINGS: [(bool, u64); 7] = [(true, 1_000), (true, 10_000), (true, 100_000), (true, 0), (false, 10), (false, 100), (false, 0)];
+
 /// Where the notice about a newer version sits: the top right of the main menu.
 fn update_notice() -> Rect {
     Rect::new(ui_w() - 356.0, 16.0, 340.0, 58.0)
@@ -972,10 +975,45 @@ impl App {
 
     /// Rows on the current Reliquary page, Back included.
     fn reliquary_rows(&self) -> usize {
-        if self.relic_page == 0 {
-            META_COUNT + 1
+        match self.relic_page {
+            0 => META_COUNT + 1,
+            1 => UNLOCKS.len() + RELIC_COUNT + 1,
+            _ => OFFERINGS.len() + 1,
+        }
+    }
+
+    /// Gives offering `i` away, if there is enough to give, and earns what it earns.
+    fn make_offering(&mut self, i: usize) {
+        let (souls, amount) = OFFERINGS[i];
+        let have = if souls { self.save.souls } else { self.save.marks };
+        // 0 means everything there is.
+        let give = if amount == 0 { have } else { amount };
+        if give == 0 || have < give {
+            self.audio.play("hurt", 0.3);
+            self.set_note(if souls { "Not that many souls to give." } else { "Not that many Ashen Marks to give." }, 2.5);
+            return;
+        }
+        if souls {
+            self.save.souls -= give;
+            self.save.offered_souls = self.save.offered_souls.saturating_add(give);
         } else {
-            UNLOCKS.len() + RELIC_COUNT + 1
+            self.save.marks -= give;
+            self.save.offered_marks = self.save.offered_marks.saturating_add(give);
+        }
+        self.save.store();
+        self.audio.play("bell", 0.6);
+        let what = if souls { "souls" } else { "Ashen Marks" };
+        self.set_note(&format!("You offer {} {}. The ash remembers.", give, what), 3.0);
+        for (done, ach) in [
+            (self.save.offered_souls >= 10_000, Achievement::Alms),
+            (self.save.offered_souls >= 100_000, Achievement::Benefactor),
+            (self.save.offered_souls >= 1_000_000, Achievement::PatronOfAsh),
+            (self.save.offered_marks >= 100, Achievement::MarkGiver),
+            (self.save.offered_marks >= 1_000, Achievement::Selfless),
+        ] {
+            if done {
+                self.unlock(ach);
+            }
         }
     }
 
@@ -991,7 +1029,7 @@ impl App {
         };
         let clicked_page = clicked_tab().filter(|t| *t != self.relic_page);
         if page_dir != 0 || clicked_page.is_some() {
-            self.relic_page = clicked_page.unwrap_or((self.relic_page as i32 + page_dir).rem_euclid(2) as usize);
+            self.relic_page = clicked_page.unwrap_or((self.relic_page as i32 + page_dir).rem_euclid(3) as usize);
             self.relic_sel = 0;
             self.audio.play("select", 0.5);
             return;
@@ -1015,6 +1053,10 @@ impl App {
         }
         if self.relic_page == 0 {
             self.buy_upgrade(self.relic_sel);
+            return;
+        }
+        if self.relic_page == 2 {
+            self.make_offering(self.relic_sel);
             return;
         }
         let (cost, owned) = if self.relic_sel < UNLOCKS.len() {
@@ -1072,8 +1114,8 @@ impl App {
         ui.text_c(&format!("Souls  {}        Ashen Marks  {}", self.save.souls, self.save.marks), cx, 80.0, 20.0, if self.relic_page == 0 { GOLD } else { EMBER });
         // Page tabs.
         let tab_w = 260.0;
-        for (i, name) in ["Soul Upgrades", "Relics and Unlocks"].iter().enumerate() {
-            let tx = cx - tab_w + i as f32 * tab_w;
+        for (i, name) in ["Soul Upgrades", "Relics and Unlocks", "Offerings"].iter().enumerate() {
+            let tx = cx - tab_w * 1.5 + i as f32 * tab_w;
             crate::ui::register_tab(Rect::new(tx + 4.0, 94.0, tab_w - 8.0, 30.0));
             let on = i == self.relic_page;
             draw_rectangle(tx + 4.0, 94.0, tab_w - 8.0, 30.0, Color::new(0.07, 0.06, 0.06, if on { 0.95 } else { 0.5 }));
@@ -1085,18 +1127,68 @@ impl App {
         let w = 1100.0f32.min(sw - 40.0);
         let x = cx - w * 0.5;
         let top = 138.0;
-        if self.relic_page == 0 {
-            self.draw_upgrades(ui, x, top, w);
-        } else {
-            self.draw_relics(ui, x, top, w);
+        match self.relic_page {
+            0 => self.draw_upgrades(ui, x, top, w),
+            1 => self.draw_relics(ui, x, top, w),
+            _ => self.draw_offerings(ui, x, top, w),
         }
-        let foot = if self.relic_page == 0 {
-            "Souls are banked at shrines during a vigil. Upgrades last forever."
-        } else {
-            "Ashen Marks are earned at the end of every vigil: time, bosses, level and kills count."
+        let foot = match self.relic_page {
+            0 => "Souls are banked at shrines during a vigil. Upgrades last forever.",
+            1 => "Ashen Marks are earned at the end of every vigil: time, bosses, level and kills count.",
+            _ => "Offerings buy nothing. They are given to the dark, and the dark keeps count.",
         };
         ui.text_c(foot, cx, sh - 44.0, 15.0, DIM);
         ui.text_c(hint("Q / E or Tab: page    W/S/A/D select    Enter buy    Esc back", "LB / RB: page    Stick select    A buy    B back"), cx, sh - 20.0, 15.0, DIM);
+    }
+
+    /// The offerings: give souls or Ashen Marks away, and how much has been given so far.
+    fn draw_offerings(&self, ui: &Ui, x: f32, top: f32, w: f32) {
+        let cx = x + w * 0.5;
+        let rw = 520.0f32.min(w);
+        let rx = cx - rw * 0.5;
+        let mut y = top + 10.0;
+        ui.text_c(&format!("Offered so far:  {} souls,  {} Ashen Marks", self.save.offered_souls, self.save.offered_marks), cx, y + 18.0, 18.0, PALE);
+        y += 40.0;
+        for (i, (souls, amount)) in OFFERINGS.iter().enumerate() {
+            let have = if *souls { self.save.souls } else { self.save.marks };
+            let give = if *amount == 0 { have } else { *amount };
+            let label = match (*souls, *amount) {
+                (true, 0) => format!("Offer all your souls ({})", have),
+                (false, 0) => format!("Offer all your Ashen Marks ({})", have),
+                (true, n) => format!("Offer {} souls", n),
+                (false, n) => format!("Offer {} Ashen Marks", n),
+            };
+            let can = give > 0 && have >= give;
+            ui.row(rx, y, rw, 34.0, self.relic_sel == i);
+            ui.text_c(
+                &label,
+                cx,
+                y + 23.0,
+                18.0,
+                if !can {
+                    DIM
+                } else if *souls {
+                    GOLD
+                } else {
+                    EMBER
+                },
+            );
+            y += 40.0;
+        }
+        ui.row(rx, y, rw, 34.0, self.relic_sel == OFFERINGS.len());
+        ui.text_c("Back", cx, y + 23.0, 18.0, DIM);
+        // The next milestones.
+        let next_souls = [10_000u64, 100_000, 1_000_000].into_iter().find(|n| self.save.offered_souls < *n);
+        let next_marks = [100u64, 1_000].into_iter().find(|n| self.save.offered_marks < *n);
+        let mut ny = y + 64.0;
+        for (next, have, what) in [(next_souls, self.save.offered_souls, "souls"), (next_marks, self.save.offered_marks, "Ashen Marks")] {
+            let line = match next {
+                Some(n) => format!("Next honour at {} {} offered ({} to go)", n, what, n - have),
+                None => format!("Every honour for {} is yours", what),
+            };
+            ui.text_c(&line, cx, ny, 16.0, DIM);
+            ny += 22.0;
+        }
     }
 
     /// The soul upgrades in three columns, the selected one explained below.

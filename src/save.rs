@@ -309,6 +309,9 @@ pub struct Save {
     pub skins: u32,
     /// Levels bought at the Ash Shrine over all time.
     pub shrine_levels: u32,
+    /// Souls and Ashen Marks given away in the Reliquary's offerings.
+    pub offered_souls: u64,
+    pub offered_marks: u64,
     /// Classes that have kept a vigil until dawn, one bit per class.
     pub won_classes: u16,
     /// Best ten vigils, best first.
@@ -340,6 +343,8 @@ impl Default for Save {
             achievements: 0,
             skins: 0,
             shrine_levels: 0,
+            offered_souls: 0,
+            offered_marks: 0,
             won_classes: 0,
             runs: Vec::new(),
             best_kills: 0,
@@ -457,6 +462,8 @@ impl Save {
                 "skins" => s.skins = v.parse().unwrap_or(0),
                 "skin" => s.profile.skin = v.parse::<u8>().unwrap_or(0).min(SKINS.len() as u8),
                 "shrine_levels" => s.shrine_levels = v.parse().unwrap_or(0),
+                "offered_souls" => s.offered_souls = v.parse().unwrap_or(0),
+                "offered_marks" => s.offered_marks = v.parse().unwrap_or(0),
                 "won_classes" => s.won_classes = v.parse().unwrap_or(0),
                 "boss_rush" => st.boss_rush = flag(v),
                 "biome" => st.biome = v.parse::<u8>().unwrap_or(0).min(2),
@@ -606,6 +613,7 @@ impl Save {
             "skins={}\nskin={}\nshrine_levels={}\nwon_classes={}\nmarker_inset={}\n",
             self.skins, self.profile.skin, self.shrine_levels, self.won_classes, st.marker_inset
         );
+        out += &format!("offered_souls={}\noffered_marks={}\n", self.offered_souls, self.offered_marks);
         for (a, k) in ACTIONS.iter().zip(st.binds) {
             out += &format!("bind_{}={}\n", a.key(), key_name(k));
         }

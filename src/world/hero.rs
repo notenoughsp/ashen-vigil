@@ -194,6 +194,8 @@ pub struct Hero {
     pub pact: bool,
     /// A bet on the lord at hand, from the wager stone.
     pub wager: Option<Wager>,
+    /// When the next ember may rekindle this hero (`EMBER_COOLDOWN` after the last).
+    pub ember_ready_at: f32,
     /// Which tile of the wager stone the hero stands on, and for how long.
     pub wager_tile: usize,
     pub wager_kindle: f32,
@@ -260,6 +262,7 @@ impl Hero {
             last_hurt: 0.0,
             pact: false,
             wager: None,
+            ember_ready_at: 0.0,
             wager_tile: 0,
             wager_kindle: 0.0,
             rested: false,
@@ -634,7 +637,7 @@ impl Hero {
                 let mut d = w.kind.level_desc(w.level + 1);
                 if w.level + 1 == WEAPON_MAX_LEVEL {
                     let partner = w.kind.fusion_partner();
-                    d += &format!(". Max: evolves with {}, fuses with {}", w.kind.evo_item().name(), partner.name(false));
+                    d += &format!(". Max: fuses with {}", partner.name(false));
                 }
                 (w.kind.name(false).into(), d, w.kind.color(), format!("Lv {}", w.level + 1))
             }
@@ -648,35 +651,22 @@ impl Hero {
         }
     }
 
-    /// Whether a card fuses with or evolves something this hero already carries.
+    /// Whether a card fuses with something this hero already carries. (Weapons no longer
+    /// evolve on their own: every weapon ends in the one fused flame anyway.)
     pub fn choice_hint(&self, c: Choice) -> Option<(String, Color)> {
         let fuse = Color::from_rgba(255, 130, 100, 255);
-        let evolve = Color::from_rgba(240, 200, 110, 255);
-        let weapon = match c {
+        let k = match c {
             Choice::NewWeapon(k) => Some(k),
             Choice::UpWeapon(i) => self.weapons.get(i).filter(|w| !w.is_fused()).map(|w| w.kind),
             _ => None,
-        };
-        if let Some(k) = weapon {
-            let partner = self.weapons.iter().find(|w| !w.is_fused() && w.kind != k && k.fusion_partners().contains(&w.kind));
-            return partner.map(|w| (format!("Fuses with {}", w.kind.name(false)), fuse));
-        }
-        let item = match c {
-            Choice::NewItem(k) => Some(k),
-            Choice::UpItem(i) => self.items.get(i).map(|it| it.kind),
-            _ => None,
         }?;
-        let w = self.weapons.iter().find(|w| !w.is_fused() && !w.evolved && w.kind.evo_item() == item)?;
-        Some((format!("Evolves {}", w.kind.name(false)), evolve))
+        let partner = self.weapons.iter().find(|w| !w.is_fused() && w.kind != k && k.fusion_partners().contains(&w.kind));
+        partner.map(|w| (format!("Fuses with {}", w.kind.name(false)), fuse))
     }
 
     /// Draughts heal more with the Alchemy upgrade.
     pub fn draught_mult(&self) -> f32 {
         1.0 + 0.25 * self.profile.m(M_ALCHEMY) as f32
-    }
-
-    pub fn evolvable(&self) -> Option<usize> {
-        self.weapons.iter().position(|w| !w.is_fused() && !w.evolved && w.level >= WEAPON_MAX_LEVEL && self.items.iter().any(|it| it.kind == w.kind.evo_item()))
     }
 
     /// Two slots that merge now: partner weapons at max level into a fusion, or two fusions

@@ -302,7 +302,6 @@ impl<'a> Ui<'a> {
                     }
                 }
             }
-            let ready = !wp.evolved && wp.level >= WEAPON_MAX_LEVEL && me.items.iter().any(|it| it.kind == wp.kind.evo_item());
             let border = if wp.tier() >= 4 {
                 // The last flame burns around its frame.
                 let fl = 0.75 + 0.25 * (w.time * 5.0).sin();
@@ -316,8 +315,6 @@ impl<'a> Ui<'a> {
                 Color::new(1.0, 0.35, 0.25, 1.0)
             } else if wp.evolved {
                 GOLD
-            } else if ready {
-                Color::new(1.0, 0.5, 0.2, 0.6 + 0.4 * (w.time * 6.0).sin())
             } else {
                 Color::new(0.35, 0.32, 0.3, 1.0)
             };
@@ -393,7 +390,9 @@ impl<'a> Ui<'a> {
         self.text_c(&format!("{:02}:{:02}", secs / 60, secs % 60), sw * 0.5, 38.0, 32.0, PALE);
         self.text(&format!("Felled {}", w.kills), sw - 150.0, 50.0, 16.0, DIM);
         if pl.revives > 0 {
-            self.text(&format!("Embers {}", pl.revives), sw - 150.0, 68.0, 16.0, EMBER);
+            let wait = (me.ember_ready_at - w.time).max(0.0);
+            let (text, c) = if wait > 0.0 { (format!("Embers {} ({:.0}s)", pl.revives, wait.ceil()), DIM) } else { (format!("Embers {}", pl.revives), EMBER) };
+            self.text(&text, sw - 150.0, 68.0, 16.0, c);
         }
 
         let souls = format!("{}", pl.souls);
@@ -436,6 +435,9 @@ impl<'a> Ui<'a> {
         if let Some(s) = &w.stone {
             marks.push((s.pos, Color::new(0.55, 0.85, 1.0, 0.9), "Wager stone".into()));
         }
+        if let Some(g) = &w.hourglass {
+            marks.push((g.pos, Color::new(0.7, 0.85, 1.0, 0.9), "Hourglass".into()));
+        }
         if let Some(v) = w.vault.as_ref().filter(|v| !v.open) {
             marks.push((v.pos, GOLD, "Vault".into()));
         }
@@ -443,7 +445,7 @@ impl<'a> Ui<'a> {
             match e.kind {
                 EnemyKind::Courier => marks.push((e.pos, GOLD, "Courier".into())),
                 EnemyKind::Champion => marks.push((e.pos, Color::new(0.8, 0.85, 0.95, 0.9), "Champion".into())),
-                EnemyKind::Rival => marks.push((e.pos, Color::new(1.0, 0.3, 0.25, 0.95), "Rival".into())),
+                EnemyKind::Rival => marks.push((e.pos, Color::new(1.0, 0.3, 0.25, 0.95), "Sven".into())),
                 _ => {}
             }
         }
@@ -648,7 +650,7 @@ impl<'a> Ui<'a> {
                 _ => draw_rectangle(x + 20.0, y + 23.0, 28.0, 28.0, color),
             }
             if let Some((hint, hint_col)) = me.choice_hint(*c) {
-                // Marks a card that fuses with or evolves something already carried.
+                // Marks a card that fuses with something already carried.
                 draw_rectangle_lines(x - 3.0, y - 3.0, cw + 6.0, ch + 6.0, 1.5, a(hint_col, 0.5 + 0.3 * (get_time() as f32 * 4.0).sin()));
                 self.text_r(&hint, x + cw - 14.0, y + 56.0, 15.0, hint_col);
             }

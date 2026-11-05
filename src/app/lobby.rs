@@ -383,7 +383,15 @@ impl App {
                 row(0, "Name", &name, &mut y, PALE);
                 row(1, "Class", &format!("<  {}  >", self.class().name()), &mut y, PALE);
                 row(2, "Host a vigil", &format!("UDP port {}", game_port()), &mut y, EMBER);
-                let shown = if self.lobby.ip.is_empty() && self.lobby.sel != 3 { "ip or name[:port]" } else { &self.lobby.ip };
+                let shown = if self.lobby.ip.is_empty() {
+                    if self.lobby.sel == 3 {
+                        "type or Ctrl+V to paste"
+                    } else {
+                        "ip or name[:port]"
+                    }
+                } else {
+                    &self.lobby.ip
+                };
                 row(3, "Join by address", &format!("{}{}", shown, if self.lobby.sel == 3 { caret } else { "" }), &mut y, EMBER);
                 row(4, "Refresh Tailscale", if self.lobby.ts_job.is_some() { "..." } else { "" }, &mut y, PALE);
                 if !peers.is_empty() {

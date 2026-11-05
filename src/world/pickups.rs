@@ -153,15 +153,6 @@ impl World {
     pub fn open_coffer(&mut self, h: usize, boss: bool) {
         let name = self.heroes[h].name.clone();
         let prefix = if self.multiplayer() { format!("{}: ", name) } else { String::new() };
-        if let Some(i) = self.heroes[h].evolvable() {
-            let k = self.heroes[h].weapons[i].kind;
-            self.heroes[h].weapons[i].evolved = true;
-            self.heroes[h].recompute_stats();
-            self.banner("EVOLUTION", &format!("{}{} becomes {}", prefix, k.name(false), k.name(true)), Color::from_rgba(255, 200, 110, 255), 4.0);
-            self.toast(k.evo_desc());
-            self.sfx_at("evolve", 1.0, self.heroes[h].p.pos);
-            return;
-        }
         let mut n = if boss { 3 } else { 1 };
         if chance(0.15 * self.heroes[h].stats.luck) {
             n += 2;

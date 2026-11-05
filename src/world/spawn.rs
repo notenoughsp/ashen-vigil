@@ -9,7 +9,10 @@ impl World {
         let coop = 1.0 + 0.35 * (self.heroes.len().max(1) - 1) as f32;
         let cursed = self.cursed.as_ref().map(|c| c.curse > 0.0).unwrap_or(false);
         let dark = if self.cursed_by(Curse::DarkHour) { 1.15 } else { 1.0 };
-        (1.0 + m * 0.2 + (m / 10.0).powi(2) * 0.6) * self.diff.at(self.time).hp * coop * dark * if cursed { 1.3 } else { 1.0 }
+        // Past the first lord foes toughen by `ENEMY_GROWTH` a minute on top, or heroes outgrow
+        // them and everything falls to a glance by the tenth minute.
+        let grown = ENEMY_GROWTH.powf((m - 5.0).max(0.0));
+        (1.0 + m * 0.2 + (m / 10.0).powi(2) * 0.6) * grown * self.diff.at(self.time).hp * coop * dark * if cursed { 1.3 } else { 1.0 }
     }
 
     pub(crate) fn make_enemy(&mut self, kind: EnemyKind, pos: Vec2) -> Enemy {
@@ -118,23 +121,33 @@ impl World {
         EnemyKind::Hollow
     }
 
-    fn spawn_at_ring(&mut self, kind: EnemyKind) {
+    /// Whether something appearing at `p` would pop up in plain sight of a hero: inside
+    /// `share` of the spawn ring around any living hero, not only the one it was meant for.
+    pub(crate) fn in_sight_of_heroes(&self, p: Vec2, share: f32) -> bool {
+        let r = self.spawn_ring_dist() * share;
+        self.heroes.iter().any(|h| h.alive() && h.p.pos.distance_squared(p) < r * r)
+    }
+
+    /// A spot on the spawn ring of a random hero that no hero can see, on the field; None
+    /// when there is none this time (heroes standing all around).
+    pub(crate) fn hidden_spot(&self, ring_mult: f32, margin: f32) -> Option<Vec2> {
         let (at, facing, moving) = self.random_hero_pos();
-        // Bias spawns slightly towards where that hero is heading.
-        let mut dir = rand_dir();
-        if moving && chance(0.4) {
-            dir = (facing + rand_dir() * 0.6).normalize_or_zero();
-        }
-        let ring = self.spawn_ring_dist();
-        let mut pos = at + dir * ring * gen_range(1.0, 1.15);
-        // Near a wall, look for a direction that stays on the field.
-        for _ in 0..8 {
-            if inside_world(pos, 40.0) {
-                break;
+        let ring = self.spawn_ring_dist() * ring_mult;
+        for k in 0..12 {
+            // Bias spawns slightly towards where that hero is heading.
+            let dir = if k == 0 && moving && chance(0.4) { (facing + rand_dir() * 0.6).normalize_or_zero() } else { rand_dir() };
+            let pos = clamp_world(at + dir * ring * gen_range(1.0, 1.15), margin);
+            if inside_world(pos, margin - 1.0) && !self.in_sight_of_heroes(pos, 0.9 * ring_mult.min(1.0)) {
+                return Some(pos);
             }
-            pos = at + rand_dir() * ring * gen_range(1.0, 1.15);
         }
-        let e = self.make_enemy(kind, clamp_world(pos, 40.0));
+        None
+    }
+
+    fn spawn_at_ring(&mut self, kind: EnemyKind) {
+        // Never inside another player's view: in co-op the heroes may stand far apart.
+        let Some(pos) = self.hidden_spot(1.0, 40.0) else { return };
+        let e = self.make_enemy(kind, pos);
         self.enemies.push(e);
     }
 
@@ -170,7 +183,13 @@ impl World {
             let (at, _, _) = self.random_hero_pos();
             for i in 0..n {
                 let a = i as f32 / n as f32 * TAU;
-                let e = self.make_enemy(kind, clamp_world(at + Vec2::from_angle(a) * r, 40.0));
+                let pos = clamp_world(at + Vec2::from_angle(a) * r, 40.0);
+                // The ring closes around one hero; where it would cut through another's view,
+                // it has a gap.
+                if self.heroes.iter().any(|h| h.alive() && h.p.pos.distance(at) > 1.0 && h.p.pos.distance(pos) < r * 0.9) {
+                    continue;
+                }
+                let e = self.make_enemy(kind, pos);
                 self.enemies.push(e);
             }
             self.toast("A horde closes in...");
@@ -178,8 +197,10 @@ impl World {
 
         if self.time >= self.next_swarm {
             self.next_swarm = self.time + 50.0;
-            let (at, _, _) = self.random_hero_pos();
-            let base = clamp_world(at + rand_dir() * self.spawn_ring_dist(), 120.0);
+            let base = self.hidden_spot(1.0, 120.0).unwrap_or_else(|| {
+                let (at, _, _) = self.random_hero_pos();
+                clamp_world(at + rand_dir() * self.spawn_ring_dist(), 120.0)
+            });
             for _ in 0..(((14.0 + m) * self.diff.at(self.time).count) as usize).min(self.enemy_room()) {
                 let e = self.make_enemy(EnemyKind::Moth, base + rand_dir() * gen_range(0.0, 60.0));
                 self.enemies.push(e);
@@ -194,8 +215,11 @@ impl World {
                 8..=11 => EnemyKind::Wraith,
                 _ => EnemyKind::Knight,
             };
-            let (at, _, _) = self.random_hero_pos();
-            let mut e = self.make_enemy(kind, clamp_world(at + rand_dir() * self.spawn_ring_dist(), 60.0));
+            let pos = self.hidden_spot(1.0, 60.0).unwrap_or_else(|| {
+                let (at, _, _) = self.random_hero_pos();
+                clamp_world(at + rand_dir() * self.spawn_ring_dist(), 60.0)
+            });
+            let mut e = self.make_enemy(kind, pos);
             e.elite = true;
             e.hp *= 10.0;
             e.max_hp = e.hp;
