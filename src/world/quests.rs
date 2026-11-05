@@ -79,6 +79,7 @@ impl World {
             let (done, failed) = (q.progress >= q.goal, q.left <= 0.0);
             if done {
                 let text = q.text();
+                crate::log!("[{:02}:{:02}] quest done: {}", self.time as u32 / 60, self.time as u32 % 60, text);
                 self.quest = None;
                 self.next_quest = self.time + QUEST_GAP;
                 self.quests_done += 1;
@@ -89,6 +90,8 @@ impl World {
                 self.banner("QUEST DONE", &text, Color::from_rgba(240, 210, 120, 255), 3.0);
                 self.sfx("evolve", 0.7);
             } else if failed {
+                let text = q.text();
+                crate::log!("[{:02}:{:02}] quest failed: {}", self.time as u32 / 60, self.time as u32 % 60, text);
                 self.quest = None;
                 self.next_quest = self.time + QUEST_GAP;
                 self.toast("The quest has slipped away.");
@@ -120,6 +123,7 @@ impl World {
         if kind == QuestKind::Untouched {
             self.last_wound = self.time;
         }
+        self.log_event(&format!("quest offered: {}", q.text()));
         self.toast(&format!("A quest: {}. A coffer for every hero awaits.", q.text()));
         self.sfx("chime", 0.8);
         self.quest = Some(q);

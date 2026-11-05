@@ -74,6 +74,38 @@ impl World {
             self.arena = None;
             self.toast("The fog thins. The lord still stands, but you can walk away.");
         }
+        // The fog ring widens for every lord, champion and Sven in the fight, smoothly, and
+        // never narrows again while it lasts.
+        if let Some((c, r)) = self.arena {
+            let foes = 1 + self.more_bosses.len() + self.enemies.iter().filter(|e| !e.dead && matches!(e.kind, EnemyKind::Champion | EnemyKind::Rival)).count();
+            let want = ARENA_RADIUS + ARENA_GROWTH * (foes - 1) as f32;
+            if want > r {
+                let grown = (r + (want - r) * (2.0 * dt).min(1.0)).min(want);
+                // Still inside the walls, and never narrower than it was.
+                let room = field_half() - c.x.abs().max(c.y.abs()) - 40.0;
+                self.arena = Some((c, grown.min(room).max(r)));
+            }
+        }
+        // Each lord acts in turn, the first of them last so it stays in `self.boss`.
+        let extras = std::mem::take(&mut self.more_bosses);
+        let first = self.boss.take();
+        let mut kept = Vec::new();
+        for ai in extras {
+            self.boss = Some(ai);
+            self.update_one_boss(dt);
+            kept.extend(self.boss.take());
+        }
+        self.boss = first;
+        self.update_one_boss(dt);
+        // Lords that came while it acted (none do) or the first gone: the next takes over.
+        if self.boss.is_none() && !kept.is_empty() {
+            self.boss = Some(kept.remove(0));
+            self.boss_kind = self.boss.as_ref().map(|b| b.kind);
+        }
+        self.more_bosses = kept;
+    }
+
+    fn update_one_boss(&mut self, dt: f32) {
         let Some(mut ai) = self.boss.take() else { return };
         let Some(bi) = self.enemies.iter().position(|e| e.id == ai.id && !e.dead) else {
             return;

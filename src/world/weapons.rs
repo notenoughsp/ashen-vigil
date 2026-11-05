@@ -15,11 +15,18 @@ impl World {
                 continue;
             }
             self.update_aim(h);
+            // The faster the weapons fire and the more of them there are, the softer each
+            // shot sounds, so a late arsenal is not a wall of noise.
+            let hero = &self.heroes[h];
+            let parts: usize = hero.weapons.iter().map(|w| w.kind_count()).sum();
+            let pace = hero.cooldown().clamp(0.3, 1.0);
+            self.fire_vol = (pace * (4.0 / parts.max(4) as f32).sqrt()).clamp(0.25, 1.0);
             for wi in 0..self.heroes[h].weapons.len() {
                 for part in self.heroes[h].weapons[wi].parts() {
                     self.update_part(h, wi, part, dt);
                 }
             }
+            self.fire_vol = 1.0;
         }
     }
 
@@ -101,6 +108,52 @@ impl World {
                 }
                 return;
             }
+            WeaponKind::Heart => {
+                // Two beats close together, the second the harder; the spin times the second.
+                timer -= dt;
+                let first = timer <= 0.0;
+                if first {
+                    timer = cd;
+                    spin = 0.18;
+                }
+                let r = 80.0 * area;
+                let second = spin > 0.0 && {
+                    spin -= dt;
+                    spin <= 0.0
+                };
+                self.store_part(h, wi, part.slot, timer, spin.max(0.0));
+                if first {
+                    self.hit_circle(p, r * 0.8, dmg * 0.6, 70.0, src, None);
+                }
+                if second {
+                    let n = self.hit_circle(p, r, dmg * 1.2, 130.0, src, None);
+                    self.fx.push(Fx { pos: p, life: 0.3, max_life: 0.3, kind: FxKind::Ring { r, color: Color::from_rgba(220, 40, 60, 255) } });
+                    if n > 0 {
+                        self.sfx_gap_at("hit", 0.2, 0.4, p);
+                    }
+                }
+                return;
+            }
+            WeaponKind::Eyes => {
+                // The eyes circle; every so often each glares at the nearest foe it sees.
+                spin += s.speed * dt;
+                timer -= dt;
+                let glare = timer <= 0.0;
+                if glare {
+                    timer = cd * 1.6;
+                }
+                self.store_part(h, wi, part.slot, timer, spin);
+                if glare {
+                    for (ep, _) in self.heroes[h].eye_positions() {
+                        if let Some(&i) = self.nearest_enemies(ep, 260.0, 1).first() {
+                            let to = self.enemies[i].pos;
+                            self.hit(i, dmg * 1.4, (to - ep).normalize_or_zero() * 60.0, src, false);
+                            self.fx.push(Fx { pos: ep, life: 0.18, max_life: 0.18, kind: FxKind::Gaze { to } });
+                        }
+                    }
+                }
+                return;
+            }
             WeaponKind::Chime => {
                 timer -= dt;
                 let fire = timer <= 0.0;
@@ -130,7 +183,7 @@ impl World {
             return;
         }
         timer = cd;
-        if matches!(kind, WeaponKind::Crossbow | WeaponKind::Glass) {
+        if matches!(kind, WeaponKind::Crossbow | WeaponKind::Glass | WeaponKind::Tendrils) {
             // Each volley turns a little so the gaps between quarrels move.
             spin += PI / amount as f32 * 0.5;
         }
@@ -412,7 +465,124 @@ impl World {
                 }
                 self.sfx_gap_at("hit", 0.35, 0.08, p);
             }
-            WeaponKind::Lanterns | WeaponKind::Chime | WeaponKind::Halo | WeaponKind::Censer => {}
+            WeaponKind::Cleaver => {
+                // A heavy cleave ahead (and behind with more); what it cuts bleeds on.
+                let mut angles = vec![base];
+                if amount >= 2 || evo {
+                    angles.push(base + PI);
+                }
+                if amount >= 3 {
+                    angles.push(base + PI * 0.5);
+                }
+                if amount >= 4 {
+                    angles.push(base - PI * 0.5);
+                }
+                let radius = 120.0 * area;
+                for a in angles {
+                    self.sector_hit(p, a, 0.95, radius, dmg * 1.1, 180.0, src, true);
+                    self.fx.push(Fx { pos: p, life: 0.24, max_life: 0.24, kind: FxKind::Gash { ang: a, radius, owner: h as u8 } });
+                }
+                self.sfx_at("slash", 0.55, p);
+            }
+            WeaponKind::Teeth => {
+                let dirs = self.shot_dirs(p, amount as usize, face);
+                for (k, aim) in dirs.into_iter().enumerate() {
+                    let spread = (k as f32 - (amount as f32 - 1.0) * 0.5) * 0.08;
+                    let dir = Vec2::from_angle(aim.to_angle() + spread);
+                    // Pierce one more: the bounce.
+                    self.projs.push(proj(p + dir * 10.0, dir, s.speed, 5.0, s.pierce + 1, 1.0, PKind::Tooth));
+                }
+                self.sfx_gap_at("knife", 0.25, 0.07, p);
+            }
+            WeaponKind::Sac => {
+                let targets = self.nearest_enemies(p, 600.0, amount as usize);
+                for k in 0..amount as usize {
+                    let dir = match targets.get(k).or(targets.first()) {
+                        Some(&i) => (self.enemies[i].pos - p).normalize_or_zero(),
+                        None => Vec2::from_angle(base + k as f32 * 0.5),
+                    };
+                    let r = if evo { 14.0 } else { 9.0 } * area.sqrt();
+                    self.projs.push(proj(p, dir, s.speed, r, 0, 1.5, PKind::Sac));
+                }
+                self.sfx_gap_at("hit", 0.3, 0.1, p);
+            }
+            WeaponKind::Spikes => {
+                let candidates = self.nearest_enemies(p, 600.0, 40);
+                if candidates.is_empty() {
+                    self.store_part(h, wi, part.slot, 0.2, spin);
+                    return;
+                }
+                for _ in 0..amount {
+                    let i = candidates[gen_range(0, candidates.len())];
+                    let at = self.enemies[i].pos;
+                    let r = 42.0 * area;
+                    self.hit_circle(at, r, dmg, 40.0, src, None);
+                    // Held fast on the bone a moment.
+                    let hold = if evo { 1.1 } else { 0.7 };
+                    for e in self.enemies.iter_mut().filter(|e| !e.boss && !e.dead && e.pos.distance(at) < r + e.r) {
+                        e.slow = e.slow.max(hold);
+                    }
+                    self.fx.push(Fx { pos: at, life: 0.4, max_life: 0.4, kind: FxKind::Spike { r } });
+                    self.add_decal(at, 16.0 * area, Color::from_rgba(80, 4, 10, 170), DecalKind::Blood, 14.0);
+                }
+                self.sfx_gap_at("slam", 0.3, 0.12, p);
+            }
+            WeaponKind::Jaw => {
+                let dirs = self.shot_dirs(p, amount as usize, face);
+                for dir in dirs {
+                    self.projs.push(proj(p, dir, s.speed, 15.0 * area, 999, 3.0, PKind::Jaw));
+                }
+                self.sfx_gap_at("roar", 0.12, 0.3, p);
+            }
+            WeaponKind::Motes => {
+                let dirs = self.shot_dirs(p, amount as usize, face);
+                for aim in dirs {
+                    let dir = Vec2::from_angle(aim.to_angle() + gen_range(-0.35, 0.35));
+                    self.projs.push(proj(p, dir, s.speed, 6.0, 0, 3.0, PKind::Mote));
+                }
+                self.sfx_gap_at("hit", 0.15, 0.1, p);
+            }
+            WeaponKind::Ribcage => {
+                let radius = 125.0 * area;
+                for k in 0..amount {
+                    let r = radius * (1.0 - k as f32 * 0.25);
+                    self.hit_circle(p, r, dmg, 0.0, src, None);
+                    // Snapping shut drags them in.
+                    for e in self.enemies.iter_mut().filter(|e| !e.boss && !e.dead && e.pos.distance(p) < r + e.r) {
+                        e.knock += (p - e.pos).normalize_or_zero() * 260.0;
+                    }
+                    self.fx.push(Fx { pos: p, life: 0.35, max_life: 0.35, kind: FxKind::Ribs { radius: r, owner: h as u8 } });
+                }
+                self.sfx_at("slash", 0.55, p);
+            }
+            WeaponKind::Steps => {
+                let r = 26.0 * area;
+                let life = s.speed;
+                self.pools.push(FirePool { pos: p + rand_dir() * 4.0, r, life, max_life: life, dps: dmg, tick: 0.1, src, kind: PoolKind::Blood });
+            }
+            WeaponKind::Spine => {
+                // The spine lashes straight at the nearest foe, through everything in line.
+                let aim = self.shot_dirs(p, 1, face)[0];
+                let len = 330.0 * area.sqrt() * if evo { 1.3 } else { 1.0 };
+                let width = 20.0 * area.sqrt();
+                for k in 0..amount {
+                    let side = vec2(-aim.y, aim.x) * (k as f32 - (amount - 1) as f32 * 0.5) * 30.0;
+                    let a = p + side;
+                    let b = a + aim * len;
+                    self.hit_line(a, b, width, dmg, 120.0, src);
+                    self.fx.push(Fx { pos: a, life: 0.22, max_life: 0.22, kind: FxKind::Lash { to: b } });
+                }
+                self.sfx_gap_at("slash", 0.4, 0.1, p);
+            }
+            WeaponKind::Tendrils => {
+                let turn = spin;
+                for k in 0..amount {
+                    let dir = Vec2::from_angle(turn + k as f32 / amount as f32 * TAU);
+                    self.projs.push(proj(p + dir * 12.0, dir, s.speed, 6.0, s.pierce, 0.7, PKind::Tendril));
+                }
+                self.sfx_gap_at("hit", 0.25, 0.1, p);
+            }
+            WeaponKind::Lanterns | WeaponKind::Chime | WeaponKind::Halo | WeaponKind::Censer | WeaponKind::Heart | WeaponKind::Eyes => {}
         }
     }
 
@@ -488,6 +658,35 @@ impl World {
         pr.vel = pr.vel.lerp(desired, (turn * dt).min(1.0)).normalize_or_zero() * speed;
     }
 
+    /// A swollen sac bursting: a spray of blood that hits all around, and a stain left behind.
+    fn blood_burst(&mut self, c: Vec2, area: f32, dmg: f32, evo: bool, src: Src) {
+        let r = 60.0 * area * if evo { 1.4 } else { 1.0 };
+        self.hit_circle(c, r, dmg, 180.0, src, None);
+        self.fx.push(Fx { pos: c, life: 0.35, max_life: 0.35, kind: FxKind::Explosion { r, color: Color::from_rgba(200, 20, 30, 255) } });
+        self.blood_spray(c, rand_dir(), Color::from_rgba(150, 10, 14, 255), r * 0.4, 14);
+        self.add_decal(c, r * 0.7, Color::from_rgba(90, 4, 10, 180), DecalKind::Blood, 25.0);
+        self.sfx_gap_at("explode", 0.3, 0.08, c);
+    }
+
+    /// Hits every foe within `width` of the line from `a` to `b`, pushing them along it.
+    fn hit_line(&mut self, a: Vec2, b: Vec2, width: f32, dmg: f32, knock: f32, src: Src) {
+        let d = b - a;
+        let len = d.length().max(1.0);
+        let dir = d / len;
+        let near = |q: Vec2, pad: f32| {
+            let t = ((q - a).dot(dir)).clamp(0.0, len);
+            (a + dir * t).distance(q) < width + pad
+        };
+        let mut q = std::mem::take(&mut self.qbuf);
+        self.grid.query((a + b) * 0.5, len * 0.5 + width, &mut q);
+        let hits: Vec<usize> = q.iter().copied().filter(|&i| !self.enemies[i].dead && near(self.enemies[i].pos, self.enemies[i].r)).collect();
+        self.qbuf = q;
+        for i in hits {
+            self.hit(i, dmg, dir * knock, src, false);
+        }
+        self.damage_bullets_where(near, dmg);
+    }
+
     /// Holy water bursting: a pool that sears and slows what wades in it.
     fn holy_pool(&mut self, c: Vec2, area: f32, dmg: f32, evo: bool, src: Src) {
         let life = if evo { 4.5 } else { 3.0 };
@@ -507,7 +706,18 @@ impl World {
                 pr.life -= dt;
             }
             // The axe flies out, slows down and comes back to its thrower.
-            if matches!(kind, PKind::Axe | PKind::Gargoyle) {
+            if kind == PKind::Tendril && self.projs[pi].age > 0.35 {
+                // Snapping back the way it came.
+                let pr = &mut self.projs[pi];
+                if pr.vel.dot(pr.dir) > 0.0 {
+                    pr.vel = -pr.vel;
+                    pr.hits.clear();
+                }
+            }
+            if kind == PKind::Mote {
+                self.home_in(pi, 6.0, dt);
+            }
+            if matches!(kind, PKind::Axe | PKind::Gargoyle | PKind::Jaw) {
                 let home = self.heroes.get(src.hero).map(|h| h.p.pos).unwrap_or(self.projs[pi].pos);
                 let pr = &mut self.projs[pi];
                 if pr.age < 0.55 {
@@ -550,6 +760,9 @@ impl World {
                 if kind == PKind::Flask {
                     self.holy_pool(c, a, d, evo, src);
                 }
+                if kind == PKind::Sac {
+                    self.blood_burst(c, a, d, evo, src);
+                }
                 continue;
             }
             if pr.dead {
@@ -575,7 +788,7 @@ impl World {
                     continue;
                 }
                 let id = e.id;
-                if matches!(kind, PKind::Axe | PKind::Gargoyle) {
+                if matches!(kind, PKind::Axe | PKind::Gargoyle | PKind::Jaw) {
                     if self.time - e.last_hit[src.weapon.idx()] < 0.3 {
                         continue;
                     }
@@ -598,6 +811,23 @@ impl World {
                     self.holy_pool(pos, a, dmg, evo, src);
                     break;
                 }
+                if kind == PKind::Sac {
+                    let a = pr.area;
+                    self.projs[pi].dead = true;
+                    self.blood_burst(pos, a, dmg, evo, src);
+                    break;
+                }
+                if kind == PKind::Tooth && self.projs[pi].hits.len() == 1 {
+                    // The first foe struck sends the tooth on to the next one near.
+                    let next = self.nearest_enemies(pos, 220.0, 4).into_iter().find(|&j| self.enemies[j].id != id && !self.enemies[j].dead);
+                    if let Some(j) = next {
+                        let to = (self.enemies[j].pos - pos).normalize_or_zero();
+                        let pr = &mut self.projs[pi];
+                        let speed = pr.vel.length();
+                        pr.vel = to * speed;
+                    }
+                }
+                let pr = &self.projs[pi];
                 if kind == PKind::Shard && pr.r > 4.5 {
                     // A big shard breaks in two on what it strikes.
                     let (d, a) = (pr.vel.normalize_or_zero(), pr.area);
@@ -621,7 +851,20 @@ impl World {
                         });
                     }
                 }
-                self.hit(i, dmg, knock, src, matches!(kind, PKind::Axe | PKind::Gargoyle));
+                self.hit(i, dmg, knock, src, matches!(kind, PKind::Axe | PKind::Gargoyle | PKind::Jaw));
+                if matches!(kind, PKind::Jaw) {
+                    // A bite bleeds on a little.
+                    let e = &mut self.enemies[i];
+                    e.burn = e.burn.max(2.0);
+                    e.burn_dps = e.burn_dps.max(dmg * 0.3);
+                    e.burn_src = src;
+                }
+                if kind == PKind::Mote {
+                    let gain = if evo { 0.5 } else { 0.25 };
+                    if let Some(hero) = self.heroes.get_mut(src.hero) {
+                        hero.heal(gain);
+                    }
+                }
                 if kind == PKind::Lance {
                     // The blood lance feeds its wielder.
                     let gain = if evo { 1.0 } else { 0.3 };

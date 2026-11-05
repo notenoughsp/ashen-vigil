@@ -113,6 +113,12 @@ pub struct App {
     vigil_since: i64,
     /// A tiny world for drawing heroes in the wardrobe.
     preview: Option<World>,
+    /// Until when the class card shows after the class was changed with keys or a pad.
+    class_card_until: f64,
+    /// Until when the field card shows after the field was changed with keys or a pad.
+    field_card_until: f64,
+    /// A picture of each field for its card, made the first time it is needed.
+    field_shots: Vec<Option<RenderTarget>>,
     /// "party" was typed in the main menu: the embers change colour.
     party: bool,
     /// Our rolls so far and when the last ones happened, for the dizzy secret.
@@ -249,6 +255,9 @@ impl App {
             updater: if auto.is_some() || !check_updates { crate::update::Updater::off() } else { crate::update::Updater::start() },
             vigil_since: 0,
             preview: None,
+            class_card_until: 0.0,
+            field_card_until: 0.0,
+            field_shots: Vec::new(),
             party: false,
             last_rolls: 0,
             roll_times: Vec::new(),
@@ -321,6 +330,7 @@ impl App {
     }
 
     fn cycle_class(&mut self, dir: i32) {
+        self.class_card_until = get_time() + 3.0;
         let n = self.classes().len() as i32;
         self.class_idx = ((self.class_idx as i32 + dir).rem_euclid(n)) as usize;
         self.audio.play("select", 0.4);
@@ -650,8 +660,14 @@ impl App {
             ui.text_c(n, sw * 0.5, y, 20.0, Color::new(1.0, 0.75, 0.4, life.min(1.0)));
         }
         self.draw_popups(&ui, dt);
+        // The real time a vigil has taken, in the corner by the ping.
+        let in_vigil = self.world.is_some() && matches!(self.screen, Screen::Playing | Screen::Paused) || (self.screen == Screen::Options && self.options_in_game);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        let real = in_vigil.then(|| (now - self.vigil_since).max(0) as u64);
         if self.save.settings.overlay {
-            ui.perf_overlay(self.net_stats());
+            ui.perf_overlay(self.net_stats(), real);
+        } else if let Some(t) = real {
+            ui.real_clock(t);
         }
     }
 
@@ -683,7 +699,7 @@ impl App {
             match w.pause {
                 Pause::Choosing => ui.level_up(w, self.level_sel),
                 Pause::Countdown(t) => ui.countdown(t),
-                Pause::Running => {}
+                Pause::Running | Pause::Held => {}
             }
         }
         match self.screen {

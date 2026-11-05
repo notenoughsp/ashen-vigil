@@ -49,15 +49,24 @@ impl App {
         // A client learns the heroes from the first snapshot; its own pick is what it knows.
         let heroes = if names.is_empty() { format!("me as {}", self.class().name()) } else { names.join(", ") };
         let kind = if w.boss_rush { "boss rush" } else { "vigil" };
+        // A client's world learns the host's settings only from the first snapshot: what the
+        // lobby said is what is true.
+        let client = matches!(self.net, NetMode::Client(_));
+        let (field, diff, challenges, curses) = if client {
+            (if self.lobby.rush { "a boss rush field" } else { Biome::from_u8(self.lobby.biome).name() }, self.lobby.diff, self.lobby.challenges, self.lobby.curses)
+        } else {
+            (w.biome.name(), w.diff, self.save.challenges, w.curses)
+        };
         crate::log!(
-            "{} started on {}, {}, difficulty {}, heroes: {}, challenges {:03b}, curses {:06b}",
+            "{} started on {}, {}, difficulty {}{}, heroes: {}, challenges {:03b}, curses {:06b}",
             kind,
-            w.biome.name(),
+            field,
             mode,
-            w.diff.preset_name(),
+            diff.preset_name(),
+            if diff.boost == [0; 3] { String::new() } else { format!(" (empowered: {})", diff.boost_text()) },
             heroes,
-            self.save.challenges,
-            w.curses
+            challenges,
+            curses
         );
         self.world = Some(w);
         self.screen = Screen::Playing;
@@ -227,8 +236,28 @@ impl App {
         }
     }
 
+    /// The run's damage by weapon and the souls in hand, for the log at the end.
+    fn log_summary(&self) {
+        let Some(w) = self.world.as_ref().filter(|w| !w.heroes.is_empty()) else { return };
+        let me = w.me();
+        let mut by: Vec<(WeaponKind, f64)> = ALL_WEAPONS.iter().map(|k| (*k, me.dmg_weapon[k.idx()])).filter(|(_, d)| *d > 0.0).collect();
+        by.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let top: Vec<String> = by.iter().take(6).map(|(k, d)| format!("{} {}", k.name(false), crate::ui::short(*d))).collect();
+        crate::log!("damage by weapon: {}", top.join(", "));
+        crate::log!(
+            "souls in hand {}, banked {}, burden {}, lords felled {}, quests done {}, weapons: {}",
+            me.p.souls,
+            me.banked,
+            me.burden,
+            w.bosses_killed,
+            w.quests_done,
+            me.weapons.iter().map(|wp| wp.display_name()).collect::<Vec<_>>().join(", ")
+        );
+    }
+
     fn on_death(&mut self) {
         crate::log!("vigil lost: {}", self.log_status());
+        self.log_summary();
         if matches!(self.net, NetMode::Client(_)) {
             crate::net::upload_log("vigil");
         }
@@ -248,6 +277,7 @@ impl App {
 
     fn on_victory(&mut self) {
         crate::log!("vigil kept until dawn: {}", self.log_status());
+        self.log_summary();
         if matches!(self.net, NetMode::Client(_)) {
             crate::net::upload_log("vigil");
         }
@@ -422,7 +452,9 @@ impl App {
         let online = self.online();
         ui.spaced_c(if online { "MENU" } else { "PAUSED" }, sw * 0.5, sh * 0.3, 40.0, 6.0, PALE);
         if online {
-            ui.text_c("The world does not wait for you online.", sw * 0.5, sh * 0.3 + 34.0, 18.0, crate::ui::EMBER);
+            let held = self.world.as_ref().is_some_and(|w| w.pause == Pause::Held);
+            let line = if held { "Everyone has paused: the world waits for you." } else { "The world does not wait for you online, unless every player pauses." };
+            ui.text_c(line, sw * 0.5, sh * 0.3 + 34.0, 18.0, crate::ui::EMBER);
         }
         let leave = match (self.leave_armed, online) {
             (true, _) => "Really? Click again to leave",
@@ -588,11 +620,13 @@ impl App {
         }
         let my_class = class_to_u8(self.class());
         let name = self.player_name();
+        let in_menu = self.screen == Screen::Paused || (self.screen == Screen::Options && self.options_in_game);
         let Some(w) = self.world.as_mut() else { return };
         w.screen = crate::draw::view_size();
         if !w.heroes.is_empty() {
             let l = w.local;
             w.heroes[l].input = input;
+            w.heroes[l].menu_open = in_menu;
         }
         match &mut self.net {
             NetMode::Offline => w.update(dt),
@@ -697,6 +731,7 @@ impl App {
                         skill_seq: self.skill_seq,
                         ack: self.snap_dec.ack,
                         view: (w.screen.x as u16, w.screen.y as u16),
+                        menu: in_menu,
                     });
                 }
             }
@@ -734,6 +769,7 @@ fn apply_settings(w: &mut World, st: &crate::save::Settings) {
 /// The host takes a client's own movement as truth and forwards its choices.
 fn apply_client_input(w: &mut World, h: usize, inp: &ClientInput) {
     let hero = &mut w.heroes[h];
+    hero.menu_open = inp.menu;
     if !hero.downed {
         hero.p.pos = vec2(inp.pos.0, inp.pos.1);
         let f = vec2(inp.facing.0, inp.facing.1);

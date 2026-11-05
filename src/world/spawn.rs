@@ -239,7 +239,7 @@ impl World {
         // Five seconds of warning before a lord, with a bell at the start; none in a boss rush.
         // A lord the hourglass ran past is warned of for all of its wait.
         let window = if self.long_warning { LORD_AFTER_SKIP } else { BOSS_WARNING };
-        let warn = if self.boss_rush || self.boss.is_some() { 0.0 } else { (self.next_boss - self.time).clamp(0.0, window + 0.01) };
+        let warn = if self.boss_rush { 0.0 } else { (self.next_boss - self.time).clamp(0.0, window + 0.01) };
         if warn > 0.0 && warn <= window && self.boss_warning == 0.0 {
             self.sfx("bell", 0.9);
         }
@@ -249,7 +249,8 @@ impl World {
         if !self.boss_rush && !self.endless && !self.finale_came && self.time >= VICTORY_TIME {
             self.next_boss = self.next_boss.min(self.time);
         }
-        if self.time >= self.next_boss && self.boss.is_none() {
+        // A lord comes on its hour even while another still stands: two at once, then.
+        if self.time >= self.next_boss && (self.boss.is_none() || !self.boss_rush) {
             self.next_boss = self.time + BOSS_INTERVAL;
             self.boss_warning = 0.0;
             self.long_warning = false;
@@ -313,8 +314,12 @@ impl World {
         const SLOT_HP: [f32; 5] = [3200.0, 5200.0, 6500.0, 7800.0, 9500.0];
         let hp = if finale { 11500.0 } else { SLOT_HP[n as usize % 5] };
         let r = EnemyKind::Boss(kind).radius(false);
-        // The fog ring must fit inside the walls.
-        let center = clamp_world(self.center(), 620.0);
+        // The fog ring must fit inside the walls; a second lord joins the ring already there.
+        let second = self.boss.is_some();
+        let center = match self.arena {
+            Some((c, _)) if second => c,
+            _ => clamp_world(self.center(), 620.0),
+        };
         let coop = 1.0 + 0.6 * (self.heroes.len().max(1) - 1) as f32;
         let mut e = self.make_enemy(EnemyKind::Boss(kind), center + rand_dir() * 360.0);
         e.boss = true;
@@ -335,13 +340,22 @@ impl World {
         e.dmg = dmg * (1.0 + lap * 0.4) * self.diff.at(self.time).dmg;
         let id = e.id;
         self.enemies.push(e);
-        self.boss_started = self.time;
-        self.boss = Some(BossAi { id, kind, state: 0, t: 2.0, aim: vec2(1.0, 0.0), spin: 0.0, count: 0, shot: 0.0, phase2: false, phase3: false });
+        let ai = BossAi { id, kind, state: 0, t: 2.0, aim: vec2(1.0, 0.0), spin: 0.0, count: 0, shot: 0.0, phase2: false, phase3: false };
+        let line =
+            format!("{} comes, {:.0} health{}", kind.name(), self.enemies.last().map(|e| e.max_hp).unwrap_or(0.0), if second { ", while another lord still stands" } else { "" });
+        self.log_event(&line);
         self.say(kind.lines()[0], boss_voice(kind));
-        self.boss_kind = Some(kind);
-        self.boss_bar_lag = 1.0;
-        // A boss rush's whole small field is the arena; a vigil rings its lord in fog.
-        self.arena = if self.boss_rush { None } else { Some((center, 560.0)) };
+        if second {
+            // The lord already here keeps the big bar; this one gets a smaller one above it.
+            self.more_bosses.push(ai);
+        } else {
+            self.boss_started = self.time;
+            self.boss = Some(ai);
+            self.boss_kind = Some(kind);
+            self.boss_bar_lag = 1.0;
+            // A boss rush's whole small field is the arena; a vigil rings its lord in fog.
+            self.arena = if self.boss_rush { None } else { Some((center, ARENA_RADIUS)) };
+        }
         let rush_title = format!("Lord {} of {}", n + 1, RUSH_LORDS);
         let title = if finale {
             "The Last Hour"

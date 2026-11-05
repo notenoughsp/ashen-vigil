@@ -29,7 +29,7 @@ impl World {
         self.heroes[h].skill_cd = cd * self.heroes[h].cooldown().max(0.5);
         // Skills grow with the vigil, like everything else.
         let power = might * (1.0 + 0.08 * self.level as f32);
-        let src = Src { hero: h, weapon: class.weapon().for_field(self.heroes[h].cathedral) };
+        let src = Src { hero: h, weapon: class.weapon().for_field(self.heroes[h].field) };
         crate::log!("{} uses {}", self.heroes[h].name, name);
         let color = match class {
             Class::CinderAdept | Class::BloodKnight => Color::from_rgba(255, 120, 60, 255),

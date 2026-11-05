@@ -92,6 +92,7 @@ impl App {
 
     /// Steps through the fields; the host's choice applies to everyone.
     pub(super) fn cycle_biome(&mut self, dir: i32) {
+        self.field_card_until = get_time() + 3.0;
         let n = ALL_BIOMES.len() as i32;
         self.save.settings.biome = (self.save.settings.biome as i32 + dir).rem_euclid(n) as u8;
         self.save.store();
@@ -245,6 +246,8 @@ impl App {
     }
 
     pub(super) fn update_lobby(&mut self, dt: f32) {
+        self.ensure_preview();
+        self.ensure_field_shots();
         if self.lobby.ts_job.as_ref().map(|j| j.is_finished()).unwrap_or(false) {
             let job = self.lobby.ts_job.take().unwrap();
             self.lobby.ts = job.join().ok();
@@ -364,6 +367,9 @@ impl App {
     pub(super) fn draw_lobby(&self, ui: &Ui) {
         let (sw, sh) = (ui_w(), ui_h());
         let cx = sw * 0.5;
+        let mut lobby_tips: Vec<(Rect, String, String)> = Vec::new();
+        let mut hero_row: Option<Rect> = None;
+        let mut field_row: Option<Rect> = None;
         ui.spaced_c("ONLINE LOBBY", cx, 60.0, 40.0, 8.0, PALE);
         let w = 680.0f32.min(sw - 40.0);
         let x = cx - w * 0.5;
@@ -436,28 +442,46 @@ impl App {
                     y += 28.0;
                 }
                 let d = self.lobby.diff;
-                ui.text(
-                    &format!(
-                        "{}   Difficulty: {}  (enemies {:.0}%, health {:.0}%, damage {:.0}%){}",
-                        if self.lobby.rush { "Boss Rush" } else { Biome::from_u8(self.lobby.biome).name() },
-                        d.preset_name(),
-                        d.count * 100.0,
-                        d.hp * 100.0,
-                        d.dmg * 100.0,
-                        if d.boost == [0; 3] { String::new() } else { format!("   Empowered: {}", d.boost_text()) }
-                    ),
-                    x,
-                    y + 18.0,
-                    16.0,
-                    DIM,
-                );
-                y += 22.0;
-                let mut chosen: Vec<&str> = ALL_CHALLENGES.iter().filter(|c| self.lobby.challenges & c.bit() != 0).map(|c| c.name()).collect();
-                chosen.extend(ALL_CURSES.iter().filter(|c| self.lobby.curses & c.bit() != 0).map(|c| c.name()));
-                if !chosen.is_empty() {
-                    let bonus = (challenge_mult(self.lobby.challenges) * curse_mult(self.lobby.curses) - 1.0) * 100.0;
-                    ui.text(&format!("For everyone: {}   (+{:.0}% marks)", chosen.join(", "), bonus), x, y + 14.0, 16.0, EMBER);
+                let hosting = self.lobby.state == LobbyState::Hosting;
+                let field = if self.lobby.rush { "Boss Rush" } else { Biome::from_u8(self.lobby.biome).name() };
+                let bonus = (challenge_mult(self.lobby.challenges) * curse_mult(self.lobby.curses) - 1.0) * 100.0;
+                if hosting {
+                    // The host sets it all below; one line is enough here.
+                    ui.text(&format!("{}   Difficulty: {}   souls and marks x{:.2}", field, d.preset_name(), d.soul_mult()), x, y + 18.0, 16.0, DIM);
                     y += 22.0;
+                } else {
+                    // Everything the host chose, one line under another so nothing runs off screen.
+                    let mut lines: Vec<(String, Color)> = vec![
+                        (format!("Field: {}", field), DIM),
+                        (
+                            format!(
+                                "Difficulty: {}  (enemies {:.0}%, health {:.0}%, damage {:.0}%, speed {:.0}%)",
+                                d.preset_name(),
+                                d.count * 100.0,
+                                d.hp * 100.0,
+                                d.dmg * 100.0,
+                                d.speed * 100.0
+                            ),
+                            DIM,
+                        ),
+                    ];
+                    if d.boost != [0; 3] {
+                        lines.push((format!("Empowered foes: {}", d.boost_text()), EMBER));
+                    }
+                    lines.push((format!("Souls and marks x{:.2}", d.soul_mult()), GOLD));
+                    for c in ALL_CHALLENGES.iter().filter(|c| self.lobby.challenges & c.bit() != 0) {
+                        lines.push((format!("{}: {}", c.name(), c.desc()), EMBER));
+                    }
+                    for c in ALL_CURSES.iter().filter(|c| self.lobby.curses & c.bit() != 0) {
+                        lines.push((format!("Curse {}: {}", c.name(), c.desc()), Color::new(0.75, 0.45, 1.0, 1.0)));
+                    }
+                    if bonus > 0.0 {
+                        lines.push((format!("Challenges and curses: +{:.0}% marks", bonus), EMBER));
+                    }
+                    for (line, col) in lines {
+                        ui.text(&line, x, y + 18.0, 16.0, col);
+                        y += 21.0;
+                    }
                 }
                 y += 14.0;
                 let value_row = |i: usize, label: &str, value: &str, y: &mut f32| {
@@ -472,32 +496,54 @@ impl App {
                     ui.text_c(label, cx, *y + 23.0, 20.0, col);
                     *y += 38.0;
                 };
+                hero_row = Some(Rect::new(x, y, w, 34.0));
                 value_row(0, "Your hero", &format!("<  {}  >", self.class().name()), &mut y);
                 if self.lobby.state == LobbyState::Hosting {
                     value_row(1, "Difficulty", &format!("<  {}  >", self.save.settings.diff.preset_name()), &mut y);
                     value_row(2, "Mode", &format!("<  {}  >", mode_name(self.save.settings.boss_rush)), &mut y);
+                    field_row = Some(Rect::new(x, y, w, 34.0));
                     value_row(3, "Field", &format!("<  {}  >", Biome::from_u8(self.save.settings.biome).name()), &mut y);
                     let d = self.save.settings.diff;
                     for i in 0..3 {
                         let value = format!("<  +{:.0}%  >   souls and marks x{:.2}", d.boost[i] as f32 * BOOST_STEP[i], d.soul_mult());
                         value_row(4 + i, BOOST_NAMES[i], &value, &mut y);
                     }
-                    // Challenges and curses as a grid of toggles, three to a line.
+                    // Challenges and curses as a grid of toggles, three to a line; what each does
+                    // shows under the mouse and under the grid for the one selected.
                     let cw = (w - 8.0) / 3.0;
+                    let mut tips = Vec::new();
+                    let mut selected_desc = None;
                     for k in 0..TOGGLES {
-                        let (name, on, col) = if k < ALL_CHALLENGES.len() {
+                        let (name, desc, on, col, pay) = if k < ALL_CHALLENGES.len() {
                             let c = ALL_CHALLENGES[k];
-                            (c.name(), self.save.challenges & c.bit() != 0, EMBER)
+                            (c.name(), c.desc(), self.save.challenges & c.bit() != 0, EMBER, "+25% marks")
                         } else {
                             let c = ALL_CURSES[k - ALL_CHALLENGES.len()];
-                            (c.name(), self.save.curses & c.bit() != 0, Color::new(0.75, 0.45, 1.0, 1.0))
+                            (c.name(), c.desc(), self.save.curses & c.bit() != 0, Color::new(0.75, 0.45, 1.0, 1.0), "+20% marks")
                         };
                         let (rx, ry) = (x + (k % 3) as f32 * (cw + 4.0), y + (k / 3) as f32 * 33.0);
                         ui.row(rx, ry, cw, 30.0, self.lobby.sel == LOBBY_TOGGLES + k);
                         ui.text(name, rx + 10.0, ry + 20.0, 16.0, if on { col } else { DIM });
                         ui.text_r(if on { "ON" } else { "off" }, rx + cw - 10.0, ry + 20.0, 14.0, if on { col } else { DIM });
+                        tips.push((
+                            Rect::new(rx, ry, cw, 30.0),
+                            name.to_string(),
+                            format!(
+                                "{}
+{} for everyone",
+                                desc, pay
+                            ),
+                        ));
+                        if self.lobby.sel == LOBBY_TOGGLES + k {
+                            selected_desc = Some(format!("{}: {}", name, desc));
+                        }
                     }
                     y += TOGGLES.div_ceil(3) as f32 * 33.0 + 4.0;
+                    if let Some(d) = selected_desc {
+                        ui.text_c(&d, cx, y + 14.0, 15.0, PALE);
+                    }
+                    y += 22.0;
+                    lobby_tips = tips;
                     let n = LOBBY_TOGGLES + TOGGLES;
                     button(n, if self.save.settings.boss_rush { "Begin the Boss Rush" } else { "Begin the Vigil" }, EMBER, &mut y);
                     button(n + 1, "Close lobby", DIM, &mut y);
@@ -508,6 +554,19 @@ impl App {
         }
         if let Some((m, c)) = &self.lobby.msg {
             ui.text_c(m, cx, sh - 54.0, 17.0, *c);
+        }
+        ui.tooltip(&lobby_tips);
+        // The field card, under the mouse or for a moment after the field changed.
+        if let Some(r) = field_row {
+            if r.contains(crate::app::input::mouse_ui()) || (self.lobby.sel == 3 && get_time() < self.field_card_until) {
+                self.draw_field_card(ui, Biome::from_u8(self.save.settings.biome), r);
+            }
+        }
+        // The class card, under the mouse or for a moment after the class changed.
+        if let Some(r) = hero_row {
+            if r.contains(crate::app::input::mouse_ui()) || (self.lobby.sel == 0 && get_time() < self.class_card_until) {
+                self.draw_class_card(ui, self.class(), r);
+            }
         }
         ui.text_c("Tailscale: all players in the same tailnet, then pick the host's device or enter its 100.x address", cx, sh - 24.0, 15.0, DIM);
     }

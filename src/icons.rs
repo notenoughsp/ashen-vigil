@@ -180,6 +180,92 @@ pub fn weapon_icon(kind: WeaponKind, c: Vec2, s: f32, col: Color) {
             }
             arc(c, s, Vec2::ZERO, 0.4, 0.0, TAU, 0.05, dark);
         }
+        WeaponKind::Cleaver => {
+            tri(c, s, vec2(-0.3, -0.32), vec2(0.36, -0.32), vec2(0.36, 0.14), col);
+            tri(c, s, vec2(-0.3, -0.32), vec2(0.36, 0.14), vec2(-0.3, 0.14), col);
+            line(c, s, vec2(-0.3, 0.02), vec2(-0.3, 0.4), 0.1, dark);
+            circle(c, s, vec2(0.22, -0.2), 0.05, darker(col, 0.4));
+        }
+        WeaponKind::Teeth => {
+            for k in 0..4 {
+                let x = -0.3 + k as f32 * 0.2;
+                tri(c, s, vec2(x - 0.08, -0.06), vec2(x + 0.08, -0.06), vec2(x, -0.36), col);
+                tri(c, s, vec2(x - 0.07, 0.08), vec2(x + 0.07, 0.08), vec2(x + 0.02, 0.34), darker(col, 0.85));
+            }
+            line(c, s, vec2(-0.4, 0.01), vec2(0.4, 0.01), 0.06, Color::new(0.6, 0.1, 0.15, 1.0));
+        }
+        WeaponKind::Sac => {
+            circle(c, s, vec2(0.0, 0.04), 0.32, col);
+            circle(c, s, vec2(-0.1, -0.08), 0.1, Color::new(1.0, 0.7, 0.75, 0.8));
+            line(c, s, vec2(0.0, -0.28), vec2(0.06, -0.42), 0.06, dark);
+        }
+        WeaponKind::Heart => {
+            circle(c, s, vec2(-0.14, -0.08), 0.18, col);
+            circle(c, s, vec2(0.14, -0.08), 0.18, col);
+            tri(c, s, vec2(-0.31, -0.02), vec2(0.31, -0.02), vec2(0.0, 0.36), col);
+            line(c, s, vec2(0.04, -0.22), vec2(0.1, -0.42), 0.06, dark);
+        }
+        WeaponKind::Eyes => {
+            for (x, y) in [(-0.18, -0.12), (0.18, -0.12), (0.0, 0.18)] {
+                circle(c, s, vec2(x, y), 0.15, Color::new(0.93, 0.89, 0.82, 1.0));
+                circle(c, s, vec2(x + 0.03, y), 0.07, col);
+                circle(c, s, vec2(x + 0.03, y), 0.03, BLACK);
+            }
+        }
+        WeaponKind::Spikes => {
+            for (x, h) in [(-0.24, 0.5), (0.0, 0.76), (0.24, 0.56)] {
+                tri(c, s, vec2(x - 0.1, 0.36), vec2(x + 0.1, 0.36), vec2(x, 0.36 - h), col);
+            }
+            line(c, s, vec2(-0.4, 0.38), vec2(0.4, 0.38), 0.06, Color::new(0.5, 0.05, 0.08, 1.0));
+        }
+        WeaponKind::Jaw => {
+            arc(c, s, vec2(0.0, -0.04), 0.3, 0.2, PI - 0.2, 0.12, col);
+            for k in 0..5 {
+                let a = 0.4 + k as f32 * 0.58;
+                let q = vec2(0.0, -0.04) + Vec2::from_angle(a) * 0.22;
+                tri(c, s, q + vec2(-0.04, 0.0), q + vec2(0.04, 0.0), q + vec2(0.0, -0.1), WHITE);
+            }
+        }
+        WeaponKind::Motes => {
+            for (x, y, r) in [(-0.16, 0.1, 0.12), (0.14, -0.1, 0.15), (0.2, 0.22, 0.08), (-0.2, -0.22, 0.08)] {
+                circle(c, s, vec2(x, y), r, col);
+                circle(c, s, vec2(x - r * 0.3, y - r * 0.3), r * 0.3, Color::new(1.0, 0.7, 0.7, 1.0));
+            }
+        }
+        WeaponKind::Ribcage => {
+            line(c, s, vec2(0.0, -0.38), vec2(0.0, 0.38), 0.07, col);
+            for k in 0..4 {
+                let y = -0.26 + k as f32 * 0.17;
+                arc(c, s, vec2(0.0, y), 0.3 - k as f32 * 0.03, 0.3, PI - 0.3, 0.06, col);
+            }
+        }
+        WeaponKind::Steps => {
+            for (x, y) in [(-0.18, 0.2), (0.12, -0.04), (-0.08, -0.3)] {
+                circle(c, s, vec2(x, y), 0.11, col);
+                circle(c, s, vec2(x + 0.1, y + 0.08), 0.05, col);
+            }
+            circle(c, s, vec2(0.22, 0.26), 0.07, darker(col, 1.4));
+        }
+        WeaponKind::Spine => {
+            for k in 0..6 {
+                let t = k as f32 / 5.0;
+                let q = vec2(-0.36, 0.36).lerp(vec2(0.36, -0.36), t);
+                circle(c, s, q, 0.07, col);
+                line(c, s, q + vec2(-0.08, -0.08), q + vec2(0.08, 0.08), 0.04, dark);
+            }
+        }
+        WeaponKind::Tendrils => {
+            for k in 0..5 {
+                let a = k as f32 / 5.0 * TAU;
+                let mut q = Vec2::ZERO;
+                for s2 in 1..4 {
+                    let n = Vec2::from_angle(a + (s2 as f32 * 0.6).sin() * 0.4) * 0.13 * s2 as f32;
+                    line(c, s, q, n, 0.07 - s2 as f32 * 0.012, col);
+                    q = n;
+                }
+            }
+            circle(c, s, Vec2::ZERO, 0.1, dark);
+        }
     }
 }
 

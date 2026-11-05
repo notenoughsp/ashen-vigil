@@ -146,6 +146,17 @@ pub fn level_up_cards(n: usize) -> Vec<Rect> {
     (0..n).map(|i| Rect::new((sw - cw) * 0.5, sh * 0.16 + 56.0 + i as f32 * 100.0, cw, 90.0)).collect()
 }
 
+/// Bytes in KB, or in MB and GB once the numbers grow long.
+pub fn bytes(b: f64) -> String {
+    if b >= 1024.0 * 1024.0 * 1024.0 {
+        format!("{:.2} GB", b / (1024.0 * 1024.0 * 1024.0))
+    } else if b >= 1024.0 * 1024.0 {
+        format!("{:.1} MB", b / (1024.0 * 1024.0))
+    } else {
+        format!("{:.1} KB", b / 1024.0)
+    }
+}
+
 pub fn short(v: f64) -> String {
     if v >= 1e12 {
         format!("{:.1}T", v / 1e12)
@@ -230,31 +241,37 @@ impl<'a> Ui<'a> {
         let me = w.me().p.pos;
         marks.sort_by(|a, b| a.0.distance_squared(me).total_cmp(&b.0.distance_squared(me)));
         let mut labeled: Vec<Vec2> = Vec::new();
+        let c = vec2(sw, sh) * 0.5;
+        // Inside the screen by the chosen amount, so a glance from the middle catches them.
+        let m = (sw.min(sh) * MARKER_INSET.with(|m| m.get())).max(20.0);
+        // On a circle around the hero rather than along the screen's edges: on a wide screen a
+        // marker to the side would otherwise sit much further out than one above.
+        let radius = sw.min(sh) * 0.5 - m;
         for (target, color, label) in marks {
             let s = w.world_to_screen(target);
-            if s.x > 0.0 && s.y > 0.0 && s.x < sw && s.y < sh {
+            // A marker stays on its circle until the thing comes inside it, not only until it
+            // comes on screen.
+            if (s - c).length() < radius {
                 continue;
             }
-            let c = vec2(sw, sh) * 0.5;
             let d = (s - c).normalize_or_zero();
-            // Inside the screen by the chosen amount, so a glance from the middle catches them.
-            let m = (sw.min(sh) * MARKER_INSET.with(|m| m.get())).max(20.0);
-            // On a circle around the hero rather than along the screen's edges: on a wide
-            // screen a marker to the side would otherwise sit much further out than one above.
-            let radius = sw.min(sh) * 0.5 - m;
             let mut p = c + d * radius;
-            // Keep clear of the boss bar along the bottom edge.
-            if w.boss_kind.is_some() {
+            // Keep clear of the boss bars along the bottom edge.
+            if w.boss_kind.is_some() || !w.bars.is_empty() {
                 p.y = p.y.min(sh - 105.0);
             }
+            // A fallen companion stands out: a bigger, pulsing arrow.
+            let fallen = label.starts_with("Fallen");
+            let k = if fallen { 1.9 + 0.25 * (get_time() as f32 * 6.0).sin() } else { 1.0 };
             let perp = vec2(-d.y, d.x);
-            draw_triangle(p + d * 12.0, p - d * 6.0 + perp * 8.0, p - d * 6.0 - perp * 8.0, color);
-            if labeled.iter().any(|q| q.distance(p) < 70.0) {
+            draw_triangle(p + d * 12.0 * k, p - d * 6.0 * k + perp * 8.0 * k, p - d * 6.0 * k - perp * 8.0 * k, color);
+            if labeled.iter().any(|q| q.distance(p) < 70.0) && !fallen {
                 continue;
             }
             labeled.push(p);
             let dist = (target - me).length() / 10.0;
-            self.text_c(&format!("{} {:.0}m", label, dist), p.x - d.x * 24.0, p.y - d.y * 24.0 + 4.0, 14.0, a(color, 0.9));
+            let size = if fallen { 18.0 } else { 14.0 };
+            self.text_c(&format!("{} {:.0}m", label, dist), p.x - d.x * 24.0 * k, p.y - d.y * 24.0 * k + 4.0, size, a(color, 0.9));
         }
     }
 
@@ -335,6 +352,20 @@ impl<'a> Ui<'a> {
             tips.push((Rect::new(x, y, s, s + fs), title, body));
             x += s + gap;
         }
+        // Empty frames for the weapons still to come; none once everything is one weapon.
+        let whole = me.weapons.iter().any(|wp| wp.whole);
+        if !whole {
+            for _ in me.weapons.len()..me.max_weapons() {
+                if x + s > x0 + max_w && x > x0 {
+                    x = x0;
+                    y += s + 18.0 * k;
+                }
+                draw_rectangle(x, y, s, s, Color::new(0.03, 0.03, 0.03, 0.45));
+                draw_rectangle_lines(x, y, s, s, 1.2, Color::new(0.3, 0.27, 0.25, 0.6));
+                tips.push((Rect::new(x, y, s, s), "Empty weapon slot".to_string(), "A new weapon from a level-up goes here.".to_string()));
+                x += s + gap;
+            }
+        }
         if !me.weapons.is_empty() {
             y += s + 18.0 * k;
         }
@@ -362,9 +393,18 @@ impl<'a> Ui<'a> {
             tips.push((Rect::new(x, y, s, s), title, body));
             x += s + gap;
         }
-        if !me.items.is_empty() {
-            y += s;
+        // Empty frames for the passives still to come.
+        for _ in me.items.len()..me.max_items() {
+            if x + s > x0 + max_w && x > x0 {
+                x = x0;
+                y += s + gap;
+            }
+            draw_rectangle(x, y, s, s, Color::new(0.03, 0.03, 0.03, 0.45));
+            draw_rectangle_lines(x, y, s, s, 1.2, Color::new(0.3, 0.27, 0.25, 0.6));
+            tips.push((Rect::new(x, y, s, s), "Empty passive slot".to_string(), "A new passive from a level-up goes here.".to_string()));
+            x += s + gap;
         }
+        y += s;
         (tips, y)
     }
 
@@ -570,12 +610,25 @@ impl<'a> Ui<'a> {
             self.text_r(&format!("banked {}", me.banked), sw - 30.0, note_y, 14.0, DIM);
         }
 
+        let mut bar_y = sh - 70.0;
         if let Some(k) = w.boss_kind {
             let bw = sw * 0.6;
             let bx = (sw - bw) * 0.5;
-            let by = sh - 70.0;
-            self.text(k.name(), bx, by - 10.0, 22.0, PALE);
-            self.bar(Rect::new(bx, by, bw, 10.0), w.boss_hp.0 / w.boss_hp.1.max(1.0), w.boss_bar_lag, Color::new(0.55, 0.07, 0.05, 1.0));
+            self.text(k.name(), bx, bar_y - 10.0, 22.0, PALE);
+            self.bar(Rect::new(bx, bar_y, bw, 10.0), w.boss_hp.0 / w.boss_hp.1.max(1.0), w.boss_bar_lag, Color::new(0.55, 0.07, 0.05, 1.0));
+            bar_y -= 40.0;
+        }
+        // Other lords above the first, smaller; the champion and Sven smaller still.
+        for &(code, hp, max) in &w.bars {
+            let (name, bw, col) = match code {
+                BAR_CHAMPION => ("The Champion", sw * 0.3, Color::new(0.55, 0.58, 0.65, 1.0)),
+                BAR_RIVAL => ("Sven", sw * 0.3, Color::new(0.7, 0.15, 0.12, 1.0)),
+                k => (BossKind::from_u8(k).name(), sw * 0.42, Color::new(0.55, 0.07, 0.05, 1.0)),
+            };
+            let bx = (sw - bw) * 0.5;
+            self.text(name, bx, bar_y - 6.0, 17.0, PALE);
+            self.bar(Rect::new(bx, bar_y, bw, 6.0), hp / max.max(1.0), 0.0, col);
+            bar_y -= 30.0;
         }
         if let Some(g) = me.wager {
             // The bet's clock: green while it can be won, red once it cannot.
@@ -641,8 +694,11 @@ impl<'a> Ui<'a> {
             }
         }
         for h in w.heroes.iter().filter(|h| h.slot != me.slot) {
-            let c = if h.downed { BLOOD } else { Color::new(0.8, 0.8, 0.9, 0.9) };
-            marks.push((h.p.pos, c, h.name.clone()));
+            if h.downed {
+                marks.push((h.p.pos, Color::new(1.0, 0.25, 0.2, 1.0), format!("Fallen: {}", h.name)));
+            } else {
+                marks.push((h.p.pos, Color::new(0.8, 0.8, 0.9, 0.9), h.name.clone()));
+            }
         }
         self.edge_markers(w, marks);
 
@@ -903,17 +959,31 @@ impl<'a> Ui<'a> {
     }
 
     /// FPS, ping and traffic in the bottom-left corner.
-    pub fn perf_overlay(&self, net: Option<&NetStats>) {
+    /// Only the real time of the vigil, in the bottom-left corner, when the overlay is off.
+    pub fn real_clock(&self, t: u64) {
         let sh = ui_h();
-        let lines: Vec<String> = match net {
+        let line = format!("Real time {}:{:02}:{:02}", t / 3600, t / 60 % 60, t % 60);
+        let w = mono_width(&line, 14.0) + 14.0;
+        draw_rectangle(8.0, sh - 31.0, w, 23.0, Color::new(0.0, 0.0, 0.0, 0.55));
+        mono(&line, 15.0, sh - 14.0, 16.0, Color::new(0.75, 0.9, 0.75, 0.95));
+    }
+
+    /// FPS, ping and traffic in the bottom-left corner; during a vigil also the real time it
+    /// has taken, which the hourglass does not skip.
+    pub fn perf_overlay(&self, net: Option<&NetStats>, real: Option<u64>) {
+        let sh = ui_h();
+        let mut lines: Vec<String> = match net {
             Some(n) => vec![
                 format!("FPS {}", get_fps()),
                 format!("Ping {:.0} ms", n.ping_ms),
-                format!("Sent {:.1} KB/s  {:.0} pkt/s  ({:.0} KB)", n.sent_rate / 1024.0, n.pkts_sent_rate, n.sent_total as f32 / 1024.0),
-                format!("Recv {:.1} KB/s  {:.0} pkt/s  ({:.0} KB)", n.recv_rate / 1024.0, n.pkts_recv_rate, n.recv_total as f32 / 1024.0),
+                format!("Sent {}/s  {:.0} pkt/s  ({})", bytes(n.sent_rate as f64), n.pkts_sent_rate, bytes(n.sent_total as f64)),
+                format!("Recv {}/s  {:.0} pkt/s  ({})", bytes(n.recv_rate as f64), n.pkts_recv_rate, bytes(n.recv_total as f64)),
             ],
             None => vec![format!("FPS {}", get_fps()), "Ping -".into(), "Sent -".into(), "Recv -".into()],
         };
+        if let Some(t) = real {
+            lines.insert(0, format!("Real time {}:{:02}:{:02}", t / 3600, t / 60 % 60, t % 60));
+        }
         let h = lines.len() as f32 * 15.0 + 8.0;
         let w = lines.iter().map(|l| mono_width(l, 14.0)).fold(0.0, f32::max) + 14.0;
         draw_rectangle(8.0, sh - h - 8.0, w, h, Color::new(0.0, 0.0, 0.0, 0.55));

@@ -39,10 +39,18 @@ pub const ENEMY_GROWTH: f32 = 1.09;
 /// The most of a lord's health that can go in one second: every lord fight lasts at least
 /// twenty seconds, however strong the heroes.
 pub const BOSS_SECOND_CAP: f32 = 0.05;
+/// The fog ring round a lord, and how much wider it grows for each other lord, champion or
+/// Sven in the fight.
+pub const ARENA_RADIUS: f32 = 560.0;
+pub const ARENA_GROWTH: f32 = 150.0;
 /// Seconds a boss fight can last before its fog ring lifts.
 pub const BOSS_FOG_TIME: f32 = 180.0;
 /// A lone grave in the far south-west corner of the field, for those who wander.
 pub const LOST_GRAVE: Vec2 = Vec2::new(-WORLD_HALF + 260.0, WORLD_HALF - 240.0);
+/// The cathedral's secret instead: a cracked bell fallen in the far north-east corner.
+pub const FALLEN_BELL: Vec2 = Vec2::new(WORLD_HALF - 250.0, -WORLD_HALF + 260.0);
+/// The flesh pits' secret: a great heart still beating in the far south-east corner.
+pub const BEATING_HEART: Vec2 = Vec2::new(WORLD_HALF - 260.0, WORLD_HALF - 250.0);
 /// Seconds of standing still, with no foe near, before a hero sits down by a fire.
 pub const REST_AFTER: f32 = 20.0;
 /// Health of an enemy projectile at the start; it grows like the foes' health.
@@ -133,22 +141,25 @@ pub enum Biome {
     #[default]
     Graveyard,
     Cathedral,
+    Flesh,
 }
 
-pub const ALL_BIOMES: [Biome; 2] = [Biome::Graveyard, Biome::Cathedral];
+pub const ALL_BIOMES: [Biome; 3] = [Biome::Graveyard, Biome::Cathedral, Biome::Flesh];
 
 impl Biome {
     pub fn name(self) -> &'static str {
         match self {
             Biome::Graveyard => "The Graveyard",
-            Biome::Cathedral => "The Burning Cathedral",
+            Biome::Cathedral => "The Hallowed Cathedral",
+            Biome::Flesh => "The Flesh Pits",
         }
     }
 
     pub fn desc(self) -> &'static str {
         match self {
             Biome::Graveyard => "Old stones, older dead. Archers and the restless.",
-            Biome::Cathedral => "Pews and pillars in flame. Zealots, knights and gargoyles.",
+            Biome::Cathedral => "Light through coloured glass. Zealots, knights and gargoyles.",
+            Biome::Flesh => "Living ground and rivers of blood. Leeches, ghouls and bloated things.",
         }
     }
 
@@ -162,6 +173,7 @@ impl Biome {
         match self {
             Biome::Graveyard => [Gravewarden, Hound, Matriarch, BogMother, Hermit],
             Biome::Cathedral => [Seraph, Choir, Hermit, Penitent, Bride],
+            Biome::Flesh => [Matriarch, Hound, Bride, BogMother, Penitent],
         }
     }
 
@@ -173,6 +185,8 @@ impl Biome {
             (Biome::Graveyard, Leech) => 0.4,
             (Biome::Cathedral, Cultist | Knight | Gargoyle | Banshee | Shieldbearer) => 1.7,
             (Biome::Cathedral, Ghoul | Leech) => 0.5,
+            (Biome::Flesh, Ghoul | Bloat | Leech) => 1.8,
+            (Biome::Flesh, Archer | Banshee | Gargoyle) => 0.5,
             _ => 1.0,
         }
     }
@@ -448,6 +462,11 @@ pub enum PKind {
     Gargoyle,
     Rune,
     Ember,
+    Tooth,
+    Sac,
+    Jaw,
+    Mote,
+    Tendril,
 }
 
 impl PKind {
@@ -468,6 +487,11 @@ impl PKind {
             9 => PKind::Gargoyle,
             10 => PKind::Rune,
             11 => PKind::Ember,
+            12 => PKind::Tooth,
+            13 => PKind::Sac,
+            14 => PKind::Jaw,
+            15 => PKind::Mote,
+            16 => PKind::Tendril,
             _ => PKind::Quarrel,
         }
     }
@@ -546,6 +570,29 @@ pub enum FxKind {
     Pipe {
         r: f32,
     },
+    /// The cleaver's red cut, round its owner.
+    Gash {
+        ang: f32,
+        radius: f32,
+        owner: u8,
+    },
+    /// An eye's glare from `pos` to `to`.
+    Gaze {
+        to: Vec2,
+    },
+    /// Spikes of bone bursting up.
+    Spike {
+        r: f32,
+    },
+    /// Ribs bursting up round their owner and snapping shut.
+    Ribs {
+        radius: f32,
+        owner: u8,
+    },
+    /// The spine's lash from `pos` to `to`.
+    Lash {
+        to: Vec2,
+    },
 }
 
 pub struct Fx {
@@ -564,11 +611,13 @@ pub enum PoolKind {
     Holy,
     Candle,
     Smoke,
+    /// The bleeding steps' trail.
+    Blood,
 }
 
 impl PoolKind {
     pub fn from_u8(v: u8) -> PoolKind {
-        [PoolKind::Fire, PoolKind::Hex, PoolKind::Holy, PoolKind::Candle, PoolKind::Smoke].get(v as usize).copied().unwrap_or(PoolKind::Fire)
+        [PoolKind::Fire, PoolKind::Hex, PoolKind::Holy, PoolKind::Candle, PoolKind::Smoke, PoolKind::Blood].get(v as usize).copied().unwrap_or(PoolKind::Fire)
     }
 }
 
@@ -700,6 +749,10 @@ pub struct Remnant {
     pub souls: u64,
 }
 
+/// Codes for the champion's and Sven's health bars in `World::bars`.
+pub const BAR_CHAMPION: u8 = 200;
+pub const BAR_RIVAL: u8 = 201;
+
 pub struct BossAi {
     pub id: u32,
     pub kind: BossKind,
@@ -719,6 +772,8 @@ pub enum Pause {
     Running,
     Choosing,
     Countdown(f32),
+    /// Online, every player has the menu open: the world waits for them.
+    Held,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -836,7 +891,8 @@ pub struct World {
     pub altars: Vec<Altar>,
     /// The lord's damage in the current second, for `BOSS_SECOND_CAP`: when the second began
     /// and how much it took.
-    boss_second: (f32, f32),
+    /// For each lord: when its current second began and how much it has taken in it.
+    boss_second: Vec<(u32, f32, f32)>,
     /// The hourglass shrine on the field, if any.
     pub hourglass: Option<Hourglass>,
     /// The wager stone before a lord.
@@ -865,6 +921,11 @@ pub struct World {
     /// When a hero was last hurt, for the quest to stay unhurt.
     last_wound: f32,
     pub boss: Option<BossAi>,
+    /// Lords that came while another still stood; the first takes over when that one falls.
+    pub more_bosses: Vec<BossAi>,
+    /// The smaller health bars: other lords (their `BossKind` code), the mist's champion
+    /// (`BAR_CHAMPION`) and Sven (`BAR_RIVAL`), with health and its most.
+    pub bars: Vec<(u8, f32, f32)>,
     pub bosses_spawned: u32,
     pub bosses_killed: u32,
     pub arena: Option<(Vec2, f32)>,
@@ -873,6 +934,8 @@ pub struct World {
     pub boss_warning: f32,
     /// A Stormcaller's crit is leaping right now: it does not leap again from there.
     pub leaping: bool,
+    /// Weapon sounds grow quieter the faster a hero attacks; 1 outside the weapons' turn.
+    pub fire_vol: f32,
     /// The hourglass ran past a lord: its warning lasts the whole wait.
     pub long_warning: bool,
     /// Lord after lord with only a short breather, no warning, and thin hordes.
@@ -923,6 +986,8 @@ pub struct World {
     pub endless: bool,
     /// The lost grave gave up its relic this vigil.
     pub grave_found: bool,
+    pub bell_found: bool,
+    pub heart_found: bool,
     /// Set on a network client: the world is only displayed, never simulated.
     pub is_client: bool,
     /// Set on a host: record cosmetic events so they can be sent to clients.
@@ -1001,7 +1066,7 @@ impl World {
             merchant: None,
             quest: None,
             altars: Vec::new(),
-            boss_second: (0.0, 0.0),
+            boss_second: Vec::new(),
             hourglass: None,
             stone: None,
             stone_made: u32::MAX,
@@ -1023,12 +1088,15 @@ impl World {
             last_wound: 0.0,
             cat: Some(Cat { pos: clamp_world(rand_dir() * gen_range(1800.0, 3000.0), 300.0), owner: None, facing: 1.0, sitting: true, meow: gen_range(8.0, 20.0) }),
             boss: None,
+            more_bosses: Vec::new(),
+            bars: Vec::new(),
             bosses_spawned: 0,
             bosses_killed: 0,
             arena: None,
             next_boss: BOSS_INTERVAL,
             boss_warning: 0.0,
             leaping: false,
+            fire_vol: 1.0,
             long_warning: false,
             boss_rush: false,
             curses: 0,
@@ -1066,6 +1134,8 @@ impl World {
             won: false,
             endless: false,
             grave_found: false,
+            bell_found: false,
+            heart_found: false,
             is_client: false,
             record_net: false,
             net_nums: Vec::new(),
@@ -1080,7 +1150,7 @@ impl World {
         let mut h = Hero::new(slot, name, class, profile);
         h.remote = remote;
         // The cathedral has an arsenal of its own.
-        h.arm_for(self.biome == Biome::Cathedral);
+        h.arm_for(self.biome as usize);
         self.heroes.push(h);
         self.heroes.sort_by_key(|h| h.slot);
         self.heroes.iter().position(|h| h.slot == slot).unwrap()
@@ -1177,6 +1247,7 @@ impl World {
     }
 
     fn push_sound(&mut self, name: &'static str, vol: f32, gap: f64, pos: Option<Vec2>) {
+        let vol = vol * self.fire_vol;
         self.sounds.push((name, vol, gap, pos));
         // Clients hear the same sound once per spot, not once per foe.
         let near = |p: Option<Vec2>| match (p, pos) {
@@ -1350,10 +1421,17 @@ impl World {
         true
     }
 
+    /// Online, every hero still here has the menu open.
+    fn all_in_menu(&self) -> bool {
+        self.multiplayer() && self.heroes.iter().filter(|h| h.connected).all(|h| h.menu_open)
+    }
+
     fn update_pause(&mut self, dt: f32) {
         match self.pause {
             Pause::Running => {
-                if self.pending_levels > 0 {
+                if self.all_in_menu() {
+                    self.pause = Pause::Held;
+                } else if self.pending_levels > 0 {
                     self.begin_round();
                 }
             }
@@ -1367,6 +1445,12 @@ impl World {
                     } else {
                         self.pause = Pause::Running;
                     }
+                }
+            }
+            Pause::Held => {
+                // Someone came back from the menu: a countdown, then on.
+                if !self.all_in_menu() {
+                    self.pause = Pause::Countdown(self.resume_delay());
                 }
             }
             Pause::Countdown(t) => {
@@ -1386,6 +1470,11 @@ impl World {
         }
         self.update_pause(dt);
         if self.pause != Pause::Running {
+            // Souls already flying go on to their hero and count, so a level gained meanwhile
+            // comes in the same pause rather than in another one right after.
+            if matches!(self.pause, Pause::Choosing | Pause::Countdown(_)) {
+                self.update_pickups(dt, true);
+            }
             self.update_fx(0.0);
             return;
         }
@@ -1399,7 +1488,7 @@ impl World {
         self.update_hazards(dt);
         self.update_enemies(dt);
         self.update_boss(dt);
-        self.update_pickups(dt);
+        self.update_pickups(dt, false);
         self.update_shrines(dt);
         self.update_braziers(dt);
         self.update_cat(dt);
@@ -1412,6 +1501,21 @@ impl World {
             Some(b) => self.enemies.iter().find(|e| e.id == b.id).map(|e| (e.hp, e.max_hp)).unwrap_or((0.0, 1.0)),
             None => (0.0, 1.0),
         };
+        // The other lords, then the champion and Sven, as smaller bars.
+        let mut bars = Vec::new();
+        for b in &self.more_bosses {
+            if let Some(e) = self.enemies.iter().find(|e| e.id == b.id && !e.dead) {
+                bars.push((b.kind as u8, e.hp.max(0.0), e.max_hp));
+            }
+        }
+        for e in self.enemies.iter().filter(|e| !e.dead) {
+            match e.kind {
+                EnemyKind::Champion => bars.push((BAR_CHAMPION, e.hp.max(0.0), e.max_hp)),
+                EnemyKind::Rival => bars.push((BAR_RIVAL, e.hp.max(0.0), e.max_hp)),
+                _ => {}
+            }
+        }
+        self.bars = bars;
         let now = self.time;
         for h in self.heroes.iter_mut() {
             h.refresh_minute(now);
@@ -1434,6 +1538,15 @@ impl World {
 
     /// Client-side frame: predict our own hero and move the rest along their velocities.
     /// Returns true when our hero started a roll.
+    /// A line in the log about what happened in the vigil, stamped with the vigil's clock.
+    pub(crate) fn log_event(&self, text: &str) {
+        if self.is_client {
+            return;
+        }
+        let t = self.time.max(0.0) as u32;
+        crate::log!("[{:02}:{:02}] {}", t / 60, t % 60, text);
+    }
+
     /// Heroes grow stronger with the souls they carry; the stats follow every step.
     fn update_burden(&mut self) {
         let mut notes = Vec::new();
@@ -1444,6 +1557,7 @@ impl World {
                 let up = b > h.burden;
                 h.burden = b;
                 h.recompute_stats();
+                crate::log!("[{:02}:{:02}] {} carries {} souls: burden {}", self.time as u32 / 60, self.time as u32 % 60, h.name, h.p.souls, b);
                 if up {
                     notes.push(format!("{}The souls you carry weigh in: burden {} of {}", if multi { format!("{}: ", h.name) } else { String::new() }, b, BURDEN_MAX));
                 }

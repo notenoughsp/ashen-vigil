@@ -242,6 +242,8 @@ impl World {
                     self.pickups.push(Pickup::new(pos, PickKind::Magnet));
                 }
             }
+            let line = format!("{} buys {} from {} for {} souls", self.heroes[h].name, ware.name(), MERCHANT_NAME, price);
+            self.log_event(&line);
             let who = if self.multiplayer() { format!("{} buys ", self.heroes[h].name) } else { "Bought ".to_string() };
             self.toast(&format!("{}{} for {} souls", who, ware.name(), price));
             self.sfx_at("chest", 0.7, self.heroes[h].p.pos);

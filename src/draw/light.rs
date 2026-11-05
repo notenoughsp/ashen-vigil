@@ -159,13 +159,16 @@ impl World {
         for p in self.pickups.iter().filter(|p| matches!(p.kind, PickKind::CursedCoffer)) {
             out.push((p.pos, 200.0, Color::new(0.55, 0.2, 0.85, 1.0)));
         }
+        if self.biome == Biome::Cathedral && !self.cute {
+            out.extend(self.window_light());
+        }
         for p in &self.pools {
             let k = (p.life / p.max_life * 2.0).min(1.0) * 0.6;
             let (c, reach) = match p.kind {
                 PoolKind::Hex => (Color::new(0.6, 0.15, 0.8, 1.0), 2.6),
                 PoolKind::Holy => (Color::new(0.45, 0.65, 0.9, 1.0), 2.2),
                 PoolKind::Candle => (Color::new(1.0, 0.65, 0.3, 1.0), 9.0),
-                PoolKind::Smoke => continue,
+                PoolKind::Smoke | PoolKind::Blood => continue,
                 PoolKind::Fire => (Color::new(1.0, 0.45, 0.12, 1.0), 2.6),
             };
             out.push((p.pos, p.r * reach, tint(c, k)));
@@ -236,6 +239,45 @@ impl World {
         out
     }
 
+    /// Light through the cathedral's coloured windows: here and there on the floor a rose of
+    /// six colours, the same spots every vigil.
+    fn window_light(&self) -> Vec<(Vec2, f32, Color)> {
+        let cell = 760.0;
+        let half = super::view_size() * 0.5 + vec2(cell, cell);
+        let (x0, x1) = (((self.cam.x - half.x) / cell).floor() as i32, ((self.cam.x + half.x) / cell).ceil() as i32);
+        let (y0, y1) = (((self.cam.y - half.y) / cell).floor() as i32, ((self.cam.y + half.y) / cell).ceil() as i32);
+        let cols = [
+            Color::new(1.0, 0.3, 0.35, 1.0),
+            Color::new(0.35, 0.5, 1.0, 1.0),
+            Color::new(1.0, 0.85, 0.35, 1.0),
+            Color::new(0.35, 0.9, 0.5, 1.0),
+            Color::new(0.75, 0.4, 1.0, 1.0),
+            Color::new(1.0, 0.6, 0.3, 1.0),
+        ];
+        let h = |x: i32, y: i32, s: u32| {
+            let mut v = (x as u32).wrapping_mul(73856093) ^ (y as u32).wrapping_mul(19349663) ^ s.wrapping_mul(83492791);
+            v ^= v >> 13;
+            v = v.wrapping_mul(0x5bd1e995);
+            (v ^ (v >> 15)) as f32 / u32::MAX as f32
+        };
+        let mut out = Vec::new();
+        for cy in y0..y1 {
+            for cx in x0..x1 {
+                if h(cx, cy, 1) < 0.35 {
+                    continue;
+                }
+                let c = vec2((cx as f32 + 0.2 + h(cx, cy, 2) * 0.6) * cell, (cy as f32 + 0.2 + h(cx, cy, 3) * 0.6) * cell);
+                let turn = h(cx, cy, 4) * TAU + self.time * 0.02;
+                for (k, col) in cols.iter().enumerate() {
+                    let at = c + Vec2::from_angle(turn + k as f32 / 6.0 * TAU) * 85.0;
+                    out.push((at, 150.0, Color::new(col.r * 0.32, col.g * 0.32, col.b * 0.32, 1.0)));
+                }
+                out.push((c, 120.0, Color::new(0.3, 0.28, 0.22, 1.0)));
+            }
+        }
+        out
+    }
+
     /// Renders the light map and multiplies it over what is on screen.
     pub(super) fn apply_lighting(&self, l: &Lighting, cam: &Camera2D) {
         let lights = self.collect_lights();
@@ -245,8 +287,10 @@ impl World {
         let k = (self.blood_moon / 3.0).clamp(0.0, 1.0).min(((MOON_LENGTH - self.blood_moon) / 3.0).clamp(0.0, 1.0));
         let field = match self.biome {
             Biome::Graveyard => AMBIENT,
-            // The fire never quite goes out.
-            Biome::Cathedral => Color::new(0.33, 0.23, 0.22, 1.0),
+            // Bright and holy: daylight through the high windows.
+            Biome::Cathedral => Color::new(0.62, 0.58, 0.52, 1.0),
+            // A red, close dark.
+            Biome::Flesh => Color::new(0.5, 0.27, 0.27, 1.0),
         };
         let (base, moon) = if self.cute { (AMBIENT_CUTE, Color::new(0.85, 0.5, 0.7, 1.0)) } else { (field, Color::new(0.34, 0.08, 0.08, 1.0)) };
         // The mist and the grave mist darken the night.

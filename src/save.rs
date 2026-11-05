@@ -481,7 +481,7 @@ impl Save {
                 "boss_rush" => st.boss_rush = flag(v),
                 // Before the marsh was drained: 2 was the cathedral, 1 the marsh.
                 "biome" => st.biome = u8::from(v.parse::<u8>().unwrap_or(0) == 2),
-                "field" => st.biome = v.parse::<u8>().unwrap_or(0).min(1),
+                "field" => st.biome = v.parse::<u8>().unwrap_or(0).min(crate::world::ALL_BIOMES.len() as u8 - 1),
                 "pause_unfocused" => st.pause_unfocused = flag(v),
                 "mute_unfocused" => st.mute_unfocused = flag(v),
                 "hurt_flash" => st.hurt_flash = flag(v),

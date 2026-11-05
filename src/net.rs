@@ -16,7 +16,7 @@ pub fn game_port() -> u16 {
     std::env::var("ASHEN_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PORT)
 }
 // The last byte is the protocol version; different builds refuse to talk to each other.
-const MAGIC: [u8; 3] = [0xA5, 0x1C, 16];
+const MAGIC: [u8; 3] = [0xA5, 0x1C, 17];
 /// The highest field number, see `world::ALL_BIOMES`.
 const ALL_FIELDS_MAX: u8 = crate::world::ALL_BIOMES.len() as u8 - 1;
 /// Shown in menus, so players can tell whether they run the same build.
@@ -584,6 +584,8 @@ pub struct ClientInput {
     pub ack: u32,
     /// Window size, so the host only sends what fits on screen.
     pub view: (u16, u16),
+    /// The player has the menu open; when everyone has, the host holds the world.
+    pub menu: bool,
 }
 
 impl ClientInput {
@@ -605,6 +607,7 @@ impl ClientInput {
         w.u32(self.ack);
         w.u16(self.view.0);
         w.u16(self.view.1);
+        w.bool(self.menu);
     }
 
     pub fn read(r: &mut Reader) -> ClientInput {
@@ -622,6 +625,7 @@ impl ClientInput {
             skill_seq: r.u8(),
             ack: r.u32(),
             view: (r.u16(), r.u16()),
+            menu: r.bool(),
         }
     }
 }

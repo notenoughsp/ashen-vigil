@@ -5,7 +5,11 @@ use super::*;
 impl World {
     pub(super) fn draw_events(&self) {
         let t = self.time;
-        self.draw_lost_grave(t);
+        match self.biome {
+            Biome::Graveyard => self.draw_lost_grave(t),
+            Biome::Cathedral => self.draw_fallen_bell(t),
+            Biome::Flesh => self.draw_beating_heart(t),
+        }
         self.draw_altars(t);
         self.draw_hourglass(t);
         self.draw_wager_stone(t);
@@ -296,6 +300,68 @@ impl World {
         }
         for p in self.pickups.iter().filter(|p| matches!(p.kind, PickKind::CursedCoffer)) {
             say(&[("CURSED COFFER", 16.0, Color::new(0.85, 0.55, 1.0, 1.0))], p.pos.x, p.pos.y - 26.0);
+        }
+    }
+
+    /// A great heart half sunk in the floor, beating, its vessels running out into the flesh.
+    fn draw_beating_heart(&self, t: f32) {
+        let p = BEATING_HEART;
+        if !self.on_screen(p, 160.0) {
+            return;
+        }
+        // Two beats close together, then a rest.
+        let ph = (t * 1.1).fract();
+        let beat = 1.0 + 0.12 * ((-(ph * 14.0)).exp() + 0.6 * (-((ph - 0.25).abs() * 14.0)).exp());
+        for k in 0..6 {
+            let a = k as f32 / 6.0 * TAU + 0.3;
+            let mut q = p;
+            for s in 0..5 {
+                let n = q + Vec2::from_angle(a + (s as f32 * 0.9 + k as f32).sin() * 0.4) * 16.0;
+                draw_line(q.x, q.y, n.x, n.y, 5.0 - s as f32 * 0.8, rgba(110, 14, 30, 255));
+                q = n;
+            }
+        }
+        draw_ellipse(p.x, p.y + 20.0, 46.0, 12.0, 0.0, rgba(40, 0, 6, 160));
+        let r = 30.0 * beat;
+        draw_circle(p.x - r * 0.4, p.y - r * 0.2, r * 0.7, rgba(160, 24, 40, 255));
+        draw_circle(p.x + r * 0.4, p.y - r * 0.2, r * 0.7, rgba(150, 20, 36, 255));
+        draw_triangle(vec2(p.x - r * 1.05, p.y - r * 0.05), vec2(p.x + r * 1.05, p.y - r * 0.05), vec2(p.x, p.y + r * 1.05), rgba(150, 20, 36, 255));
+        draw_circle(p.x - r * 0.55, p.y - r * 0.45, r * 0.22, rgba(230, 120, 130, 180));
+        draw_line(p.x + r * 0.1, p.y - r * 0.8, p.x + r * 0.25, p.y - r * 1.25, 6.0, rgba(120, 30, 60, 255));
+        draw_line(p.x - r * 0.25, p.y - r * 0.75, p.x - r * 0.45, p.y - r * 1.2, 5.0, rgba(70, 40, 120, 255));
+        if self.heart_found {
+            draw_circle(p.x, p.y, 70.0, Color::new(1.0, 0.2, 0.2, 0.05 * beat));
+        }
+    }
+
+    /// A great bronze bell fallen from its tower, cracked, half sunk in rubble; once woken it
+    /// glows faintly.
+    fn draw_fallen_bell(&self, t: f32) {
+        let p = FALLEN_BELL;
+        if !self.on_screen(p, 140.0) {
+            return;
+        }
+        draw_ellipse(p.x, p.y + 16.0, 40.0, 10.0, 0.0, rgba(0, 0, 0, 140));
+        for (dx, dy, r) in [(-30.0, 14.0, 8.0), (26.0, 16.0, 6.0), (-14.0, 20.0, 5.0), (34.0, 8.0, 5.0)] {
+            draw_circle(p.x + dx, p.y + dy, r, rgba(70, 62, 58, 255));
+        }
+        // The bell lies on its side: a wide mouth to the right, the crown to the left.
+        let bronze = rgba(120, 92, 50, 255);
+        let light = rgba(165, 130, 72, 255);
+        draw_triangle(vec2(p.x - 26.0, p.y - 10.0), vec2(p.x - 26.0, p.y + 10.0), vec2(p.x + 22.0, p.y - 24.0), bronze);
+        draw_triangle(vec2(p.x - 26.0, p.y + 10.0), vec2(p.x + 22.0, p.y + 24.0), vec2(p.x + 22.0, p.y - 24.0), bronze);
+        draw_ellipse(p.x + 22.0, p.y, 8.0, 24.0, 0.0, rgba(40, 30, 18, 255));
+        draw_ellipse_lines(p.x + 22.0, p.y, 8.0, 24.0, 0.0, 2.0, light);
+        draw_rectangle(p.x - 34.0, p.y - 6.0, 9.0, 12.0, bronze);
+        draw_line(p.x - 20.0, p.y - 11.0, p.x + 18.0, p.y - 20.0, 1.5, light);
+        // The crack.
+        let crack = [vec2(p.x - 4.0, p.y - 15.0), vec2(p.x, p.y - 6.0), vec2(p.x - 5.0, p.y + 2.0), vec2(p.x + 1.0, p.y + 12.0)];
+        for w in crack.windows(2) {
+            draw_line(w[0].x, w[0].y, w[1].x, w[1].y, 1.6, rgba(25, 18, 10, 255));
+        }
+        if self.bell_found {
+            let glow = 0.6 + 0.4 * (t * 1.5).sin();
+            draw_circle(p.x, p.y, 46.0, Color::new(1.0, 0.85, 0.5, 0.07 * glow));
         }
     }
 

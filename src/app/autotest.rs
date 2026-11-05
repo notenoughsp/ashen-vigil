@@ -116,7 +116,7 @@ fn arm(w: &mut World, h: usize) {
     hero.weapons.clear();
     // The same places in the cathedral's own arsenal there.
     for k in [WeaponKind::Blade, WeaponKind::Axe, WeaponKind::Scythe, WeaponKind::Hex, WeaponKind::Lance, WeaponKind::Crossbow] {
-        hero.weapons.push(Weapon::new(k.for_field(hero.cathedral)));
+        hero.weapons.push(Weapon::new(k.for_field(hero.field)));
     }
     hero.weapons[0].level = WEAPON_MAX_LEVEL;
     hero.weapons[1].level = WEAPON_MAX_LEVEL;
@@ -306,7 +306,10 @@ impl App {
                 self.save.settings.boss_rush = true;
                 self.save.challenges = Challenge::GlassCannon.bit() | Challenge::OneWeapon.bit();
                 self.screen = Screen::Hub;
-                self.hub_sel = 3;
+                // The field row, its card showing.
+                self.hub_sel = 2;
+                self.save.settings.biome = 1;
+                self.field_card_until = get_time() + 5.0;
             }
             1530 => want.push("hub"),
             1531 => {
@@ -376,7 +379,9 @@ impl App {
                 }
             }
             1900 => want.push("rush"),
-            1901 => self.field_showcase(Biome::Cathedral, BossKind::Penitent),
+            1901 => self.field_showcase(Biome::Flesh, BossKind::Matriarch),
+            2000 => want.push("flesh"),
+            2001 => self.field_showcase(Biome::Cathedral, BossKind::Penitent),
             2100 => want.push("cathedral"),
             2101 => {
                 // The rest of the cathedral's arsenal at work.
@@ -576,6 +581,7 @@ impl App {
         let kinds: &[EnemyKind] = match biome {
             Biome::Cathedral => &[EnemyKind::Gargoyle, EnemyKind::Banshee, EnemyKind::Cultist, EnemyKind::Knight, EnemyKind::Shieldbearer],
             Biome::Graveyard => &[EnemyKind::Hollow, EnemyKind::Archer, EnemyKind::Necromancer, EnemyKind::Moth, EnemyKind::Wraith],
+            Biome::Flesh => &[EnemyKind::Leech, EnemyKind::Ghoul, EnemyKind::Bloat, EnemyKind::Leech, EnemyKind::Hollow],
         };
         for i in 0..40 {
             let at = p + Vec2::from_angle(i as f32 * 0.43) * (220.0 + (i % 5) as f32 * 40.0);

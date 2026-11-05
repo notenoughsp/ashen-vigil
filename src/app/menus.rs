@@ -858,8 +858,104 @@ impl App {
 
     // ---------------------------------------------------------------- ash shrine
 
+    /// A small world to draw heroes in for the class card and the wardrobe.
+    pub(super) fn ensure_preview(&mut self) {
+        if self.preview.is_none() {
+            self.preview = Some(World::new(Difficulty::default(), None));
+        }
+        if let Some(w) = self.preview.as_mut() {
+            w.time += get_frame_time();
+        }
+    }
+
+    /// Makes the picture of every field once.
+    pub(super) fn ensure_field_shots(&mut self) {
+        if self.field_shots.len() != ALL_BIOMES.len() {
+            self.field_shots = (0..ALL_BIOMES.len()).map(|_| None).collect();
+        }
+        for (i, b) in ALL_BIOMES.iter().enumerate() {
+            if self.field_shots[i].is_none() {
+                self.field_shots[i] = Some(crate::draw::field_shot(*b));
+                set_ui_camera();
+            }
+        }
+    }
+
+    /// The field card: a picture of the field, what is found there and its lords.
+    pub(super) fn draw_field_card(&self, ui: &Ui, biome: Biome, anchor: Rect) {
+        let (sw, sh) = (ui_w(), ui_h());
+        let cw = 460.0f32.min(sw - 20.0);
+        let (pw, ph) = (cw - 20.0, (cw - 20.0) * 9.0 / 16.0);
+        // Room under the picture for the name, a line or two of words and the lords.
+        let ch = ph + 150.0;
+        let x = (anchor.x + anchor.w * 0.5 - cw * 0.5).clamp(10.0, sw - cw - 10.0);
+        let y = if anchor.y + anchor.h + ch + 8.0 < sh { anchor.y + anchor.h + 6.0 } else { (sh - ch - 6.0).max(6.0) };
+        draw_rectangle(x, y, cw, ch, Color::new(0.04, 0.035, 0.035, 0.97));
+        draw_rectangle_lines(x, y, cw, ch, 1.5, Color::new(0.85, 0.7, 0.4, 0.7));
+        if let Some(Some(rt)) = self.field_shots.get(biome as usize) {
+            draw_texture_ex(&rt.texture, x + 10.0, y + 10.0, WHITE, DrawTextureParams { dest_size: Some(vec2(pw, ph)), ..Default::default() });
+        }
+        draw_rectangle_lines(x + 10.0, y + 10.0, pw, ph, 1.0, Color::new(0.3, 0.27, 0.25, 1.0));
+        let mut ty = y + ph + 34.0;
+        ui.text(biome.name(), x + 14.0, ty, 21.0, GOLD);
+        ty += 22.0;
+        for line in ui.wrap(biome.desc(), 15.0, cw - 28.0) {
+            ui.text(&line, x + 14.0, ty, 15.0, PALE);
+            ty += 18.0;
+        }
+        let lords: Vec<&str> = biome.lords().iter().map(|k| k.name()).collect();
+        for line in ui.wrap(&format!("Lords: {}, and the Sovereign at dawn", lords.join(", ")), 14.0, cw - 28.0) {
+            ui.text(&line, x + 14.0, ty, 14.0, DIM);
+            ty += 17.0;
+        }
+    }
+
+    /// The class card: the hero in the class's look, its weapons on both fields, what the
+    /// class does and its skill. Shown under (or over) `anchor`.
+    pub(super) fn draw_class_card(&self, ui: &Ui, class: Class, anchor: Rect) {
+        let Some(world) = &self.preview else { return };
+        let (sw, sh) = (ui_w(), ui_h());
+        let (cw, ch) = (560.0f32.min(sw - 20.0), 250.0);
+        let x = (anchor.x + anchor.w * 0.5 - cw * 0.5).clamp(10.0, sw - cw - 10.0);
+        let y = if anchor.y + anchor.h + ch + 8.0 < sh { anchor.y + anchor.h + 6.0 } else { (anchor.y - ch - 6.0).max(6.0) };
+        draw_rectangle(x, y, cw, ch, Color::new(0.04, 0.035, 0.035, 0.97));
+        draw_rectangle_lines(x, y, cw, ch, 1.5, Color::new(0.85, 0.7, 0.4, 0.7));
+        draw_rectangle(x + 10.0, y + 10.0, 150.0, ch - 20.0, Color::new(0.08, 0.07, 0.07, 1.0));
+        let profile = Profile { skin: 0, ..self.save.profile };
+        let mut hero = Hero::new(0, &self.player_name(), class, profile);
+        hero.p.pos = Vec2::ZERO;
+        hero.aim = vec2(1.0, -0.3).normalize();
+        crate::draw::hero_preview(world, &hero, vec2(x + 85.0, y + ch * 0.55), 3.6);
+        set_ui_camera();
+        let tx = x + 176.0;
+        let tw = cw - 190.0;
+        let mut ty = y + 30.0;
+        ui.text(class.name(), tx, ty, 22.0, GOLD);
+        ty += 24.0;
+        let w = class.weapon();
+        ui.text(&format!("{}  /  {}  /  {}", w.name(false), w.for_field(1).name(false), w.for_field(2).name(false)), tx, ty, 14.0, EMBER);
+        ty += 22.0;
+        // What the class gives, without the weapon it starts with (said above).
+        let gift = class.desc().split_once(". ").map(|(_, rest)| rest).unwrap_or(class.desc());
+        for line in ui.wrap(gift, 16.0, tw) {
+            ui.text(&line, tx, ty, 16.0, PALE);
+            ty += 19.0;
+        }
+        ty += 8.0;
+        let (skill, about, cd) = class.skill();
+        let key = if using_pad() { "X" } else { key_label(Action::Skill) };
+        ui.text(&format!("Skill [{}]: {}   every {:.0} s", key, skill, cd), tx, ty, 17.0, TEAL);
+        ty += 21.0;
+        for line in ui.wrap(about, 15.0, tw) {
+            ui.text(&line, tx, ty, 15.0, DIM);
+            ty += 18.0;
+        }
+    }
+
     pub(super) fn update_hub(&mut self) {
         drain_chars();
+        self.ensure_preview();
+        self.ensure_field_shots();
         if nav(&mut self.hub_sel, HUB_ROWS, false) {
             self.audio.play("select", 0.4);
         }
@@ -930,6 +1026,7 @@ impl App {
         let mut y = 146.0;
         let class = self.class();
         ui.row(x, y, w, 34.0, self.hub_sel == 0);
+        let class_row = Rect::new(x, y, w, 34.0);
         let col = if class == Class::BucketKnight { Color::new(0.75, 0.75, 0.8, 1.0) } else { PALE };
         ui.text(&format!("<  {}  >", class.name()), x + 14.0, y + 23.0, 20.0, col);
         ui.text_r(class.desc(), x + w - 14.0, y + 23.0, 16.0, DIM);
@@ -943,6 +1040,7 @@ impl App {
         y += 38.0;
         let biome = Biome::from_u8(self.save.settings.biome);
         ui.row(x, y, w, 34.0, self.hub_sel == HUB_BIOME_ROW);
+        let field_row = Rect::new(x, y, w, 34.0);
         ui.text(&format!("<  {}  >", biome.name()), x + 14.0, y + 23.0, 20.0, PALE);
         ui.text_r(biome.desc(), x + w - 14.0, y + 23.0, 16.0, DIM);
         y += 38.0;
@@ -1003,6 +1101,16 @@ impl App {
         // A reminder where there is room for it; small screens need the space for notes.
         if sh >= 800.0 {
             ui.text_c("Permanent upgrades are bought in the Reliquary.", cx, y + 64.0, 15.0, DIM);
+        }
+        // The field card, under the mouse or for a moment after the field changed.
+        let near_field = Rect::new(field_row.x, field_row.y, 420.0, field_row.h).contains(crate::app::input::mouse_ui());
+        if near_field || (self.hub_sel == HUB_BIOME_ROW && get_time() < self.field_card_until) {
+            self.draw_field_card(ui, biome, field_row);
+        }
+        // The class card, under the mouse or for a moment after the class changed.
+        let near = Rect::new(class_row.x, class_row.y, 360.0, class_row.h).contains(crate::app::input::mouse_ui());
+        if near || (self.hub_sel == 0 && get_time() < self.class_card_until) {
+            self.draw_class_card(ui, class, class_row);
         }
         ui.text_c(
             hint("W/S select    A/D change class    Enter toggle / begin    Esc back", "Stick select, left / right class    A toggle / begin    B back"),

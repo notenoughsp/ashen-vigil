@@ -17,11 +17,11 @@ A dark-fantasy survivors-like in Rust ([macroquad](https://macroquad.rs)). Hold 
 
 ![Every foe and every lord](docs/bestiary.jpg)
 
-**Two fields.** The Graveyard, and the Burning Cathedral with the Iron Penitent. Braziers burn where someone lit them; the lords announce themselves.
+**Three fields.** The Graveyard; the Hallowed Cathedral, bright marble under coloured light from its windows; and the Flesh Pits, living ground and blood everywhere. Braziers burn where someone lit them; the lords announce themselves.
 
 | | |
 |---|---|
-| ![The Graveyard](docs/boss.jpg) | ![The Burning Cathedral](docs/cathedral.jpg) |
+| ![The Graveyard](docs/boss.jpg) | ![The Hallowed Cathedral](docs/cathedral.jpg) |
 | ![A lord in its last phase](docs/boss_phase.jpg) | ![Six weapons at work](docs/arsenal.jpg) |
 
 **Skins and the Wardrobe.** Twenty-eight looks for every class, ten of them earned by giving souls and marks away.
@@ -82,14 +82,14 @@ Five pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **Souls** are both experience and currency. Carried souls are lost on death and left as a **remnant** where you fell; reach it in the next vigil to reclaim them. Die again first and they are gone.
 - **Ash Shrines** appear at 2:30, 7:30, 12:30 ... Stand in one for 1.5 s to heal, bank your carried souls and repel nearby foes.
 - **The Ash Shrine** (Start) is where you pick a class, the mode, the field, challenges and curses, and begin.
-- **Fields**: The Graveyard (archers and the restless) and The Burning Cathedral (zealots, knights and gargoyles). Each has its own floor, props, light, foes and its own five lords; the Sovereign always ends the night. Online the host chooses.
+- **Fields**: The Graveyard (archers and the restless), The Hallowed Cathedral (zealots, knights and gargoyles, in coloured window light) and The Flesh Pits (leeches, ghouls and bloated things on living ground). Each has its own floor, props, light, foes and its own five lords; the Sovereign always ends the night. Online the host chooses.
 - **Lords**: ten in all. The Gravewarden, Pale Matriarch, Tolling Hermit and Ashen Sovereign, joined by the Drowned Bride (walls of water with one gap, a spiral of pillars), the Bog Mother (leaps, mud and ghouls), the Iron Penitent (a whirling flail, a lashing chain, three crushing steps), the Hollow Choir (a sweeping beam of voices and notes that follow you), the Stone Seraph (dives from the dark, drops stones) and the Pale Hound (zig-zag lunges and a howl that calls the pack). The lords speak aloud: most of them when they arrive, when they grow desperate and as they fall, the Pale Hound sniffs, howls and whimpers; five of them rise once more at a quarter of their health with a new trick.
 - **Class skills** on E (X): Rally, Fan of Knives, Meteor, Sanctuary, Harvest, Hex Field, Blood Rite, Bolt Storm, CLANG, Beacon and Tempest, one per class, growing with your level. The HUD shows when it is ready.
 - **Curses** (at the Ash Shrine, or by the host for everyone): Frenzy, Famine, Volatile, Elite Tide, The Dark Hour, Brittle. Each adds 20% Ashen Marks.
 - **Braziers** stand all over every field. Stand by a cold one for a moment to light it: for two minutes it lights the dark, mends heroes near it and sets foes alight; it scatters a few souls when it catches. The nearest cold one is marked at the screen edge.
 - **Boss Rush** (a mode at the Ash Shrine, or the host's choice in the lobby): twelve lords, one after another with a three-second breather and no warning. Every lord is stronger than the last, the hordes are thin, you start with six level-ups and get three more per fallen lord. After the twelfth you can go on into an endless rush.
 - **The Reliquary** in the main menu has three pages. **Soul Upgrades** spends banked souls on 33 permanent upgrades (health, might, armor, regeneration, area, crit, pickup range, experience, damage to elites and bosses, dodging, less damage taken, cheaper rolls, merchant discounts, stronger draughts, extra projectiles, an extra weapon slot, an extra item slot and more). **Relics and Unlocks** spends **Ashen Marks**, earned at the end of every vigil, win or lose (time survived, bosses, level, kills, difficulty), on new classes and items and on twelve relics; every weapon is there from the start (marks spent on weapons before were given back). **Offerings** gives souls or marks away for honours, ten skins and two classes: the **Lantern Warden** (25,000 souls offered: Wraith Lanterns or Swinging Censer with one more, a wider light, braziers that burn twice as long, and Beacon, which slows, burns and heals) and the **Stormcaller** (250 marks offered: Storm Spear or Judgement Blade, +10% crit, crits that leap to a second foe, and Tempest, eight bolts on the strongest foes).
-- **The Wardrobe** in the main menu sells 18 hero skins for souls; ten more come with what has been offered in the Reliquary (10K, 50K, 100K, 500K, 1M and 5M souls; 100, 300, 1,000 and 5,000 marks). A skin changes the hero's look in every class and is seen online too; your scarf keeps your player colour.
+- **The Wardrobe** in the main menu sells 18 hero skins for souls; ten more come with what has been offered in the Reliquary (10K, 50K, 100K, 500K, 1M and 5M souls; 100, 300, 1,000 and 5,000 marks). The flesh pits bring three more: the Pit Butcher to buy, the Flayed Saint (2M souls offered) and the Heart Regent (2,500 marks offered). A skin changes the hero's look in every class and is seen online too; your scarf keeps your player colour.
 - **The field** is a walled square of 7200 x 7200 with the abyss beyond; torches on the wall light the edges.
 - **Lighting**: the world is dark; heroes, torches, candles, shrines, fire, lightning and spells cast light. It can be switched off in the options.
 - **Difficulty ramp**: settings harder than Knight start at a third of their extra strength and reach all of it after three minutes.
@@ -128,24 +128,24 @@ Five pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (n
 - **End of vigil**: a summary of time, kills, damage per weapon, a graph of the fight, marks, leaderboard rank and new bests.
 - **Music**: a song for each ten minutes of the vigil with a combat layer that swells as the fight heats up, a theme of its own for each boss, and an endless-night track that grows faster and harsher every three minutes. Cute mode plays a music box instead.
 
-**Two arsenals.** The graveyard and the cathedral each have twelve weapons of their own; a vigil on a field offers only its own. Each class starts with the weapon in its place (the Reaper with the Grave Scythe on the graveyard, the Crozier in the cathedral). Weapons fuse at level 10 with one of two partners, two fusions make a mega fusion, two megas an ultra fusion, and at the end all twelve become one: **The Last Flame** on the graveyard, **The Final Hymn** in the cathedral.
+**Three arsenals.** The graveyard, the cathedral and the flesh pits each have twelve weapons of their own; a vigil on a field offers only its own. Each class starts with the weapon in its place (the Reaper with the Grave Scythe on the graveyard, the Crozier in the cathedral, the Ribcage Snap in the flesh pits). Weapons fuse at level 10 with one of two partners, two fusions make a mega fusion, two megas an ultra fusion, and at the end all twelve become one: **The Last Flame**, **The Final Hymn** or **The Hungry God**.
 
-| Graveyard | Cathedral | The cathedral weapon | Classic fusion (graveyard / cathedral) |
+| Graveyard | Cathedral | Flesh Pits | What the flesh weapon does |
 |---|---|---|---|
-| Rusted Blade | Rosary Whip | lashes ahead and leaps to the next foe | Executioner's Gyre / Stone Litany |
-| Pale Daggers | Martyr's Nails | a stream of iron nails at the nearest foes | Thousandfold Volley / Shattered Martyrdom |
-| Kindled Orb | Holy Water | a flask that bursts into a slowing, searing pool | Cinderstorm / Burning Font |
-| Chime of Warding | Halo | a ring of light breathing out and back | Requiem of Bells / Incense Crown |
-| Wraith Lanterns | Swinging Censer | censers in a figure of eight, trailing smoke | (with the Chime / Halo) |
-| Storm Spear | Judgement Blade | a great sword falling on the wicked | Wrath of the Pale Sky / Verdict of Heaven |
-| Crescent Axe | Gargoyle Familiar | swoops at the strongest foe and back | (with the Blade / Rosary) |
-| Soulbolt | Psalm Runes | letters circling, then seeking | (with the Spear / Judgement) |
-| Grave Scythe | Crozier | a crook swept round you, knocking foes off their feet | Crimson Harvest / Shepherd's Requiem |
-| Hex Brand | Candelabrum | candles set down that spit flame at foes near them | (with the Orb / Holy Water) |
-| Blood Lance | Organ Pipes | pipes bursting from the ground in a line ahead | (with the Scythe / Crozier) |
-| Gloom Crossbow | Stained Glass | shards all around that split on impact | (with the Daggers / Nails) |
+| Rusted Blade | Rosary Whip | Bone Cleaver | a heavy cleave ahead; what it cuts bleeds on |
+| Pale Daggers | Martyr's Nails | Gnashing Teeth | teeth at the nearest foes, each bouncing to one more |
+| Kindled Orb | Holy Water | Swollen Sac | a thrown sac bursting into a spray of blood |
+| Chime of Warding | Halo | Pulsing Heart | a heartbeat aura: two rings, the second harder |
+| Wraith Lanterns | Swinging Censer | Watching Eyes | eyes circling you and glaring at foes |
+| Storm Spear | Judgement Blade | Impaling Spikes | bone spikes under foes that hold them a moment |
+| Crescent Axe | Gargoyle Familiar | Snapping Jaw | a jaw flung out and back, biting all it passes |
+| Soulbolt | Psalm Runes | Hungry Motes | seeking drops of blood that mend you a little |
+| Grave Scythe | Crozier | Ribcage Snap | ribs bursting up around you, dragging foes in |
+| Hex Brand | Candelabrum | Bleeding Steps | a trail of blood that eats at foes |
+| Blood Lance | Organ Pipes | Spine Lash | a spine lashing straight through everything |
+| Gloom Crossbow | Stained Glass | Writhing Tendrils | tendrils all around that snap back |
 
-Second fusions: Reaper's Waltz / Pilgrim's Scourge (Blade or Rosary with Scythe or Crozier), Ghostfang Storm / Written in Iron, Thunderpyre / Baptism of Fire, Tolling Brand / Vigil Light, Lantern Pike / Smoke and Psalm, Moonfall Barrage / Broken Spire.
+Classic fusions, graveyard / cathedral / flesh pits: Executioner's Gyre / Stone Litany / Butcher's Bite (first two rows), Thousandfold Volley / Shattered Martyrdom / The Gnawing Dark, Cinderstorm / Burning Font / Red Tide, Requiem of Bells / Incense Crown / The Watching Heart, Wrath of the Pale Sky / Verdict of Heaven / Crimson Thorns, Crimson Harvest / Shepherd's Requiem / Marrow Harvest. Weapons that are no partners but end up together are named after both, so no two such pairs share a name.
 
 ## Assets
 

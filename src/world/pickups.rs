@@ -3,10 +3,15 @@
 use super::*;
 
 impl World {
-    pub(crate) fn update_pickups(&mut self, dt: f32) {
+    /// Pulls pickups to heroes and takes them. `souls_only` (during level-up cards) moves and
+    /// takes nothing but souls.
+    pub(crate) fn update_pickups(&mut self, dt: f32, souls_only: bool) {
         let heroes: Vec<(usize, Vec2, f32)> = self.heroes.iter().enumerate().filter(|(_, h)| h.alive()).map(|(i, h)| (i, h.p.pos, h.stats.magnet)).collect();
         let mut collected: Vec<(usize, usize)> = Vec::new();
         for (k, p) in self.pickups.iter_mut().enumerate() {
+            if souls_only && !matches!(p.kind, PickKind::Soul(_)) {
+                continue;
+            }
             p.bob += dt * 3.0;
             p.life -= dt;
             if p.pulled.map(|h| !heroes.iter().any(|x| x.0 == h)).unwrap_or(false) {
@@ -278,9 +283,39 @@ impl World {
 impl World {
     /// The small secrets of the field: the lost grave, and a fire for those who stand still.
     pub(crate) fn update_secrets(&mut self, dt: f32) {
-        if !self.grave_found {
+        // The graveyard hides a lost grave, the cathedral a fallen bell.
+        if !self.bell_found && self.biome == Biome::Cathedral {
+            if let Some(h) = self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(FALLEN_BELL) < 46.0) {
+                self.bell_found = true;
+                self.log_event("the fallen bell is found");
+                self.banner("THE BELL THAT WOULD NOT TOLL", "\"It cracked on the night the keepers stopped coming.\"", Color::from_rgba(230, 210, 160, 255), 5.0);
+                self.sfx_at("bell", 1.0, FALLEN_BELL);
+                self.fx.push(Fx { pos: FALLEN_BELL, life: 1.2, max_life: 1.2, kind: FxKind::Ring { r: 260.0, color: Color::from_rgba(240, 210, 140, 255) } });
+                self.grant_relic(h);
+                // Its last note wards whoever woke it.
+                let hero = &mut self.heroes[h];
+                hero.buffs[Buff::Aegis as usize] = hero.buffs[Buff::Aegis as usize].max(10.0);
+            }
+        }
+        if !self.heart_found && self.biome == Biome::Flesh {
+            if let Some(h) = self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(BEATING_HEART) < 50.0) {
+                self.heart_found = true;
+                self.log_event("the beating heart is found");
+                self.banner("THE HEART OF THE PITS", "\"Everything here is alive. Everything here is hungry.\"", Color::from_rgba(230, 70, 70, 255), 5.0);
+                self.sfx_at("roar", 0.8, BEATING_HEART);
+                self.blood_spray(BEATING_HEART, rand_dir(), Color::from_rgba(150, 10, 12, 255), 30.0, 40);
+                self.grant_relic(h);
+                // Its blood mends and enrages whoever found it.
+                let hero = &mut self.heroes[h];
+                let max = hero.stats.max_hp;
+                hero.heal(max);
+                hero.buffs[Buff::Fury as usize] = hero.buffs[Buff::Fury as usize].max(15.0);
+            }
+        }
+        if !self.grave_found && self.biome == Biome::Graveyard {
             if let Some(h) = self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(LOST_GRAVE) < 40.0) {
                 self.grave_found = true;
+                self.log_event("the lost grave is found");
                 self.banner("HERE LIES THE LAST KEEPER", "\"I kept the vigil. I forgot to roll.\"", Color::from_rgba(200, 200, 220, 255), 5.0);
                 self.sfx_at("bell", 0.7, LOST_GRAVE);
                 self.grant_relic(h);

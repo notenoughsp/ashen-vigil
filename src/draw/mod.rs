@@ -121,6 +121,33 @@ pub fn view_size() -> Vec2 {
     vec2(screen_width(), screen_height()) / view_scale()
 }
 
+/// A picture of a field: a stretch of its floor and props with a lit brazier, drawn once
+/// into a texture for the field card in the menus. Leaves the default camera set.
+pub fn field_shot(biome: Biome) -> RenderTarget {
+    let (w, h) = (640u32, 360u32);
+    let rt = render_target(w, h);
+    rt.texture.set_filter(FilterMode::Linear);
+    let mut world = World::new(Difficulty::default(), None);
+    world.biome = biome;
+    // A stretch away from the middle, around the nearest brazier, which burns.
+    let spot = vec2(520.0, 380.0);
+    if let Some(b) = world.braziers.iter_mut().min_by(|a, b| a.pos.distance(spot).total_cmp(&b.pos.distance(spot))) {
+        b.burn = 60.0;
+        world.cam = b.pos + vec2(120.0, -40.0);
+    } else {
+        world.cam = spot;
+    }
+    world.time = 3.0;
+    let view = vec2(900.0, 506.0);
+    let cam = Camera2D { target: world.cam, zoom: vec2(2.0 / view.x, 2.0 / view.y), render_target: Some(rt.clone()), ..Default::default() };
+    set_camera(&cam);
+    world.draw_ground(&cam);
+    world.draw_props();
+    world.draw_braziers();
+    set_default_camera();
+    rt
+}
+
 /// Draws `hero` standing at `at` (UI space) `scale` times its size, for the wardrobe.
 /// Leaves the default camera set.
 pub fn hero_preview(w: &World, hero: &Hero, at: Vec2, scale: f32) {
@@ -136,7 +163,13 @@ pub fn hero_preview(w: &World, hero: &Hero, at: Vec2, scale: f32) {
 
 impl World {
     pub fn camera(&self) -> Camera2D {
-        let shake = if self.shake > 0.0 { vec2(macroquad::rand::gen_range(-1.0, 1.0), macroquad::rand::gen_range(-1.0, 1.0)) * self.shake * self.shake_mult } else { Vec2::ZERO };
+        // No shaking while the vigil stands still (level-up cards, the countdown): the shake
+        // only fades while it runs, so it would tremble on and on.
+        let shake = if self.shake > 0.0 && self.pause == Pause::Running {
+            vec2(macroquad::rand::gen_range(-1.0, 1.0), macroquad::rand::gen_range(-1.0, 1.0)) * self.shake * self.shake_mult
+        } else {
+            Vec2::ZERO
+        };
         let v = view_size();
         Camera2D { target: self.cam + shake, zoom: vec2(2.0 / v.x, 2.0 / v.y), ..Default::default() }
     }
@@ -252,6 +285,47 @@ impl World {
                     draw_line(p.x, p.y, p.x + v.x, p.y + v.y, 1.4, rgba(80, 40, 10, 255));
                 }
                 PKind::Ember => glow(p, 3.5, rgba(255, 170, 70, 255), 1.6),
+                PKind::Tooth => {
+                    let side = vec2(-d.y, d.x);
+                    draw_triangle(p + d * 5.0, p - d * 3.0 + side * 2.6, p - d * 3.0 - side * 2.6, rgba(236, 226, 200, 255));
+                    draw_line(p.x - d.x * 3.0, p.y - d.y * 3.0, p.x - d.x * 7.0, p.y - d.y * 7.0, 1.6, rgba(150, 30, 36, 200));
+                }
+                PKind::Sac => {
+                    let wob = 1.0 + 0.1 * (pr.age * 18.0).sin();
+                    draw_ellipse(p.x, p.y, pr.r * wob, pr.r / wob, pr.age * 3.0, rgba(170, 60, 80, 255));
+                    draw_circle(p.x - pr.r * 0.3, p.y - pr.r * 0.3, pr.r * 0.3, rgba(240, 160, 170, 160));
+                    draw_line(p.x, p.y, p.x + pr.r * 0.6, p.y + pr.r * 0.2, 1.0, rgba(90, 10, 30, 255));
+                }
+                PKind::Jaw => {
+                    // A jaw spinning as it flies, snapping open and shut.
+                    let a = pr.age * 14.0;
+                    let open = 0.35 + 0.3 * (pr.age * 20.0).sin().abs();
+                    let r = pr.r;
+                    let bone = if pr.evo { rgba(240, 220, 200, 255) } else { rgba(220, 206, 180, 255) };
+                    draw_arc(p.x, p.y, 16, r * 0.7, a.to_degrees(), r * 0.35, 150.0 - open * 60.0, bone);
+                    draw_arc(p.x, p.y, 16, r * 0.7, a.to_degrees() + 180.0 + open * 30.0, r * 0.35, 150.0 - open * 60.0, bone);
+                    for k in 0..6 {
+                        let t = Vec2::from_angle(a + k as f32 * 0.5) * r * 0.5;
+                        draw_circle(p.x + t.x, p.y + t.y, 1.4, rgba(250, 246, 236, 255));
+                    }
+                }
+                PKind::Mote => {
+                    glow(p, 4.0, rgba(220, 20, 30, 255), 1.4);
+                    draw_circle(p.x - 1.0, p.y - 1.0, 1.2, rgba(255, 180, 180, 255));
+                }
+                PKind::Tendril => {
+                    // A tendril from where it was flung, wriggling.
+                    let back = p - d * 26.0;
+                    let side = vec2(-d.y, d.x);
+                    let mut q = back;
+                    for s in 1..=5 {
+                        let t = s as f32 / 5.0;
+                        let n = back.lerp(p, t) + side * (pr.age * 22.0 + t * 6.0).sin() * 3.0;
+                        draw_line(q.x, q.y, n.x, n.y, 3.4 - t * 2.0, rgba(190, 80, 110, 255));
+                        q = n;
+                    }
+                    draw_circle(p.x, p.y, 2.2, rgba(230, 130, 150, 255));
+                }
             }
         }
     }
@@ -261,6 +335,12 @@ impl World {
             let a = (pool.life / pool.max_life * 2.0).min(1.0);
             let (x, y, r) = (pool.pos.x, pool.pos.y, pool.r);
             match pool.kind {
+                PoolKind::Blood => {
+                    // Fresh blood, dark at the rim, wet in the middle.
+                    draw_circle(x, y, r, Color::new(0.35, 0.0, 0.03, 0.4 * a));
+                    draw_circle(x, y, r * 0.7, Color::new(0.55, 0.02, 0.06, 0.45 * a));
+                    draw_circle(x - r * 0.25, y - r * 0.25, r * 0.18, Color::new(0.9, 0.5, 0.5, 0.25 * a));
+                }
                 PoolKind::Candle => {
                     // A wax candle on a little iron dish, its flame flickering.
                     let fl = 0.8 + 0.2 * (self.time * 13.0 + x).sin();
@@ -340,10 +420,59 @@ impl World {
         }
     }
 
+    /// Drawn over the dark so they are found: a thin beam of light over every relic, and a
+    /// spark dancing over every brazier still waiting to be lit.
+    fn draw_beacons(&self) {
+        let t = self.time;
+        for p in self.pickups.iter().filter(|p| p.is_relic() && self.on_screen(p.pos, 200.0)) {
+            let pulse = 0.75 + 0.25 * (t * 3.0 + p.pos.x * 0.01).sin();
+            let (x, y) = (p.pos.x, p.pos.y);
+            let c = Color::new(1.0, 0.55, 0.45, 1.0);
+            for (w, a) in [(14.0, 0.05), (7.0, 0.09), (2.5, 0.25)] {
+                draw_rectangle(x - w * 0.5, y - 170.0, w, 170.0, with_alpha(c, a * pulse));
+            }
+            draw_circle(x, y, 16.0 * pulse, with_alpha(c, 0.12));
+        }
+        for b in self.braziers.iter().filter(|b| b.burn <= 0.0 && self.on_screen(b.pos, 100.0)) {
+            let k = (t * 1.7 + b.pos.x * 0.013).fract();
+            let sway = (t * 4.0 + b.pos.y * 0.01).sin() * 4.0;
+            let at = b.pos + vec2(sway, -30.0 - k * 26.0);
+            let a = (1.0 - k) * 0.9;
+            draw_circle(at.x, at.y, 5.0, Color::new(1.0, 0.6, 0.2, 0.18 * a));
+            draw_circle(at.x, at.y, 1.8, Color::new(1.0, 0.85, 0.5, a));
+            let k2 = (k + 0.5).fract();
+            let at2 = b.pos + vec2(-sway * 0.7, -28.0 - k2 * 22.0);
+            draw_circle(at2.x, at2.y, 1.3, Color::new(1.0, 0.75, 0.4, (1.0 - k2) * 0.8));
+        }
+    }
+
+    /// Which way an eye at `p` looks: toward the nearest foe, or a slow drift with none near.
+    fn nearest_heading(&self, p: Vec2) -> Vec2 {
+        self.enemies
+            .iter()
+            .filter(|e| !e.dead)
+            .min_by(|a, b| a.pos.distance_squared(p).total_cmp(&b.pos.distance_squared(p)))
+            .map(|e| (e.pos - p).normalize_or_zero())
+            .unwrap_or(Vec2::from_angle(self.time * 0.5))
+    }
+
     fn draw_auras(&self) {
-        // The halo's breathing ring and the censers swinging on their chains.
+        // The halo's breathing ring and the censers swinging on their chains; the heartbeat
+        // and the watching eyes.
         for hero in self.heroes.iter().filter(|h| !h.downed) {
             let p = hero.p.pos;
+            for (r, beat) in hero.heart_beats() {
+                let pulse = beat.powf(6.0);
+                draw_circle(p.x, p.y, r, Color::new(0.75, 0.05, 0.1, 0.05 + 0.08 * pulse));
+                draw_circle_lines(p.x, p.y, r * (0.92 + 0.08 * pulse), 2.0, Color::new(0.9, 0.15, 0.2, 0.3 + 0.4 * pulse));
+            }
+            for (e, r) in hero.eye_positions() {
+                let look = self.nearest_heading(e) * r * 0.35;
+                draw_circle(e.x, e.y, r, rgba(236, 226, 210, 255));
+                draw_circle_lines(e.x, e.y, r, 1.2, rgba(150, 40, 50, 255));
+                draw_circle(e.x + look.x, e.y + look.y, r * 0.5, rgba(220, 170, 40, 255));
+                draw_circle(e.x + look.x, e.y + look.y, r * 0.22, rgba(10, 6, 6, 255));
+            }
             for r in hero.halo_radii() {
                 draw_circle_lines(p.x, p.y, r, 7.0, Color::new(1.0, 0.85, 0.45, 0.18));
                 draw_circle_lines(p.x, p.y, r, 2.5, Color::new(1.0, 0.93, 0.7, 0.85));
@@ -411,7 +540,10 @@ impl World {
                         let tt = s as f32 / segs as f32;
                         let mut p = from.lerp(f.pos, tt);
                         if s < segs {
-                            p += vec2(macroquad::rand::gen_range(-14.0, 14.0), macroquad::rand::gen_range(-6.0, 6.0));
+                            // Jagged anew twenty times a second, and not at all while paused.
+                            let n = (self.time * 20.0).floor() + s as f32 * 7.31 + f.pos.x * 0.013;
+                            let j = |k: f32| ((n * 12.9898 + k * 78.233).sin() * 43758.545).fract() * 2.0 - 1.0;
+                            p += vec2(j(1.0) * 14.0, j(2.0) * 6.0);
                         }
                         draw_line(prev.x, prev.y, p.x, p.y, 5.0, Color::new(0.5, 0.6, 1.0, 0.3 * k));
                         draw_line(prev.x, prev.y, p.x, p.y, 2.0, Color::new(0.9, 0.95, 1.0, k));
@@ -456,6 +588,55 @@ impl World {
                     let head = p + Vec2::from_angle(turn.to_radians()) * radius;
                     draw_line(p.x, p.y, head.x, head.y, 2.5, with_alpha(rgba(150, 120, 60, 255), k));
                     draw_circle_lines(head.x, head.y, 7.0, 2.5, with_alpha(c, k));
+                }
+                FxKind::Gash { ang, radius, owner } => {
+                    let p = self.hero_pos(owner, f.pos);
+                    let start = ang.to_degrees() - 55.0;
+                    for layer in 0..3 {
+                        let lr = radius * (0.55 + layer as f32 * 0.16);
+                        draw_arc(p.x, p.y, 40, lr, start, 8.0 - layer as f32 * 2.0, 110.0, Color::new(0.75, 0.05, 0.08, k * (0.75 - layer as f32 * 0.2)));
+                    }
+                    draw_arc(p.x, p.y, 40, radius * 0.86, start, 2.0, 110.0, Color::new(0.95, 0.9, 0.82, k * 0.8));
+                }
+                FxKind::Gaze { to } => {
+                    draw_line(f.pos.x, f.pos.y, to.x, to.y, 4.0, Color::new(1.0, 0.3, 0.2, 0.3 * k));
+                    draw_line(f.pos.x, f.pos.y, to.x, to.y, 1.5, Color::new(1.0, 0.85, 0.4, k));
+                    draw_circle(to.x, to.y, 6.0 * k, Color::new(1.0, 0.4, 0.2, 0.4 * k));
+                }
+                FxKind::Spike { r } => {
+                    // Spikes thrusting up, then sinking.
+                    let rise = (k * 2.0).min(1.0).min((1.0 - k) * 5.0 + 0.2);
+                    for s in 0..5 {
+                        let a = s as f32 / 5.0 * TAU + f.pos.x * 0.01;
+                        let base = f.pos + Vec2::from_angle(a) * r * 0.5;
+                        let tip = base + vec2((s as f32 - 2.0) * 3.0, -46.0 * rise);
+                        draw_triangle(base + vec2(-4.0, 0.0), base + vec2(4.0, 0.0), tip, Color::new(0.88, 0.83, 0.74, k));
+                    }
+                    draw_circle(f.pos.x, f.pos.y, r * 0.8, Color::new(0.5, 0.02, 0.05, 0.3 * k));
+                }
+                FxKind::Ribs { radius, owner } => {
+                    // Ribs curving up from the ground all round, closing as they fade.
+                    let p = self.hero_pos(owner, f.pos);
+                    let close = 1.0 - k;
+                    for s in 0..10 {
+                        let a = s as f32 / 10.0 * TAU;
+                        let base = p + Vec2::from_angle(a) * radius;
+                        let tip = p + Vec2::from_angle(a + 0.3) * radius * (0.75 - 0.4 * close);
+                        let mid = base.lerp(tip, 0.5) + vec2(0.0, -18.0);
+                        draw_line(base.x, base.y, mid.x, mid.y, 4.0, Color::new(0.88, 0.83, 0.74, k));
+                        draw_line(mid.x, mid.y, tip.x, tip.y, 3.0, Color::new(0.88, 0.83, 0.74, k));
+                    }
+                }
+                FxKind::Lash { to } => {
+                    // Vertebrae along the lash.
+                    let n = ((to - f.pos).length() / 14.0).clamp(4.0, 40.0) as usize;
+                    let side = vec2(-(to - f.pos).y, (to - f.pos).x).normalize_or_zero();
+                    for s in 0..=n {
+                        let t = s as f32 / n as f32;
+                        let q = f.pos.lerp(to, t) + side * (t * 9.0 + self.time * 30.0).sin() * 4.0 * k;
+                        draw_circle(q.x, q.y, 4.0, Color::new(0.85, 0.76, 0.66, k));
+                        draw_line(q.x - side.x * 6.0, q.y - side.y * 6.0, q.x + side.x * 6.0, q.y + side.y * 6.0, 1.5, Color::new(0.78, 0.7, 0.6, k));
+                    }
                 }
                 FxKind::Pipe { r } => {
                     // An organ pipe bursting up from the floor and sinking again.
@@ -620,7 +801,7 @@ impl World {
     }
 
     /// Braziers in the look of the field, cold or burning, with the kindling ring.
-    fn draw_braziers(&self) {
+    pub(super) fn draw_braziers(&self) {
         let t = self.time;
         for (i, b) in self.braziers.iter().enumerate() {
             if !self.on_screen(b.pos, 420.0) {
@@ -645,10 +826,20 @@ impl World {
                     draw_ellipse(p.x, p.y - 18.0, 12.0, 4.0, 0.0, rgba(24, 20, 18, 255));
                     p + vec2(0.0, -20.0)
                 }
+                Biome::Flesh => {
+                    // A bowl of bone on a spine.
+                    let bone = rgba(214, 200, 176, 255);
+                    for k in 0..5 {
+                        draw_circle(p.x, p.y + 2.0 - k as f32 * 4.0, 3.2 - k as f32 * 0.2, bone);
+                    }
+                    draw_ellipse(p.x, p.y - 20.0, 14.0, 6.0, 0.0, bone);
+                    draw_ellipse(p.x, p.y - 21.0, 11.0, 4.0, 0.0, rgba(60, 4, 8, 255));
+                    p + vec2(0.0, -22.0)
+                }
                 Biome::Cathedral => {
-                    // A tall candelabrum with three candles.
-                    draw_line(p.x, p.y + 4.0, p.x, p.y - 40.0, 3.0, rgba(90, 70, 40, 255));
-                    draw_line(p.x - 12.0, p.y - 34.0, p.x + 12.0, p.y - 34.0, 2.5, rgba(90, 70, 40, 255));
+                    // A tall golden candelabrum with three candles.
+                    draw_line(p.x, p.y + 4.0, p.x, p.y - 40.0, 3.0, rgba(196, 160, 80, 255));
+                    draw_line(p.x - 12.0, p.y - 34.0, p.x + 12.0, p.y - 34.0, 2.5, rgba(196, 160, 80, 255));
                     for dx in [-12.0, 0.0, 12.0] {
                         draw_rectangle(p.x + dx - 2.0, p.y - 44.0 + if dx == 0.0 { -6.0 } else { 0.0 }, 4.0, 10.0, rgba(210, 200, 170, 255));
                     }
@@ -1016,6 +1207,7 @@ impl World {
         }
         self.draw_ash();
         self.draw_mist();
+        self.draw_beacons();
         self.draw_omen_labels();
         // Everything below must stay readable in the dark.
         self.draw_warnings();

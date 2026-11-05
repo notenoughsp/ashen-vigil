@@ -16,6 +16,7 @@ pub const LAST_MULT: f32 = 3.0;
 /// The name of the weapon that holds all the others, on the graveyard and in the cathedral.
 pub const LAST_FLAME: &str = "The Last Flame";
 pub const LAST_HYMN: &str = "The Final Hymn";
+pub const LAST_GOD: &str = "The Hungry God";
 
 // ---------------------------------------------------------------- weapons
 
@@ -47,6 +48,19 @@ pub enum WeaponKind {
     Candles,
     Organ,
     Glass,
+    // The flesh pits' arsenal, in the same order again.
+    Cleaver,
+    Teeth,
+    Sac,
+    Heart,
+    Eyes,
+    Spikes,
+    Jaw,
+    Motes,
+    Ribcage,
+    Steps,
+    Spine,
+    Tendrils,
 }
 
 /// Weapons of one field's arsenal.
@@ -82,7 +96,22 @@ pub const CATHEDRAL_WEAPONS: [WeaponKind; ARSENAL] = [
     WeaponKind::Glass,
 ];
 
-pub const ALL_WEAPONS: [WeaponKind; 24] = [
+pub const FLESH_WEAPONS: [WeaponKind; ARSENAL] = [
+    WeaponKind::Cleaver,
+    WeaponKind::Teeth,
+    WeaponKind::Sac,
+    WeaponKind::Heart,
+    WeaponKind::Eyes,
+    WeaponKind::Spikes,
+    WeaponKind::Jaw,
+    WeaponKind::Motes,
+    WeaponKind::Ribcage,
+    WeaponKind::Steps,
+    WeaponKind::Spine,
+    WeaponKind::Tendrils,
+];
+
+pub const ALL_WEAPONS: [WeaponKind; 36] = [
     WeaponKind::Blade,
     WeaponKind::Daggers,
     WeaponKind::Orb,
@@ -107,6 +136,18 @@ pub const ALL_WEAPONS: [WeaponKind; 24] = [
     WeaponKind::Candles,
     WeaponKind::Organ,
     WeaponKind::Glass,
+    WeaponKind::Cleaver,
+    WeaponKind::Teeth,
+    WeaponKind::Sac,
+    WeaponKind::Heart,
+    WeaponKind::Eyes,
+    WeaponKind::Spikes,
+    WeaponKind::Jaw,
+    WeaponKind::Motes,
+    WeaponKind::Ribcage,
+    WeaponKind::Steps,
+    WeaponKind::Spine,
+    WeaponKind::Tendrils,
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -128,23 +169,24 @@ impl WeaponKind {
         ALL_WEAPONS[(i as usize).min(ALL_WEAPONS.len() - 1)]
     }
 
+    /// Whose arsenal this is: 0 the graveyard's, 1 the cathedral's, 2 the flesh pits'.
+    pub fn field(self) -> usize {
+        self.idx() / ARSENAL
+    }
+
     /// One of the cathedral's weapons.
     pub fn is_cathedral(self) -> bool {
-        self.idx() >= ARSENAL
+        self.field() == 1
     }
 
-    /// The same place in the other field's arsenal.
-    pub fn mirror(self) -> WeaponKind {
-        ALL_WEAPONS[(self.idx() + ARSENAL) % ALL_WEAPONS.len()]
+    /// The graveyard weapon in the same place, which every other arsenal is built on.
+    pub fn base(self) -> WeaponKind {
+        ALL_WEAPONS[self.idx() % ARSENAL]
     }
 
-    /// This weapon's place in the arsenal of `cathedral`.
-    pub fn for_field(self, cathedral: bool) -> WeaponKind {
-        if self.is_cathedral() == cathedral {
-            self
-        } else {
-            self.mirror()
-        }
+    /// This weapon's place in the arsenal of field `field`.
+    pub fn for_field(self, field: usize) -> WeaponKind {
+        ALL_WEAPONS[(field.min(ALL_WEAPONS.len() / ARSENAL - 1)) * ARSENAL + self.idx() % ARSENAL]
     }
 
     pub fn name(self, evolved: bool) -> &'static str {
@@ -198,6 +240,30 @@ impl WeaponKind {
             (Organ, true) => "The Great Organ",
             (Glass, false) => "Stained Glass",
             (Glass, true) => "Rose Window",
+            (Cleaver, false) => "Bone Cleaver",
+            (Cleaver, true) => "Marrow Splitter",
+            (Teeth, false) => "Gnashing Teeth",
+            (Teeth, true) => "Maw of Many",
+            (Sac, false) => "Swollen Sac",
+            (Sac, true) => "Bursting Womb",
+            (Heart, false) => "Pulsing Heart",
+            (Heart, true) => "Drum of the Pit",
+            (Eyes, false) => "Watching Eyes",
+            (Eyes, true) => "The Unblinking",
+            (Spikes, false) => "Impaling Spikes",
+            (Spikes, true) => "Forest of Bone",
+            (Jaw, false) => "Snapping Jaw",
+            (Jaw, true) => "Gnawing Jaw",
+            (Motes, false) => "Hungry Motes",
+            (Motes, true) => "Red Swarm",
+            (Ribcage, false) => "Ribcage Snap",
+            (Ribcage, true) => "Iron Maiden of Bone",
+            (Steps, false) => "Bleeding Steps",
+            (Steps, true) => "River of Blood",
+            (Spine, false) => "Spine Lash",
+            (Spine, true) => "The Long Spine",
+            (Tendrils, false) => "Writhing Tendrils",
+            (Tendrils, true) => "Grasping Mass",
         }
     }
 
@@ -228,15 +294,27 @@ impl WeaponKind {
             Candles => "Candles set down where you stand spit flame at foes near them.",
             Organ => "Organ pipes burst from the ground in a line ahead.",
             Glass => "Shards of coloured glass burst all around and split on impact.",
+            Cleaver => "A heavy cleave ahead; what it cuts bleeds on.",
+            Teeth => "Teeth spat at the nearest foes; each bounces on to one more.",
+            Sac => "A swollen sac, thrown, bursts into a spray of blood.",
+            Heart => "A heartbeat around you: two rings, the second the harder.",
+            Eyes => "Eyes circle you and glare at the foes they see.",
+            Spikes => "Spikes of bone burst up under foes and hold them a moment.",
+            Jaw => "A severed jaw flung out and back, biting all it passes.",
+            Motes => "Seeking drops of blood; each that strikes mends you a little.",
+            Ribcage => "Ribs burst up around you and snap shut, dragging foes in.",
+            Steps => "Your steps leave a trail of blood that eats at foes.",
+            Spine => "A long spine lashes straight ahead through everything.",
+            Tendrils => "Tendrils shoot out all around, then snap back.",
         }
     }
 
     /// Weapons this one fuses with when both reach max level; the first is its classic partner.
     pub fn fusion_partners(self) -> [WeaponKind; 2] {
         use WeaponKind::*;
-        if self.is_cathedral() {
-            let [a, b] = self.mirror().fusion_partners();
-            return [a.mirror(), b.mirror()];
+        if self.field() > 0 {
+            let [a, b] = self.base().fusion_partners();
+            return [a.for_field(self.field()), b.for_field(self.field())];
         }
         match self {
             Blade => [Axe, Scythe],
@@ -287,15 +365,27 @@ impl WeaponKind {
             Candles => Color::from_rgba(255, 180, 90, 255),
             Organ => Color::from_rgba(175, 145, 110, 255),
             Glass => Color::from_rgba(120, 200, 255, 255),
+            Cleaver => Color::from_rgba(214, 196, 170, 255),
+            Teeth => Color::from_rgba(236, 226, 200, 255),
+            Sac => Color::from_rgba(200, 80, 100, 255),
+            Heart => Color::from_rgba(220, 40, 60, 255),
+            Eyes => Color::from_rgba(240, 200, 80, 255),
+            Spikes => Color::from_rgba(226, 214, 190, 255),
+            Jaw => Color::from_rgba(200, 120, 110, 255),
+            Motes => Color::from_rgba(230, 30, 40, 255),
+            Ribcage => Color::from_rgba(220, 206, 180, 255),
+            Steps => Color::from_rgba(150, 10, 20, 255),
+            Spine => Color::from_rgba(196, 170, 150, 255),
+            Tendrils => Color::from_rgba(200, 90, 120, 255),
         }
     }
 
     /// Numbers for a weapon at a given level, before player stats are applied.
     pub fn stats(self, level: u32, evolved: bool) -> WStat {
         use WeaponKind::*;
-        if self.is_cathedral() {
+        if self.field() > 0 {
             // Built on the graveyard weapon in its place, with a pace of its own.
-            let mut s = self.mirror().stats(level, evolved);
+            let mut s = self.base().stats(level, evolved);
             let l = level.saturating_sub(1) as f32;
             match self {
                 Nails => s.speed = 820.0,
@@ -308,6 +398,10 @@ impl WeaponKind {
                 Runes => s.speed = 420.0,
                 // How long a candle burns.
                 Candles => s.speed = 5.0 + 0.3 * l,
+                Teeth => s.speed = 760.0,
+                Sac => s.speed = 400.0,
+                Motes => s.speed = 440.0,
+                Tendrils => s.speed = 520.0,
                 _ => {}
             }
             return s;
@@ -443,14 +537,61 @@ pub fn fusion_name(a: WeaponKind, b: WeaponKind) -> &'static str {
         (Halo, Candles) => "Vigil Light",
         (Censer, Organ) => "Smoke and Psalm",
         (Gargoyle, Glass) => "Broken Spire",
-        _ => names_for(&[a, b], &ODD_NAMES),
+        (Cleaver, Jaw) => "Butcher's Bite",
+        (Teeth, Tendrils) => "The Gnawing Dark",
+        (Sac, Steps) => "Red Tide",
+        (Heart, Eyes) => "The Watching Heart",
+        (Spikes, Motes) => "Crimson Thorns",
+        (Ribcage, Spine) => "Marrow Harvest",
+        (Cleaver, Ribcage) => "Slaughter Waltz",
+        (Teeth, Motes) => "Swarm of Mouths",
+        (Sac, Spikes) => "Bursting Thorns",
+        (Heart, Steps) => "Bleeding Heart",
+        (Eyes, Spine) => "The Seeing Spine",
+        (Jaw, Tendrils) => "Hungry Grasp",
+        _ => odd_name(a, b),
     }
 }
 
-/// Weapons that were never meant for each other, bound together anyway.
-const ODD_NAMES: [&str; 8] = ["Grafted Woe", "Twinned Ruin", "Bound Relic", "Mismatched Wrath", "Stitched Fury", "Unholy Union", "Chimera's Bite", "Forced Accord"];
+/// Weapons that were never meant for each other, bound together anyway: a word from the one
+/// and a word from the other, so every such pair has a name of its own.
+fn odd_name(a: WeaponKind, b: WeaponKind) -> &'static str {
+    const FIRST: [&str; ARSENAL] = ["Rusted", "Pale", "Kindled", "Tolling", "Wraithlit", "Stormborn", "Crescent", "Soulbound", "Grave", "Hexed", "Bloodied", "Gloomy"];
+    const SECOND: [&str; ARSENAL] = ["Edge", "Thorns", "Embers", "Knell", "Lanterns", "Thunder", "Gyre", "Torrent", "Harvest", "Brand", "Pike", "Volley"];
+    const HOLY_FIRST: [&str; ARSENAL] = ["Penitent", "Martyred", "Hallowed", "Haloed", "Smoking", "Judged", "Stony", "Written", "Shepherded", "Candlelit", "Thundering", "Painted"];
+    const HOLY_SECOND: [&str; ARSENAL] = ["Litany", "Nails", "Font", "Corona", "Censer", "Verdict", "Gargoyle", "Psalm", "Crook", "Vigil", "Organ", "Window"];
+    const FLESH_FIRST: [&str; ARSENAL] = ["Butchered", "Gnashing", "Swollen", "Beating", "Staring", "Impaled", "Snapping", "Hungry", "Caged", "Bleeding", "Lashing", "Writhing"];
+    const FLESH_SECOND: [&str; ARSENAL] = ["Cleaver", "Teeth", "Sac", "Heart", "Eyes", "Spikes", "Jaw", "Motes", "Ribs", "Trail", "Spine", "Tendrils"];
+    let (lo, hi) = if a.idx() < b.idx() { (a, b) } else { (b, a) };
+    let (i, j) = (lo.idx() % ARSENAL, hi.idx() % ARSENAL);
+    let (first, second) = match lo.field() {
+        1 => (&HOLY_FIRST, &HOLY_SECOND),
+        2 => (&FLESH_FIRST, &FLESH_SECOND),
+        _ => (&FIRST, &SECOND),
+    };
+    // Leaked once per pair and kept: at most 132 short names for the whole game.
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    type Names = Mutex<HashMap<(usize, usize, usize), &'static str>>;
+    static NAMES: OnceLock<Names> = OnceLock::new();
+    let mut names = NAMES.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner());
+    names.entry((i, j, lo.field())).or_insert_with(|| Box::leak(format!("{} {}", first[i], second[j]).into_boxed_str()))
+}
 
-const MEGA_NAMES: [&str; 8] = ["Pyre of Kings", "Grave Tide", "Choir of Ash", "The Hollow Crown", "Eclipse Engine", "Black Cathedral", "Wake of Ruin", "The Long Night"];
+const MEGA_NAMES: [&str; ARSENAL] = [
+    "Pyre of Kings",
+    "Grave Tide",
+    "Choir of Ash",
+    "The Hollow Crown",
+    "Eclipse Engine",
+    "Black Cathedral",
+    "Wake of Ruin",
+    "The Long Night",
+    "Ossuary Storm",
+    "The Pale Host",
+    "Ember Tomb",
+    "Requiem Engine",
+];
 const ULTRA_NAMES: [&str; 4] = ["Dawnbreaker", "The Unending", "Ash Incarnate", "World Pyre"];
 
 /// The same set of weapons always gets the same name.
@@ -461,16 +602,57 @@ fn names_for(kinds: &[WeaponKind], names: &[&'static str]) -> &'static str {
     names[h % names.len()]
 }
 
-const MEGA_HOLY: [&str; 8] =
-    ["The Great Nave", "Choir of Embers", "Reliquary of Wrath", "The Bleeding Saint", "Sanctum Engine", "The Iron Psalm", "Vault of Heaven", "The Long Mass"];
+const MEGA_HOLY: [&str; ARSENAL] = [
+    "The Great Nave",
+    "Choir of Embers",
+    "Reliquary of Wrath",
+    "The Bleeding Saint",
+    "Sanctum Engine",
+    "The Iron Psalm",
+    "Vault of Heaven",
+    "The Long Mass",
+    "Rose of Fire",
+    "The Last Sermon",
+    "Bells of Judgement",
+    "The Gilded Ark",
+];
 const ULTRA_HOLY: [&str; 4] = ["Cathedral Ascendant", "The Eternal Rite", "Heaven's Forge", "The Burning Choir"];
+const MEGA_FLESH: [&str; ARSENAL] = [
+    "The Slaughterhouse",
+    "Mouth of the Pit",
+    "The Red Flood",
+    "The Beating Choir",
+    "Eye of the Storm",
+    "Thicket of Bone",
+    "The Feeding Frenzy",
+    "Bloodswarm",
+    "The Marrow Engine",
+    "The Crimson Path",
+    "The Spinal Choir",
+    "The Writhing Host",
+];
+const ULTRA_FLESH: [&str; 4] = ["The Great Maw", "Flesh Ascendant", "The Red Communion", "Mother of Wounds"];
 
+/// Named after the first of its weapons: the mega fusions one hero can hold at once share no
+/// weapon, so they never share a name.
 pub fn mega_name(kinds: &[WeaponKind]) -> &'static str {
-    names_for(kinds, if kinds.first().is_some_and(|k| k.is_cathedral()) { &MEGA_HOLY } else { &MEGA_NAMES })
+    let first = kinds.iter().map(|k| k.idx() % ARSENAL).min().unwrap_or(0);
+    if kinds.first().is_some_and(|k| k.field() == 2) {
+        MEGA_FLESH[first]
+    } else if kinds.first().is_some_and(|k| k.is_cathedral()) {
+        MEGA_HOLY[first]
+    } else {
+        MEGA_NAMES[first]
+    }
 }
 
 pub fn ultra_name(kinds: &[WeaponKind]) -> &'static str {
-    names_for(kinds, if kinds.first().is_some_and(|k| k.is_cathedral()) { &ULTRA_HOLY } else { &ULTRA_NAMES })
+    let list = match kinds.first().map(|k| k.field()) {
+        Some(1) => &ULTRA_HOLY,
+        Some(2) => &ULTRA_FLESH,
+        _ => &ULTRA_NAMES,
+    };
+    names_for(kinds, list)
 }
 
 // ---------------------------------------------------------------- items
@@ -943,6 +1125,9 @@ pub enum Helm {
     WingedCrown,
     Wimple,
     SixWings,
+    Butcher,
+    FlayedHalo,
+    HeartCrown,
 }
 
 /// A look for the hero that wins over the class look.
@@ -961,7 +1146,7 @@ pub struct SkinDef {
 }
 
 /// Skin 0 is the class look; these are bought with souls in the Wardrobe.
-pub const SKINS: [SkinDef; 28] = [
+pub const SKINS: [SkinDef; 31] = [
     SkinDef {
         name: "Ashen Knight",
         desc: "Grey as the dust of old fires.",
@@ -1127,6 +1312,26 @@ pub const SKINS: [SkinDef; 28] = [
         helm: Helm::SixWings,
         offering: Some((false, 5_000)),
     },
+    // From the flesh pits: one to buy, two given for offerings.
+    SkinDef {
+        name: "Pit Butcher",
+        desc: "A stitched leather hood and an apron that has seen things.",
+        cost: 60_000,
+        body: (110, 40, 38),
+        metal: (150, 120, 100),
+        helm: Helm::Butcher,
+        offering: None,
+    },
+    SkinDef {
+        name: "Flayed Saint",
+        desc: "No skin left to give, and a halo of bone for it.",
+        cost: 0,
+        body: (150, 50, 60),
+        metal: (226, 212, 186),
+        helm: Helm::FlayedHalo,
+        offering: Some((true, 2_000_000)),
+    },
+    SkinDef { name: "Heart Regent", desc: "A crown that beats.", cost: 0, body: (90, 10, 24), metal: (210, 170, 80), helm: Helm::HeartCrown, offering: Some((false, 2_500)) },
 ];
 
 /// The skin with number `skin`, if any; 0 is the class look.
@@ -1515,9 +1720,11 @@ pub enum Achievement {
     PatronOfAsh,
     MarkGiver,
     Selfless,
+    Bellringer,
+    Heartseeker,
 }
 
-pub const ALL_ACHIEVEMENTS: [Achievement; 74] = [
+pub const ALL_ACHIEVEMENTS: [Achievement; 76] = [
     Achievement::FirstLight,
     Achievement::Gravebreaker,
     Achievement::Dawnbringer,
@@ -1592,6 +1799,8 @@ pub const ALL_ACHIEVEMENTS: [Achievement; 74] = [
     Achievement::PatronOfAsh,
     Achievement::MarkGiver,
     Achievement::Selfless,
+    Achievement::Bellringer,
+    Achievement::Heartseeker,
 ];
 
 impl Achievement {
@@ -1676,6 +1885,8 @@ impl Achievement {
             PatronOfAsh => "Patron of Ash",
             MarkGiver => "Giver of Marks",
             Selfless => "Selfless",
+            Bellringer => "The Last Toll",
+            Heartseeker => "The Heart of It",
         }
     }
 
@@ -1756,6 +1967,8 @@ impl Achievement {
             PatronOfAsh => "Offer 1,000,000 souls in the Reliquary.",
             MarkGiver => "Offer 100 Ashen Marks in the Reliquary.",
             Selfless => "Offer 1,000 Ashen Marks in the Reliquary.",
+            Bellringer => "Find the bell that fell from the cathedral.",
+            Heartseeker => "Find the heart that beats beneath the flesh pits.",
         }
     }
 
@@ -1772,7 +1985,7 @@ impl Achievement {
             Purist => 50,
             AbyssWalker => 60,
             Fireside | ColdEmbers | SoftHeart => 10,
-            LastKeeper | Clang => 15,
+            LastKeeper | Clang | Bellringer | Heartseeker => 15,
             Untouched | Hoarder | FullHouse | RollModel | Banker => 20,
             GrandFusion | Executioner => 25,
             Centurion => 30,

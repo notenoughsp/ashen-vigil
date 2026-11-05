@@ -188,6 +188,7 @@ impl World {
         if t >= self.next_courier && self.boss.is_none() {
             self.next_courier = t + gen_range(330.0, 420.0);
             let (at, _, _) = self.random_hero_pos();
+            self.log_event("a courier flees with the vault key");
             let mut e = self.make_enemy(EnemyKind::Courier, clamp_world(at + rand_dir() * 380.0, 80.0));
             e.hp *= 1.0 + t / 300.0;
             e.max_hp = e.hp;
@@ -207,6 +208,7 @@ impl World {
                 if !self.vault_key && !dropped {
                     // It got away: the vault seals itself.
                     self.vault = None;
+                    self.log_event("the courier got away");
                     self.toast("The courier got away. The vault seals itself.");
                 }
             }
@@ -236,6 +238,7 @@ impl World {
                 self.drop_soul(pos + rand_dir() * gen_range(20.0, 90.0), v);
             }
             let who = self.heroes[h].name.clone();
+            self.log_event(&format!("{} opens the vault", who));
             self.banner("THE VAULT OPENS", &format!("{} turns the courier's key", who), Color::from_rgba(240, 200, 90, 255), 3.5);
             self.sfx_at("chest", 1.0, pos);
         }
@@ -255,6 +258,7 @@ impl World {
                     if let Some(e) = self.enemies.iter_mut().find(|e| e.id == id) {
                         e.dead = true;
                         self.toast("The champion withdraws into the mist.");
+                        self.log_event("the champion withdraws into the mist");
                     }
                 }
             }
@@ -273,7 +277,9 @@ impl World {
             e.r = EnemyKind::Champion.radius(true);
             e.xp *= 1.0 + t / 300.0;
             self.champion = Some(e.id);
+            let line = format!("the mist rises with a champion of {:.0} health", e.max_hp);
             self.enemies.push(e);
+            self.log_event(&line);
             self.banner("THE MIST RISES", "A champion stalks you in the fog", Color::from_rgba(190, 200, 210, 255), 4.0);
             self.sfx("roar", 0.8);
         }
@@ -292,6 +298,7 @@ impl World {
             self.weather = Some((w, left));
             self.next_weather = t + left + gen_range(240.0, 360.0);
             self.banner(&w.name().to_uppercase(), w.desc(), Color::from_rgba(200, 190, 170, 255), 3.5);
+            self.log_event(&format!("weather: {} for {:.0} s", w.name().to_lowercase(), left));
         }
 
         // The rival comes for whoever has gone long without a wound.
@@ -315,7 +322,9 @@ impl World {
                 self.rivals_come += 1;
                 e.hunt = Some(h);
                 e.life_left = RIVAL_STAY;
+                let line = format!("Sven comes for {} (time {}), {:.0} health", self.heroes[h].name, self.rivals_come, e.max_hp);
                 self.enemies.push(e);
+                self.log_event(&line);
                 let name = self.heroes[h].name.clone();
                 let title = if self.rivals_come > 1 { format!("SVEN RETURNS, STRONGER ({})", self.rivals_come) } else { "SVEN HUNTS YOU".to_string() };
                 self.banner(&title, &format!("Untouched too long, {} draws a rival. He carries many souls.", name), Color::from_rgba(230, 80, 70, 255), 4.0);
@@ -351,8 +360,10 @@ impl World {
             self.hourglass = None;
             // One to five minutes, by chance, in steps of ten seconds.
             let want = (gen_range(HOURGLASS_SKIP.0, HOURGLASS_SKIP.1) / 10.0).round() * 10.0;
+            let before = self.time;
             let (skip, lord) = self.skip_time(want);
             let who = on.map(|h| self.heroes[h].name.clone()).unwrap_or_default();
+            crate::log!("[{:02}:{:02}] {} turns the hourglass: {:.0} s pass{}", before as u32 / 60, before as u32 % 60, who, skip, if lord { ", and a lord waits" } else { "" });
             let mins = skip / 60.0;
             let span =
                 if (mins - mins.round()).abs() < 0.05 { format!("{:.0} minute{}", mins, if mins.round() == 1.0 { "" } else { "s" }) } else { format!("{:.0} seconds", skip) };
@@ -427,6 +438,8 @@ impl World {
         }
         self.altars.retain(|a| a.life > 0.0);
         for (h, pos) in pacts {
+            let line = format!("{} makes a blood pact", self.heroes[h].name);
+            self.log_event(&line);
             let hero = &mut self.heroes[h];
             hero.pact = true;
             hero.p.hp = hero.p.hp.min(hero.stats.max_hp * PACT_KEEP);
@@ -486,6 +499,8 @@ impl World {
         }
         for (h, i, stake) in placed {
             let (limit, mult) = WAGERS[i];
+            let line = format!("{} bets {} souls on {:.0} s for x{}", self.heroes[h].name, stake, limit, mult);
+            self.log_event(&line);
             let who = if self.multiplayer() { format!("{} bets", self.heroes[h].name) } else { "You bet".to_string() };
             self.toast(&format!("{} {} souls: the lord falls within {:.0} s, for x{}", who, stake, limit, mult));
             self.sfx_at("chime", 0.8, tiles[i]);
@@ -509,6 +524,7 @@ impl World {
             }
         }
         for n in notes {
+            self.log_event(&n);
             self.toast(&n);
         }
     }
@@ -527,6 +543,8 @@ impl World {
 
     /// A cursed coffer was opened: rich loot, and a wave of elites.
     pub(crate) fn open_cursed_coffer(&mut self, h: usize, pos: Vec2) {
+        let line = format!("{} opens a cursed coffer", self.heroes[h].name);
+        self.log_event(&line);
         self.open_coffer(h, true);
         let kinds = [EnemyKind::Knight, EnemyKind::Wraith, EnemyKind::Gargoyle, EnemyKind::Bloat, EnemyKind::Hollow];
         let n = 4 + (self.time / 300.0) as usize;

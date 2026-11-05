@@ -90,6 +90,11 @@ impl Weapon {
         !self.fused.is_empty()
     }
 
+    /// How many weapons fire from this slot.
+    pub fn kind_count(&self) -> usize {
+        self.fused.len() + 1
+    }
+
     /// Every weapon kind in this slot, its own first.
     pub fn kinds(&self) -> Vec<WeaponKind> {
         std::iter::once(self.kind).chain(self.fused.iter().copied()).collect()
@@ -112,6 +117,7 @@ impl Weapon {
             2 => mega_name(&self.kinds()),
             3 => ultra_name(&self.kinds()),
             _ if self.kind.is_cathedral() => LAST_HYMN,
+            _ if self.kind.field() == 2 => LAST_GOD,
             _ => LAST_FLAME,
         }
     }
@@ -221,8 +227,11 @@ pub struct Hero {
     /// The weight of the souls carried: each step makes the hero stronger, and banking them
     /// at a shrine (or losing them) gives it up. See `soul_burden`.
     pub burden: u32,
-    /// Fights with the cathedral's arsenal rather than the graveyard's.
-    pub cathedral: bool,
+    /// Whose arsenal the hero fights with: 0 the graveyard's, 1 the cathedral's, 2 the
+    /// flesh pits'.
+    pub field: usize,
+    /// The player has the pause menu (or the options) open.
+    pub menu_open: bool,
     pub rested: bool,
     /// Challenge bits (single player).
     pub challenges: u8,
@@ -290,7 +299,8 @@ impl Hero {
             wager_tile: 0,
             wager_kindle: 0.0,
             burden: 0,
-            cathedral: false,
+            field: 0,
+            menu_open: false,
             rested: false,
             challenges: 0,
             aim: vec2(1.0, 0.0),
@@ -347,20 +357,20 @@ impl Hero {
 
     /// The weapons this hero's field offers.
     pub fn arsenal(&self) -> [WeaponKind; ARSENAL] {
-        if self.cathedral {
-            CATHEDRAL_WEAPONS
-        } else {
-            GRAVE_WEAPONS
+        match self.field {
+            1 => CATHEDRAL_WEAPONS,
+            2 => FLESH_WEAPONS,
+            _ => GRAVE_WEAPONS,
         }
     }
 
     /// Takes up the arsenal of a field: its weapons trade places with their mirrors.
-    pub fn arm_for(&mut self, cathedral: bool) {
-        self.cathedral = cathedral;
+    pub fn arm_for(&mut self, field: usize) {
+        self.field = field;
         for w in self.weapons.iter_mut() {
-            let kind = w.kind.for_field(cathedral);
+            let kind = w.kind.for_field(field);
             if kind != w.kind {
-                let fused = w.fused.iter().map(|k| k.for_field(cathedral)).collect();
+                let fused = w.fused.iter().map(|k| k.for_field(field)).collect();
                 let (level, evolved, whole) = (w.level, w.evolved, w.whole);
                 *w = Weapon::with_parts(kind, fused);
                 w.level = level;
@@ -373,7 +383,7 @@ impl Hero {
     /// Whether a weapon can come in a level-up: from this field, and unlocked (the
     /// cathedral's need no unlocking).
     fn offers(&self, k: WeaponKind) -> bool {
-        k.is_cathedral() == self.cathedral && (k.is_cathedral() || self.profile.has(Unlock::Weapon(k)))
+        k.field() == self.field && (k.field() > 0 || self.profile.has(Unlock::Weapon(k)))
     }
 
     /// A new weapon can still come from a level-up.
@@ -584,6 +594,39 @@ impl Hero {
                     let at = vec2(r * t.cos() / d, r * t.sin() * t.cos() / d * 1.4);
                     out.push((self.p.pos + at, 18.0 * area));
                 }
+            }
+        }
+        out
+    }
+
+    /// Where the watching eyes circle: one ring about the hero, and how big each one is.
+    pub fn eye_positions(&self) -> Vec<(Vec2, f32)> {
+        let mut out = Vec::new();
+        for w in &self.weapons {
+            for part in w.parts().into_iter().filter(|p| p.kind == WeaponKind::Eyes) {
+                let spin = w.spins.get(part.slot).copied().unwrap_or(0.0);
+                let s = WeaponKind::Eyes.stats(w.level, part.evo);
+                let n = (s.amount + self.stats.amount).div_ceil(2).max(2) + u32::from(self.class == Class::LanternWarden);
+                let area = s.area * self.stats.area;
+                for k in 0..n {
+                    let a = spin * 0.6 + k as f32 / n as f32 * TAU;
+                    out.push((self.p.pos + Vec2::from_angle(a) * 105.0 * area, 9.0 * area.sqrt()));
+                }
+            }
+        }
+        out
+    }
+
+    /// The heartbeat aura's reach for each heart carried, and how far into its beat it is
+    /// (1 just after the first beat, falling to 0).
+    pub fn heart_beats(&self) -> Vec<(f32, f32)> {
+        let mut out = Vec::new();
+        for w in &self.weapons {
+            for part in w.parts().into_iter().filter(|p| p.kind == WeaponKind::Heart) {
+                let s = WeaponKind::Heart.stats(w.level, part.evo);
+                let timer = w.timers.get(part.slot).copied().unwrap_or(0.0);
+                let cd = s.cd * self.stats.cooldown;
+                out.push((80.0 * s.area * self.stats.area, (timer / cd.max(0.05)).clamp(0.0, 1.0)));
             }
         }
         out

@@ -177,15 +177,25 @@ impl World {
         } else {
             match self.biome {
                 Biome::Graveyard => Color::new((base + red) / 255.0, (base - 1.5) / 255.0, (base + 1.0) / 255.0, 1.0),
-                // Warm marble, alternately light and dark like a cathedral floor.
+                // Pale marble, cream and dove grey in turn like a cathedral floor.
                 Biome::Cathedral => {
-                    let check = if (tx + ty).rem_euclid(2) == 0 { 6.0 } else { -2.0 };
-                    Color::new((base + check + 5.0) / 255.0, (base + check - 2.0) / 255.0, (base + check - 3.0) / 255.0, 1.0)
+                    let light = 120.0 + v * 14.0 + region * 10.0;
+                    if (tx + ty).rem_euclid(2) == 0 {
+                        Color::new((light + 22.0) / 255.0, (light + 15.0) / 255.0, (light + 2.0) / 255.0, 1.0)
+                    } else {
+                        Color::new((light - 8.0) / 255.0, (light - 6.0) / 255.0, (light - 1.0) / 255.0, 1.0)
+                    }
+                }
+                // Raw, living flesh: dark red, a little purple in the hollows.
+                Biome::Flesh => {
+                    let f = 78.0 + v * 18.0 + region * 14.0;
+                    Color::new(f / 255.0, (f * 0.32) / 255.0, (f * 0.36) / 255.0, 1.0)
                 }
             }
         };
         match self.biome {
             Biome::Cathedral if !self.cute => self.marble_tile(tx, ty, px, py, c),
+            Biome::Flesh if !self.cute => self.flesh_tile(tx, ty, px, py, c),
             _ => self.flagstones(tx, ty, px, py, c),
         }
         if self.cute && hash(tx, ty, 41).is_multiple_of(4) {
@@ -197,6 +207,37 @@ impl World {
                 draw_circle(fx + o.x, fy + o.y, 1.9, petal);
             }
             draw_circle(fx, fy, 1.4, rgba(255, 200, 90, 255));
+        }
+    }
+
+    /// A tile of living ground: soft swellings, dark veins, and now and then a split that
+    /// oozes blood.
+    fn flesh_tile(&self, tx: i32, ty: i32, px: f32, py: f32, c: Color) {
+        let lift = |c: Color, d: f32| Color::new((c.r + d / 255.0).clamp(0.0, 1.0), (c.g + d * 0.4 / 255.0).clamp(0.0, 1.0), (c.b + d * 0.45 / 255.0).clamp(0.0, 1.0), 1.0);
+        draw_rectangle(px, py, TILE, TILE, c);
+        // Swellings with a wet highlight.
+        for k in 0..3 {
+            let at = vec2(px + hf(tx, ty, 170 + k) * TILE, py + hf(tx, ty, 173 + k) * TILE);
+            let r = 8.0 + hf(tx, ty, 176 + k) * 14.0;
+            draw_circle(at.x, at.y, r, lift(c, 9.0));
+            draw_circle(at.x - r * 0.3, at.y - r * 0.35, r * 0.35, lift(c, 20.0));
+        }
+        // Veins, branching across the tile.
+        let mut q = vec2(px + hf(tx, ty, 180) * TILE, py);
+        for s in 0..4 {
+            let n = q + vec2((hf(tx, ty, 181 + s) - 0.5) * 34.0, TILE / 4.0);
+            draw_line(q.x, q.y, n.x, n.y, 1.8, Color::new(0.2, 0.03, 0.08, 0.9));
+            if s == 1 {
+                let b = n + vec2((hf(tx, ty, 186) - 0.5) * 30.0, 10.0);
+                draw_line(n.x, n.y, b.x, b.y, 1.2, Color::new(0.2, 0.03, 0.08, 0.8));
+            }
+            q = n;
+        }
+        if hash(tx, ty, 188).is_multiple_of(6) {
+            // A split in the flesh, wet with blood.
+            let at = vec2(px + TILE * 0.5, py + TILE * 0.5);
+            draw_ellipse(at.x, at.y, 14.0, 3.5, hf(tx, ty, 189), Color::new(0.35, 0.0, 0.03, 0.95));
+            draw_ellipse(at.x, at.y + 4.0, 9.0, 2.5, 0.0, Color::new(0.5, 0.02, 0.04, 0.6));
         }
     }
 
@@ -216,7 +257,7 @@ impl World {
         }
         if hash(tx, ty, 165).is_multiple_of(9) {
             let m = vec2(px + TILE * 0.5, py + TILE * 0.5);
-            let gold = rgba(70, 52, 22, 255);
+            let gold = rgba(196, 160, 80, 255);
             for k in 0..4 {
                 let d = Vec2::from_angle(k as f32 * std::f32::consts::FRAC_PI_2) * 18.0;
                 draw_line(m.x, m.y, m.x + d.x, m.y + d.y, 2.0, gold);
@@ -295,8 +336,10 @@ impl World {
         } else {
             match self.biome {
                 Biome::Graveyard => (Color::new(0.12, 0.085, 0.06, 0.6), Color::new(0.14, 0.2, 0.09, 0.95)),
-                // Ash and soot instead of earth, and no grass grows.
-                Biome::Cathedral => (Color::new(0.09, 0.085, 0.08, 0.55), Color::new(0.0, 0.0, 0.0, 0.0)),
+                // Worn gold dust in the cathedral, and nothing grows.
+                Biome::Cathedral => (Color::new(0.85, 0.7, 0.4, 0.12), Color::new(0.0, 0.0, 0.0, 0.0)),
+                // Pools of blood, and red threads twitching out of the flesh.
+                Biome::Flesh => (Color::new(0.33, 0.0, 0.03, 0.75), Color::new(0.55, 0.08, 0.1, 0.9)),
             }
         };
         for cy in y0..y1 {
@@ -400,58 +443,162 @@ impl World {
         }
     }
 
-    /// Props of the cathedral.
+    /// Props of the cathedral and the flesh pits.
     fn field_prop(&self, d: u32, tx: i32, ty: i32, ox: f32, oy: f32) {
         let t = self.time;
         match (self.biome, d) {
-            (Biome::Cathedral, 0..=25) => {
-                // A broken pillar: base, a stump of column, rubble around it.
-                draw_ellipse(ox, oy + 10.0, 20.0, 6.0, 0.0, rgba(0, 0, 0, 110));
-                draw_rectangle(ox - 14.0, oy, 28.0, 10.0, rgba(64, 56, 52, 255));
-                let h = 20.0 + hf(tx, ty, 21) * 30.0;
-                draw_rectangle(ox - 10.0, oy - h, 20.0, h, rgba(84, 74, 68, 255));
-                draw_rectangle(ox - 10.0, oy - h, 5.0, h, rgba(100, 90, 82, 255));
-                draw_triangle(vec2(ox - 10.0, oy - h), vec2(ox + 10.0, oy - h), vec2(ox + 2.0, oy - h - 8.0), rgba(84, 74, 68, 255));
+            (Biome::Cathedral, 0..=22) => {
+                // A white pillar with a gilded capital.
+                draw_ellipse(ox, oy + 10.0, 22.0, 6.0, 0.0, rgba(0, 0, 0, 70));
+                draw_rectangle(ox - 15.0, oy, 30.0, 10.0, rgba(200, 192, 176, 255));
+                draw_rectangle(ox - 11.0, oy - 70.0, 22.0, 70.0, rgba(226, 220, 206, 255));
+                draw_rectangle(ox - 11.0, oy - 70.0, 6.0, 70.0, rgba(244, 240, 230, 255));
                 for k in 0..3 {
-                    draw_circle(ox + 16.0 + k as f32 * 5.0, oy + 6.0 - k as f32, 3.0, rgba(70, 62, 58, 255));
+                    let x = ox - 4.0 + k as f32 * 5.0;
+                    draw_line(x, oy - 66.0, x, oy - 4.0, 1.0, rgba(196, 188, 172, 255));
+                }
+                draw_rectangle(ox - 15.0, oy - 78.0, 30.0, 9.0, rgba(214, 178, 92, 255));
+                draw_rectangle(ox - 15.0, oy - 78.0, 30.0, 3.0, rgba(240, 210, 130, 255));
+            }
+            (Biome::Cathedral, 23..=55) => {
+                // A row of pews in pale oak, with a red cushion.
+                draw_ellipse(ox, oy + 6.0, 26.0, 5.0, 0.0, rgba(0, 0, 0, 50));
+                draw_rectangle(ox - 24.0, oy - 4.0, 48.0, 10.0, rgba(150, 108, 66, 255));
+                draw_rectangle(ox - 24.0, oy - 12.0, 48.0, 7.0, rgba(176, 130, 82, 255));
+                draw_rectangle(ox - 22.0, oy - 3.0, 44.0, 3.0, rgba(150, 40, 46, 255));
+                for x in [-24.0, 21.0] {
+                    draw_rectangle(ox + x, oy - 14.0, 3.0, 20.0, rgba(120, 84, 50, 255));
                 }
             }
-            (Biome::Cathedral, 26..=55) => {
-                // A pew, some of them overturned.
-                let tilt = if hash(tx, ty, 22).is_multiple_of(3) { 0.4 } else { 0.0 };
-                draw_rectangle_ex(ox, oy, 46.0, 9.0, DrawRectangleParams { offset: vec2(0.5, 0.5), rotation: tilt, color: rgba(58, 36, 24, 255) });
-                draw_rectangle_ex(ox, oy - 6.0, 46.0, 4.0, DrawRectangleParams { offset: vec2(0.5, 0.5), rotation: tilt, color: rgba(76, 48, 30, 255) });
+            (Biome::Cathedral, 56..=72) => {
+                // A rose window laid in the floor in coloured glass.
+                let cols = [rgba(220, 60, 70, 210), rgba(60, 110, 230, 210), rgba(240, 200, 70, 210), rgba(70, 180, 110, 210), rgba(160, 80, 210, 210), rgba(240, 130, 60, 210)];
+                let spin = hf(tx, ty, 23) * TAU;
+                for k in 0..12 {
+                    let a0 = spin + k as f32 / 12.0 * TAU;
+                    let a1 = a0 + TAU / 12.0;
+                    let p0 = vec2(ox, oy) + Vec2::from_angle(a0) * 30.0;
+                    let p1 = vec2(ox, oy) + Vec2::from_angle(a1) * 30.0;
+                    draw_triangle(vec2(ox, oy), p0, p1, cols[k % cols.len()]);
+                    draw_line(ox, oy, p0.x, p0.y, 1.5, rgba(60, 50, 40, 255));
+                }
+                draw_circle_lines(ox, oy, 30.0, 2.5, rgba(196, 160, 80, 255));
+                draw_circle(ox, oy, 7.0, rgba(250, 236, 180, 255));
+                draw_circle_lines(ox, oy, 7.0, 1.5, rgba(60, 50, 40, 255));
             }
-            (Biome::Cathedral, 56..=70) => {
-                // A torn banner on a pole.
-                draw_line(ox, oy + 4.0, ox, oy - 44.0, 2.5, rgba(60, 50, 40, 255));
-                let sway = (t * 1.1 + ox * 0.01).sin() * 3.0;
-                draw_triangle(vec2(ox, oy - 42.0), vec2(ox + 16.0 + sway, oy - 40.0), vec2(ox, oy - 16.0), rgba(110, 20, 24, 255));
-                draw_triangle(vec2(ox + 16.0 + sway, oy - 40.0), vec2(ox + 12.0 + sway, oy - 20.0), vec2(ox, oy - 16.0), rgba(90, 16, 20, 255));
-                draw_circle(ox + 7.0, oy - 32.0, 2.5, rgba(190, 150, 60, 255));
+            (Biome::Cathedral, 73..=90) => {
+                // A tall candle stand, always lit.
+                let fl = 0.85 + 0.15 * (t * 9.0 + ox).sin();
+                draw_ellipse(ox, oy + 4.0, 8.0, 3.0, 0.0, rgba(0, 0, 0, 60));
+                draw_line(ox, oy + 2.0, ox, oy - 30.0, 2.5, rgba(196, 160, 80, 255));
+                draw_rectangle(ox - 2.5, oy - 40.0, 5.0, 10.0, rgba(244, 238, 222, 255));
+                draw_circle(ox, oy - 44.0, 7.0 * fl, Color::new(1.0, 0.85, 0.5, 0.18));
+                draw_triangle(vec2(ox - 2.0, oy - 40.0), vec2(ox + 2.0, oy - 40.0), vec2(ox + (t * 6.0 + ox).sin(), oy - 47.0 * fl.max(0.9)), rgba(255, 210, 110, 255));
             }
-            (Biome::Cathedral, 71..=100) => {
-                // Shards of a stained-glass window.
-                let cols = [rgba(120, 30, 40, 200), rgba(40, 60, 120, 200), rgba(150, 120, 40, 200), rgba(40, 100, 60, 200)];
+            (Biome::Cathedral, 91..=104) => {
+                // A kneeling angel in white stone.
+                draw_ellipse(ox, oy + 8.0, 16.0, 5.0, 0.0, rgba(0, 0, 0, 60));
+                for s in [-1.0, 1.0] {
+                    draw_triangle(vec2(ox + s * 4.0, oy - 18.0), vec2(ox + s * 20.0, oy - 34.0), vec2(ox + s * 8.0, oy), rgba(220, 216, 206, 255));
+                }
+                draw_ellipse(ox, oy - 6.0, 9.0, 13.0, 0.0, rgba(232, 228, 218, 255));
+                draw_circle(ox, oy - 22.0, 6.0, rgba(238, 234, 226, 255));
+                draw_ellipse_lines(ox, oy - 30.0, 6.0, 1.8, 0.0, 1.4, rgba(226, 190, 100, 255));
+            }
+            (Biome::Cathedral, 105..=125) => {
+                // A strip of red carpet with gold edges.
+                let len = 60.0 + hf(tx, ty, 24) * 40.0;
+                draw_rectangle(ox - 14.0, oy - len * 0.5, 28.0, len, rgba(150, 30, 40, 220));
+                draw_rectangle(ox - 14.0, oy - len * 0.5, 3.0, len, rgba(210, 170, 80, 230));
+                draw_rectangle(ox + 11.0, oy - len * 0.5, 3.0, len, rgba(210, 170, 80, 230));
+            }
+            (Biome::Cathedral, 126..=136) => {
+                // White lilies in a golden urn.
+                draw_ellipse(ox, oy + 4.0, 10.0, 3.0, 0.0, rgba(0, 0, 0, 60));
+                draw_triangle(vec2(ox - 7.0, oy - 12.0), vec2(ox + 7.0, oy - 12.0), vec2(ox, oy + 2.0), rgba(206, 168, 84, 255));
                 for k in 0..5 {
-                    let a = hf(tx, ty, 30 + k) * TAU;
-                    let q = vec2(ox, oy) + Vec2::from_angle(a) * (4.0 + hf(tx, ty, 40 + k) * 14.0);
-                    draw_triangle(q, q + Vec2::from_angle(a + 1.0) * 5.0, q + Vec2::from_angle(a + 2.2) * 4.0, cols[(k % 4) as usize]);
+                    let a = -std::f32::consts::FRAC_PI_2 + (k as f32 - 2.0) * 0.35;
+                    let tip = vec2(ox, oy - 12.0) + Vec2::from_angle(a) * 16.0;
+                    draw_line(ox, oy - 12.0, tip.x, tip.y, 1.2, rgba(80, 140, 70, 255));
+                    draw_circle(tip.x, tip.y, 3.0, rgba(250, 248, 240, 255));
                 }
             }
-            (Biome::Cathedral, 101..=130) => {
-                // Scorched rubble from the fire.
-                draw_circle(ox, oy, 14.0 + hf(tx, ty, 11) * 10.0, rgba(12, 10, 10, 140));
-                for k in 0..4 {
-                    draw_circle(ox + (hf(tx, ty, 50 + k) - 0.5) * 24.0, oy + (hf(tx, ty, 54 + k) - 0.5) * 14.0, 2.5 + k as f32, rgba(60, 54, 50, 255));
+            (Biome::Flesh, 0..=30) => {
+                // A pool of blood with a dark rim and a wet shine.
+                let r = 18.0 + hf(tx, ty, 25) * 20.0;
+                draw_ellipse(ox, oy, r, r * 0.6, 0.0, rgba(60, 0, 6, 230));
+                draw_ellipse(ox, oy, r * 0.85, r * 0.5, 0.0, rgba(110, 4, 12, 240));
+                draw_ellipse(ox - r * 0.3, oy - r * 0.15, r * 0.25, r * 0.08, 0.0, rgba(220, 120, 120, 120));
+                let k = (t * 0.5 + hf(tx, ty, 26) * 4.0).fract();
+                draw_circle_lines(ox + r * 0.2, oy, 2.0 + k * 6.0, 1.0, Color::new(0.8, 0.3, 0.3, 0.5 * (1.0 - k)));
+            }
+            (Biome::Flesh, 31..=48) => {
+                // A ribcage jutting out of the ground.
+                draw_ellipse(ox, oy + 6.0, 24.0, 6.0, 0.0, rgba(40, 0, 4, 140));
+                draw_line(ox - 22.0, oy, ox + 22.0, oy, 3.0, rgba(214, 200, 176, 255));
+                for k in 0..5 {
+                    let x = ox - 16.0 + k as f32 * 8.0;
+                    draw_line(x, oy, x - 4.0, oy - 18.0 + (k as f32 - 2.0).abs() * 3.0, 2.2, rgba(226, 214, 190, 255));
                 }
             }
-            (Biome::Cathedral, 131..=140) => {
-                // Embers still glowing in the ashes.
-                let fl = 0.6 + 0.4 * (t * 3.0 + ox).sin();
-                draw_circle(ox, oy, 10.0, rgba(20, 14, 12, 160));
+            (Biome::Flesh, 49..=62) => {
+                // A pulsing sac on the floor.
+                let pulse = 1.0 + 0.08 * (t * 3.0 + ox * 0.01).sin();
+                draw_ellipse(ox, oy + 6.0, 16.0, 5.0, 0.0, rgba(30, 0, 4, 140));
+                draw_ellipse(ox, oy - 4.0, 14.0 * pulse, 12.0 * pulse, 0.0, rgba(150, 50, 70, 255));
+                draw_ellipse(ox - 4.0, oy - 8.0, 5.0, 3.0, 0.0, rgba(230, 150, 160, 160));
                 for k in 0..3 {
-                    draw_circle(ox + (k as f32 - 1.0) * 4.0, oy + (k % 2) as f32 * 2.0, 1.6, Color::new(1.0, 0.45, 0.15, fl));
+                    let a = k as f32 * 2.1 + 0.4;
+                    let q = vec2(ox, oy - 4.0) + Vec2::from_angle(a) * 9.0 * pulse;
+                    draw_line(ox, oy - 4.0, q.x, q.y, 1.0, rgba(90, 10, 30, 255));
+                }
+            }
+            (Biome::Flesh, 63..=74) => {
+                // Bone spikes.
+                for k in 0..3 {
+                    let x = ox + (k as f32 - 1.0) * 10.0;
+                    let h = 20.0 + hf(tx, ty, 27 + k) * 22.0;
+                    let lean = (hf(tx, ty, 30 + k) - 0.5) * 10.0;
+                    draw_triangle(vec2(x - 4.0, oy), vec2(x + 4.0, oy), vec2(x + lean, oy - h), rgba(222, 208, 184, 255));
+                    draw_line(x - 3.0, oy, x + lean * 0.5, oy - h * 0.5, 1.0, rgba(180, 160, 130, 255));
+                }
+                draw_ellipse(ox, oy + 1.0, 18.0, 4.0, 0.0, rgba(110, 4, 12, 200));
+            }
+            (Biome::Flesh, 75..=86) => {
+                // An eye on a stalk that follows the light.
+                let look = Vec2::from_angle(t * 0.7 + ox * 0.01) * 2.0;
+                draw_line(ox, oy + 2.0, ox + (t * 1.3 + ox).sin() * 3.0, oy - 22.0, 3.0, rgba(140, 40, 56, 255));
+                let e = vec2(ox + (t * 1.3 + ox).sin() * 3.0, oy - 26.0);
+                draw_circle(e.x, e.y, 6.5, rgba(236, 224, 210, 255));
+                draw_circle(e.x + look.x, e.y + look.y, 3.0, rgba(200, 160, 40, 255));
+                draw_circle(e.x + look.x, e.y + look.y, 1.4, rgba(10, 6, 6, 255));
+            }
+            (Biome::Flesh, 87..=104) => {
+                // Tendrils writhing out of a wound.
+                draw_ellipse(ox, oy, 10.0, 4.0, 0.0, rgba(70, 0, 8, 230));
+                for k in 0..4 {
+                    let mut p = vec2(ox + (k as f32 - 1.5) * 4.0, oy);
+                    for s in 0..5 {
+                        let n = p + vec2((t * 2.0 + k as f32 + s as f32 * 0.7).sin() * 3.0, -5.0);
+                        draw_line(p.x, p.y, n.x, n.y, 2.4 - s as f32 * 0.4, rgba(170, 60, 80, 255));
+                        p = n;
+                    }
+                }
+            }
+            (Biome::Flesh, 105..=130) => {
+                // Splashes and drips of blood.
+                for k in 0..5 {
+                    let o = vec2(hf(tx, ty, 40 + k) - 0.5, hf(tx, ty, 45 + k) - 0.5) * 40.0;
+                    draw_circle(ox + o.x, oy + o.y, 2.0 + hf(tx, ty, 50 + k) * 5.0, rgba(120, 4, 12, 220));
+                }
+            }
+            (Biome::Flesh, 131..=140) => {
+                // A jaw of teeth half sunk in the floor.
+                draw_ellipse(ox, oy, 18.0, 7.0, 0.0, rgba(60, 0, 8, 255));
+                for k in 0..6 {
+                    let x = ox - 13.0 + k as f32 * 5.2;
+                    draw_triangle(vec2(x - 2.2, oy - 2.0), vec2(x + 2.2, oy - 2.0), vec2(x, oy - 8.0), rgba(236, 226, 200, 255));
+                    draw_triangle(vec2(x - 2.0, oy + 3.0), vec2(x + 2.0, oy + 3.0), vec2(x + 0.5, oy + 7.0), rgba(220, 210, 186, 255));
                 }
             }
             _ => {}
@@ -536,7 +683,9 @@ impl World {
                     } else {
                         match self.biome {
                             Biome::Graveyard => Color::new(0.5, 0.5, 0.55, 0.022),
-                            Biome::Cathedral => Color::new(0.45, 0.35, 0.3, 0.025),
+                            // A haze of incense, golden.
+                            Biome::Cathedral => Color::new(1.0, 0.92, 0.7, 0.03),
+                            Biome::Flesh => Color::new(0.55, 0.08, 0.1, 0.035),
                         }
                     };
                     draw_circle(p.x + k as f32 * 18.0, p.y, rr, c);

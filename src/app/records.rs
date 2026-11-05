@@ -87,6 +87,8 @@ impl App {
         check(w.kills >= 100_000, Achievement::AshAndBone);
         check(w.time >= 180.0 && me.first_hurt > 180.0, Achievement::Untouched);
         check(w.grave_found, Achievement::LastKeeper);
+        check(w.bell_found, Achievement::Bellringer);
+        check(w.heart_found, Achievement::Heartseeker);
         check(me.rested, Achievement::Fireside);
         check(me.p.souls >= 100_000, Achievement::Hoarder);
         check(w.heroes.len() >= 4 && w.time >= 60.0, Achievement::FullHouse);

@@ -710,6 +710,29 @@ fn enemy_bullets_toughen_as_foes_do() {
 }
 
 #[test]
+fn the_flesh_pits_hide_a_beating_heart() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.biome = Biome::Flesh;
+    assert!(inside_world(BEATING_HEART, 100.0));
+    w.heroes[0].p.pos = BEATING_HEART + vec2(10.0, 0.0);
+    w.update_secrets(0.016);
+    assert!(w.heart_found && !w.grave_found && !w.bell_found);
+}
+
+#[test]
+fn the_cathedral_hides_a_fallen_bell_and_no_grave() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.biome = Biome::Cathedral;
+    assert!(inside_world(FALLEN_BELL, 100.0));
+    w.heroes[0].p.pos = LOST_GRAVE;
+    w.update_secrets(0.016);
+    assert!(!w.grave_found, "the grave is the graveyard's alone");
+    w.heroes[0].p.pos = FALLEN_BELL + vec2(10.0, 0.0);
+    w.update_secrets(0.016);
+    assert!(w.bell_found);
+}
+
+#[test]
 fn the_lost_grave_gives_a_relic_once() {
     let mut w = world_with(1, PRESETS[1].1);
     assert!(inside_world(LOST_GRAVE, 100.0));
@@ -965,9 +988,9 @@ fn cute_mode_softens_the_red() {
 #[test]
 fn every_weapon_ends_as_the_last_flame() {
     // Each field's arsenal ends in its own last weapon.
-    for (cathedral, name) in [(false, LAST_FLAME), (true, LAST_HYMN)] {
+    for (field, name) in [(0, LAST_FLAME), (1, LAST_HYMN), (2, LAST_GOD)] {
         let mut w = world_with(1, PRESETS[1].1);
-        w.heroes[0].arm_for(cathedral);
+        w.heroes[0].arm_for(field);
         w.heroes[0].weapons = w.heroes[0]
             .arsenal()
             .iter()
@@ -2085,7 +2108,7 @@ fn the_cathedral_has_its_own_arsenal_and_every_weapon_in_it_hurts() {
         let mut w = world_with(1, PRESETS[1].1);
         w.time = 60.0;
         w.next_boss = f32::MAX;
-        w.heroes[0].arm_for(true);
+        w.heroes[0].arm_for(1);
         w.heroes[0].weapons = vec![Weapon { level: 5, ..Weapon::new(k) }];
         w.heroes[0].recompute_stats();
         let p = w.heroes[0].p.pos;
@@ -2129,4 +2152,119 @@ fn the_lantern_warden_and_the_stormcaller_have_their_gifts() {
     w.grid.rebuild(&w.enemies);
     w.hit(0, 100.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Spear }, false);
     assert!(w.enemies[1].hp < 1e6, "the crit did not leap");
+}
+
+#[test]
+fn a_second_lord_comes_while_the_first_stands_and_the_fight_ends_with_the_last() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.time = 299.0;
+    w.next_boss = 300.0;
+    simulate(&mut w, 2.0, true, |_, _| {});
+    let first = w.boss.as_ref().map(|b| b.id).expect("no first lord");
+    // The next hour comes with the first still standing.
+    w.next_boss = w.time;
+    simulate(&mut w, 0.5, true, |_, _| {});
+    assert_eq!(w.more_bosses.len(), 1, "no second lord");
+    assert!(w.bars.iter().any(|b| b.0 < BAR_CHAMPION), "the second lord has no bar");
+    // The first falls: the second takes over, the fight goes on.
+    let i = w.enemies.iter().position(|e| e.id == first).unwrap();
+    w.enemies[i].hp = 1.0;
+    w.time += 1.0;
+    w.hit(i, 10.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Blade }, false);
+    assert!(w.boss.is_some() && w.more_bosses.is_empty(), "the second lord did not take over");
+    assert!(w.boss_kind.is_some());
+    // And when it falls too, the fight is over.
+    let second = w.boss.as_ref().unwrap().id;
+    let j = w.enemies.iter().position(|e| e.id == second).unwrap();
+    w.enemies[j].hp = 1.0;
+    w.time += 1.0;
+    w.hit(j, 10.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Blade }, false);
+    assert!(w.boss.is_none() && w.boss_kind.is_none() && w.arena.is_none());
+}
+
+#[test]
+fn souls_still_fly_and_count_while_the_cards_are_up() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.enemies.clear();
+    w.pickups.clear();
+    w.pending_levels = 1;
+    w.update(1.0 / 60.0);
+    assert_eq!(w.pause, Pause::Choosing);
+    let near = w.heroes[0].p.pos + vec2(30.0, 0.0);
+    w.pickups.push(Pickup::new(near, PickKind::Soul(5.0)));
+    let xp = w.xp;
+    for _ in 0..60 {
+        w.update(1.0 / 60.0);
+    }
+    assert!(w.pickups.is_empty(), "the soul did not reach the hero");
+    assert!(w.xp > xp, "the soul gave no experience");
+}
+
+#[test]
+fn online_the_world_waits_when_everyone_pauses() {
+    let mut w = world_with(2, PRESETS[1].1);
+    w.enemies.clear();
+    for h in w.heroes.iter_mut() {
+        h.menu_open = true;
+    }
+    let t = w.time;
+    for _ in 0..30 {
+        w.update(1.0 / 60.0);
+    }
+    assert_eq!(w.pause, Pause::Held);
+    assert_eq!(w.time, t, "time ran on while everyone was paused");
+    w.heroes[1].menu_open = false;
+    w.update(1.0 / 60.0);
+    assert!(matches!(w.pause, Pause::Countdown(_)), "no countdown on coming back");
+}
+
+#[test]
+fn the_flesh_pits_have_their_own_arsenal_and_every_weapon_in_it_hurts() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.biome = Biome::Flesh;
+    w.heroes.clear();
+    let profile = Profile { unlocks: u64::MAX, ..Profile::default() };
+    w.add_hero(0, "Tester", Class::BucketKnight, profile, false);
+    // The Bucket Knight's axe becomes the snapping jaw in the flesh pits.
+    assert_eq!(w.heroes[0].weapons[0].kind, WeaponKind::Jaw);
+    for _ in 0..40 {
+        for c in w.heroes[0].roll_choices() {
+            if let Choice::NewWeapon(k) = c {
+                assert_eq!(k.field(), 2, "{:?} is not the flesh pits'", k);
+            }
+        }
+    }
+    for k in FLESH_WEAPONS {
+        for p in k.fusion_partners() {
+            assert!(p.field() == 2 && p.fusion_partners().contains(&k), "{:?} and {:?}", k, p);
+        }
+    }
+    for k in FLESH_WEAPONS {
+        let mut w = world_with(1, PRESETS[1].1);
+        w.time = 60.0;
+        w.next_boss = f32::MAX;
+        w.heroes[0].arm_for(2);
+        w.heroes[0].weapons = vec![Weapon { level: 5, ..Weapon::new(k) }];
+        w.heroes[0].recompute_stats();
+        let p = w.heroes[0].p.pos;
+        for i in 0..30 {
+            let mut e = w.make_enemy(EnemyKind::Knight, p + Vec2::from_angle(i as f32 * 0.7) * (70.0 + (i % 5) as f32 * 30.0));
+            e.speed = 0.0;
+            e.hp = 1e6;
+            e.max_hp = 1e6;
+            w.enemies.push(e);
+        }
+        // One right beside the hero, for the trail it leaves where it stands.
+        let mut e = w.make_enemy(EnemyKind::Knight, p + vec2(14.0, 0.0));
+        e.speed = 0.0;
+        e.hp = 1e6;
+        e.max_hp = 1e6;
+        w.enemies.push(e);
+        for _ in 0..240 {
+            w.heroes[0].input = Input::default();
+            w.heroes[0].p.hp = w.heroes[0].stats.max_hp;
+            w.update(1.0 / 60.0);
+        }
+        assert!(w.heroes[0].dmg_weapon[k.idx()] > 0.0, "{:?} dealt no damage", k);
+    }
 }

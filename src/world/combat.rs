@@ -40,12 +40,22 @@ impl World {
         }
         if e.boss {
             // Nor more than a twentieth of it in any one second.
-            if self.time - self.boss_second.0 >= 1.0 {
-                self.boss_second = (self.time, 0.0);
+            let id = e.id;
+            let now = self.time;
+            let slot = match self.boss_second.iter().position(|s| s.0 == id) {
+                Some(k) => k,
+                None => {
+                    self.boss_second.push((id, now, 0.0));
+                    self.boss_second.len() - 1
+                }
+            };
+            let s = &mut self.boss_second[slot];
+            if now - s.1 >= 1.0 {
+                *s = (id, now, 0.0);
             }
-            let left = (e.max_hp * BOSS_SECOND_CAP - self.boss_second.1).max(0.0);
+            let left = (e.max_hp * BOSS_SECOND_CAP - s.2).max(0.0);
             dmg = dmg.min(left);
-            self.boss_second.1 += dmg;
+            s.2 += dmg;
         }
         let dealt = dmg.min(e.hp.max(0.0));
         e.hp -= dmg;
@@ -135,15 +145,38 @@ impl World {
             }
         }
         if boss {
-            self.boss = None;
-            // Kept for the lord's last words below.
-            let fallen = self.boss_kind.take();
+            let id = self.enemies[i].id;
+            let fallen = match kind {
+                EnemyKind::Boss(k) => Some(k),
+                _ => None,
+            };
+            self.boss_second.retain(|s| s.0 != id);
+            if self.boss.as_ref().is_some_and(|b| b.id == id) {
+                // The next lord still standing takes over the fight.
+                self.boss = if self.more_bosses.is_empty() { None } else { Some(self.more_bosses.remove(0)) };
+            } else {
+                self.more_bosses.retain(|b| b.id != id);
+            }
+            self.boss_kind = self.boss.as_ref().map(|b| b.kind);
+            let last = self.boss.is_none();
+            let still = 1 + self.more_bosses.len();
+            let name = fallen.map(|k| k.name()).unwrap_or("A lord");
+            let line = if last {
+                format!("{} falls (lord {} of the vigil)", name, self.bosses_killed + 1)
+            } else {
+                format!("{} falls; {} lord{} still stand", name, still, if still == 1 { "" } else { "s" })
+            };
+            self.log_event(&line);
             self.bosses_killed += 1;
-            self.arena = None;
-            self.ebullets.clear();
-            self.pillars.clear();
-            self.telegraphs.clear();
-            self.waves.clear();
+            if last {
+                self.arena = None;
+                self.ebullets.clear();
+                self.pillars.clear();
+                self.telegraphs.clear();
+                self.waves.clear();
+            } else {
+                self.boss_bar_lag = 1.0;
+            }
             // Every hero gets a coffer from a boss.
             let n = self.heroes.len().max(1);
             for k in 0..n {
@@ -161,14 +194,20 @@ impl World {
             self.sfx("explode", 0.8);
             self.shake = 18.0;
             self.fx.push(Fx { pos, life: 1.0, max_life: 1.0, kind: FxKind::Ring { r: 300.0, color: Color::from_rgba(255, 210, 140, 255) } });
+            if let Some(k) = fallen {
+                self.say(k.lines()[3], super::spawn::boss_voice(k));
+            }
+            self.fulfil_pacts();
+            self.settle_wagers();
+            if !last {
+                // Another lord still stands: the fight goes on.
+                return;
+            }
             // Fallen companions rise again once the boss is down.
             for h in self.heroes.iter_mut().filter(|h| h.downed && h.connected) {
                 h.downed = false;
                 h.p.hp = h.rise_health(0.4);
                 h.p.iframes = 2.0;
-            }
-            if let Some(k) = fallen {
-                self.say(k.lines()[3], super::spawn::boss_voice(k));
             }
             if self.boss_rush {
                 // The next lord follows after a breather, and the heroes grow to meet it.
@@ -179,19 +218,22 @@ impl World {
                 self.next_boss = self.next_boss.max(self.time + BOSS_WARNING);
             }
             self.events.push(Event::BossDefeated);
-            self.fulfil_pacts();
-            self.settle_wagers();
             return;
         }
         if elite {
             self.pickups.push(Pickup::new(pos, PickKind::Coffer(false)));
         }
+        if kind == EnemyKind::Champion {
+            self.log_event("the champion of the mist falls");
+        }
         match kind {
             EnemyKind::Courier => {
+                self.log_event("the courier is caught and drops the vault key");
                 self.pickups.push(Pickup::new(pos, PickKind::Key));
                 self.banner("THE COURIER FALLS", "Take its key to the vault", Color::from_rgba(240, 200, 90, 255), 3.0);
             }
             EnemyKind::Rival => {
+                self.log_event("Sven falls");
                 for _ in 0..24 {
                     self.drop_soul(pos + rand_dir() * gen_range(10.0, 80.0), xp * 0.4);
                 }
@@ -319,12 +361,19 @@ impl World {
             hero.p.hp = hero.rise_health(0.5);
             hero.p.iframes = 2.0;
             let name = hero.name.clone();
+            let left = hero.p.revives;
+            self.log_event(&format!("{} is rekindled by an ember ({} left)", name, left));
             self.ward_burst(p, 400.0);
             self.banner("EMBER REKINDLED", &format!("Death refuses {}, this once.", name), Color::from_rgba(255, 150, 60, 255), 3.0);
             self.sfx_at("kindle", 1.0, p);
             return;
         }
         hero.p.hp = 0.0;
+        let near = self.enemies.iter().filter(|e| !e.dead && e.pos.distance(p) < 300.0).count();
+        let lords: Vec<&str> = self.enemies.iter().filter(|e| e.boss && !e.dead).filter_map(|e| if let EnemyKind::Boss(k) = e.kind { Some(k.name()) } else { None }).collect();
+        let fighting = if lords.is_empty() { String::new() } else { format!(", fighting {}", lords.join(" and ")) };
+        let line = format!("{} falls at level {} with {} foes close by{}", self.heroes[h].name, self.level, near, fighting);
+        self.log_event(&line);
         self.add_decal(p, 26.0, Color::from_rgba(90, 5, 8, 220), DecalKind::Blood, 60.0);
         if self.heroes.len() > 1 {
             let name = self.heroes[h].name.clone();
@@ -555,6 +604,7 @@ impl World {
                     PoolKind::Hex => Color::from_rgba(200, 60, 230, 255),
                     PoolKind::Holy => Color::from_rgba(170, 220, 255, 255),
                     PoolKind::Smoke => Color::from_rgba(150, 140, 130, 255),
+                    PoolKind::Blood => Color::from_rgba(150, 10, 18, 255),
                     _ => Color::from_rgba(255, 120, 30, 255),
                 };
                 self.particle(c, vec2(0.0, -40.0), 0.5, 3.0, col, true);
@@ -950,7 +1000,7 @@ impl World {
         }
 
         // Contact damage.
-        let boss_pos = self.boss.as_ref().and_then(|b| self.enemies.iter().find(|e| e.id == b.id)).map(|e| (e.pos, e.r, e.dmg));
+        let boss_pos: Vec<(Vec2, f32, f32)> = self.enemies.iter().filter(|e| e.boss && !e.dead).map(|e| (e.pos, e.r, e.dmg)).collect();
         let mut hurts = Vec::new();
         for h in 0..self.heroes.len() {
             if !self.heroes[h].alive() {
@@ -965,7 +1015,7 @@ impl World {
                     contact = contact.max(e.dmg);
                 }
             }
-            if let Some((bp, br, bd)) = boss_pos {
+            for &(bp, br, bd) in &boss_pos {
                 if bp.distance(pp) < br + 9.0 {
                     contact = contact.max(bd);
                 }

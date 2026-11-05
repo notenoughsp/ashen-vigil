@@ -641,6 +641,52 @@ impl World {
                 eyes(head + vec2(fx * 2.2, 1.0), 1.6, 0.9, rgba(255, 220, 120, 255));
                 draw_circle(head.x, head.y - 2.0, 13.0 * fl, Color::new(1.0, 0.85, 0.5, 0.1));
             }
+            Helm::Butcher => {
+                // A leather hood, crudely stitched, eyes behind the holes.
+                let leather = rgba(120, 82, 60, 255);
+                ball(head, 6.8, leather, hi);
+                for k in 0..4 {
+                    let y = head.y - 5.0 + k as f32 * 3.0;
+                    draw_line(head.x - 1.0, y, head.x + 1.0, y + 1.5, 0.8, rgba(50, 30, 20, 255));
+                }
+                draw_line(head.x, head.y - 6.5, head.x, head.y + 6.0, 0.8, rgba(60, 36, 24, 255));
+                draw_circle(head.x + fx * 1.2, head.y, 1.6, rgba(10, 6, 6, 255));
+                draw_circle(head.x + fx * 4.2, head.y, 1.4, rgba(10, 6, 6, 255));
+                draw_circle(head.x + fx * 1.2, head.y, 0.5, rgba(255, 220, 160, 255));
+                draw_circle(head.x + fx * 3.0, head.y + 3.8, 1.0, rgba(140, 20, 24, 255));
+            }
+            Helm::FlayedHalo => {
+                // Raw red, a skull's grin, and a halo of small bones.
+                ball(head, 6.4, rgba(170, 50, 60, 255), hi);
+                for k in 0..4 {
+                    let y = head.y - 4.0 + k as f32 * 2.4;
+                    draw_line(head.x - 5.0, y, head.x + 5.0, y + 0.6, 0.6, rgba(120, 20, 34, 255));
+                }
+                eyes(head + vec2(fx * 2.2, 0.6), 1.7, 0.9, rgba(250, 236, 210, 255));
+                draw_line(head.x + fx * 0.5, head.y + 3.6, head.x + fx * 4.0, head.y + 3.6, 1.2, rgba(236, 226, 200, 255));
+                for k in 0..9 {
+                    let a = k as f32 / 9.0 * TAU;
+                    let q = head + vec2(a.cos() * 9.0, -11.0 + a.sin() * 2.6);
+                    draw_circle(q.x, q.y, 1.3, rgba(230, 216, 190, 255));
+                }
+            }
+            Helm::HeartCrown => {
+                ball(head, 6.4, rgba(80, 12, 26, 255), hi);
+                eyes(head + vec2(fx * 2.2, 0.8), 1.6, 0.8, rgba(255, 110, 100, 255));
+                let gold = rgba(210, 170, 80, 255);
+                draw_rectangle(head.x - 6.5, head.y - 6.0, 13.0, 2.4, gold);
+                for k in 0..3 {
+                    let x = head.x - 5.0 + k as f32 * 5.0;
+                    draw_triangle(vec2(x - 2.0, head.y - 6.0), vec2(x + 2.0, head.y - 6.0), vec2(x, head.y - 10.0), gold);
+                }
+                // The heart on the crown, beating twice and resting.
+                let ph = (t * 1.2).fract();
+                let b = 1.0 + 0.2 * (-(ph * 14.0)).exp() + 0.12 * (-((ph - 0.25).abs() * 14.0)).exp();
+                let c = head + vec2(0.0, -13.0);
+                draw_circle(c.x - 1.4 * b, c.y - 0.6, 1.8 * b, rgba(200, 30, 50, 255));
+                draw_circle(c.x + 1.4 * b, c.y - 0.6, 1.8 * b, rgba(200, 30, 50, 255));
+                draw_triangle(c + vec2(-3.2 * b, 0.0), c + vec2(3.2 * b, 0.0), c + vec2(0.0, 3.4 * b), rgba(200, 30, 50, 255));
+            }
             Helm::Strawberry => {
                 ball(head, 6.0, rgba(240, 220, 205, 255), hi);
                 eyes(head + vec2(fx * 2.2, 1.5), 1.7, 0.9, rgba(30, 20, 20, 255));
@@ -666,7 +712,7 @@ impl World {
         let metal = rgba(175, 175, 185, 255);
         let wood = rgba(80, 58, 38, 255);
         let up = vec2(fx * 0.35, -1.0).normalize();
-        if kind.is_cathedral() {
+        if kind.field() > 0 {
             self.draw_held_holy(kind, hand, f, fx, up);
             return;
         }
@@ -1796,7 +1842,8 @@ impl World {
         let p = cat.pos;
         let f = cat.facing;
         let t = self.time;
-        let black = rgba(14, 12, 16, 255);
+        // Black as the night, or pink in cute mode.
+        let black = if self.cute { rgba(250, 150, 195, 255) } else { rgba(14, 12, 16, 255) };
         draw_ellipse(p.x, p.y + 6.0, 10.0, 3.0, 0.0, rgba(0, 0, 0, 120));
         // Tail sways in a lazy curve.
         let mut prev = p + vec2(-f * 7.0, 2.0);

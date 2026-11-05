@@ -474,11 +474,18 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         Pause::Running => (0, 0.0),
         Pause::Choosing => (1, 0.0),
         Pause::Countdown(t) => (2, t),
+        Pause::Held => (3, 0.0),
     };
     e.w.u8(pause);
     e.w.f32(countdown);
     e.w.u16(w.level_round);
-    e.w.u8(w.dead as u8 | (w.won as u8) << 1 | (w.endless as u8) << 2 | (w.grave_found as u8) << 3 | (w.boss_rush as u8) << 4);
+    e.w.u8(w.dead as u8
+        | (w.won as u8) << 1
+        | (w.endless as u8) << 2
+        | (w.grave_found as u8) << 3
+        | (w.boss_rush as u8) << 4
+        | (w.bell_found as u8) << 5
+        | (w.heart_found as u8) << 6);
     e.w.u8(w.biome as u8);
     e.w.u8(w.curses);
     e.w.u16(w.bosses_killed as u16);
@@ -554,7 +561,7 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
     e.w.u16(projs.len() as u16);
     for i in projs {
         let p = &w.projs[i];
-        e.w.u8(p.kind.to_u8() | (p.evo as u8) << 4);
+        e.w.u8(p.kind.to_u8() | (p.evo as u8) << 5);
         let (pos, vel, r, age, area) = (p.pos, p.vel, p.r, p.age, p.area);
         e.pos(pos);
         e.vel(vel);
@@ -625,7 +632,9 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
                 FxKind::Ghost => view.sees(f.pos, 30.0),
                 FxKind::Whip { to } => view.sees(f.pos, 40.0) || view.sees(to, 40.0),
                 FxKind::Sword { r } | FxKind::Pipe { r } => view.sees(f.pos, r + 80.0),
-                FxKind::Crook { radius, .. } => view.sees(f.pos, radius),
+                FxKind::Crook { radius, .. } | FxKind::Gash { radius, .. } | FxKind::Ribs { radius, .. } => view.sees(f.pos, radius),
+                FxKind::Gaze { to } | FxKind::Lash { to } => view.sees(f.pos, 40.0) || view.sees(to, 40.0),
+                FxKind::Spike { r } => view.sees(f.pos, r + 40.0),
             }
         })
         .take(255)
@@ -682,6 +691,29 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
             FxKind::Pipe { r } => {
                 e.w.u8(9);
                 e.w.u16(r as u16);
+            }
+            FxKind::Gash { ang, radius, owner } => {
+                e.w.u8(10);
+                e.w.f32(ang);
+                e.w.u16(radius as u16);
+                e.w.u8(owner);
+            }
+            FxKind::Gaze { to } => {
+                e.w.u8(11);
+                e.pos(to);
+            }
+            FxKind::Spike { r } => {
+                e.w.u8(12);
+                e.w.u16(r as u16);
+            }
+            FxKind::Ribs { radius, owner } => {
+                e.w.u8(13);
+                e.w.u16(radius as u16);
+                e.w.u8(owner);
+            }
+            FxKind::Lash { to } => {
+                e.w.u8(14);
+                e.pos(to);
             }
         }
     }
@@ -834,6 +866,12 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         }
         None => e.w.bool(false),
     }
+    e.w.u8(w.bars.len().min(16) as u8);
+    for &(code, hp, max) in w.bars.iter().take(16) {
+        e.w.u8(code);
+        e.w.f32(hp);
+        e.w.f32(max);
+    }
     match &w.banner {
         Some((big, small, c, life)) => {
             e.w.bool(true);
@@ -904,6 +942,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.pause = match pause {
         1 => Pause::Choosing,
         2 => Pause::Countdown(countdown),
+        3 => Pause::Held,
         _ => Pause::Running,
     };
     w.level_round = d.r.u16();
@@ -912,6 +951,8 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.won = flags & 2 != 0;
     w.endless = flags & 4 != 0;
     w.grave_found = flags & 8 != 0;
+    w.bell_found = flags & 32 != 0;
+    w.heart_found = flags & 64 != 0;
     w.boss_rush = flags & 16 != 0;
     // The field shrinks when a boss rush is learned of; braziers must match the host's.
     w.fit_field();
@@ -1028,14 +1069,14 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.projs.clear();
     for _ in 0..d.r.u16() {
         let k = d.r.u8();
-        let kind = PKind::from_u8(k & 15);
+        let kind = PKind::from_u8(k & 31);
         let pos = d.pos();
         let vel = d.vel();
         let r = d.r.u16() as f32;
         let age = d.r.u16() as f32 / 1000.0;
         let area = d.r.u16() as f32 / 1000.0;
         let src = Src { hero: 0, weapon: WeaponKind::Blade };
-        w.projs.push(Proj { pos, vel, dir: vel.normalize_or_zero(), r, dmg: 0.0, pierce: 0, life: 1.0, age, kind, evo: k & 16 != 0, area, src, hits: Vec::new(), dead: false });
+        w.projs.push(Proj { pos, vel, dir: vel.normalize_or_zero(), r, dmg: 0.0, pierce: 0, life: 1.0, age, kind, evo: k & 32 != 0, area, src, hits: Vec::new(), dead: false });
     }
 
     w.ebullets.clear();
@@ -1085,6 +1126,11 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             7 => FxKind::Sword { r: d.r.u16() as f32 },
             8 => FxKind::Crook { radius: d.r.u16() as f32, owner: d.r.u8() },
             9 => FxKind::Pipe { r: d.r.u16() as f32 },
+            10 => FxKind::Gash { ang: d.r.f32(), radius: d.r.u16() as f32, owner: d.r.u8() },
+            11 => FxKind::Gaze { to: d.pos() },
+            12 => FxKind::Spike { r: d.r.u16() as f32 },
+            13 => FxKind::Ribs { radius: d.r.u16() as f32, owner: d.r.u8() },
+            14 => FxKind::Lash { to: d.pos() },
             _ => FxKind::Ghost,
         };
         w.fx.push(Fx { pos, life, max_life, kind });
@@ -1227,6 +1273,11 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     } else {
         None
     };
+    w.bars.clear();
+    for _ in 0..d.r.u8().min(16) {
+        let (code, hp, max) = (d.r.u8(), d.r.f32(), d.r.f32());
+        w.bars.push((code, hp, max));
+    }
     w.banner = if d.r.bool() {
         let big = d.r.str();
         let small = d.r.str();
