@@ -431,6 +431,7 @@ impl App {
         let presence = if self.save.settings.discord { Some(self.presence()) } else { None };
         self.discord.set(presence);
         crate::ui::set_hurt_flash(self.save.settings.hurt_flash);
+        crate::ui::set_hero_bars(self.save.settings.hero_hp_bar, self.save.settings.hero_stamina_bar);
         crate::draw::set_brightness(self.save.settings.brightness as f32 / 100.0);
         crate::draw::set_effect_alpha(self.save.settings.effect_alpha as f32 / 100.0);
         if let Some(w) = self.world.as_mut() {

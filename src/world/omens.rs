@@ -34,8 +34,14 @@ const RIVAL_STAY: f32 = 90.0;
 
 /// The wager stone's three bets: seconds to fell the lord in, and what the stake becomes.
 pub const WAGERS: [(f32, f32); 3] = [(30.0, 3.0), (60.0, 2.0), (90.0, 1.5)];
+/// The most a bet may stake: without a cap, a third of everything at up to three times,
+/// lord after lord, grew a purse twentyfold in one vigil.
+pub fn wager_cap(time: f32) -> u64 {
+    (400.0 + 60.0 * time / 60.0) as u64
+}
+
 /// Seconds of standing on a tile to place the bet.
-const WAGER_KINDLE: f32 = 1.0;
+pub const WAGER_KINDLE: f32 = 1.0;
 /// The stone stays this long after its lord has come (a boss rush leaves no time before).
 const WAGER_LINGER: f32 = 8.0;
 
@@ -75,9 +81,12 @@ impl WagerStone {
     }
 }
 
-/// When hourglass shrines rise (seconds into a vigil) and how much of the night they skip.
+/// When hourglass shrines rise (seconds into a vigil) and how much of the night they skip: one
+/// to five minutes, by chance.
 const HOURGLASS_AT: [f32; 6] = [150.0, 450.0, 750.0, 1050.0, 1350.0, 1620.0];
-pub const HOURGLASS_SKIP: f32 = 60.0;
+pub const HOURGLASS_SKIP: (f32, f32) = (60.0, 300.0);
+/// When the sand runs past a lord, it comes this long after, with a warning all the while.
+pub const LORD_AFTER_SKIP: f32 = 15.0;
 pub const HOURGLASS_KINDLE: f32 = 1.5;
 const HOURGLASS_STAY: f32 = 45.0;
 
@@ -97,7 +106,12 @@ pub struct Altar {
 pub struct Vault {
     pub pos: Vec2,
     pub open: bool,
+    /// Seconds an opened vault still stands before it crumbles away.
+    pub left: f32,
 }
+
+/// An opened vault crumbles after this long.
+const VAULT_LINGER: f32 = 25.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Weather {
@@ -181,7 +195,7 @@ impl World {
             self.courier = Some(e.id);
             self.enemies.push(e);
             let vault = clamp_world(self.center() + rand_dir() * gen_range(900.0, 1300.0), 200.0);
-            self.vault = Some(Vault { pos: vault, open: false });
+            self.vault = Some(Vault { pos: vault, open: false, left: VAULT_LINGER });
             self.vault_key = false;
             self.banner("A COURIER FLEES", "It carries the key to a sealed vault. Catch it!", Color::from_rgba(240, 200, 90, 255), 3.5);
             self.sfx("chime", 0.9);
@@ -201,8 +215,16 @@ impl World {
             Some(v) if !v.open && self.vault_key => self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(v.pos) < 44.0),
             _ => None,
         };
+        // An opened vault is a husk: it crumbles after a while.
+        if let Some(v) = self.vault.as_mut().filter(|v| v.open) {
+            v.left -= dt;
+            if v.left <= 0.0 {
+                self.vault = None;
+            }
+        }
         if let (Some(h), Some(v)) = (opener, self.vault.as_mut()) {
             v.open = true;
+            v.left = VAULT_LINGER;
             let pos = v.pos;
             self.vault_key = false;
             for (k, boss) in [(0, true), (1, false), (2, false)] {
@@ -242,7 +264,10 @@ impl World {
             let (at, _, _) = self.random_hero_pos();
             let mut e = self.make_enemy(EnemyKind::Champion, clamp_world(at + rand_dir() * 420.0, 80.0));
             let coop = 1.0 + 0.6 * (self.heroes.len().max(1) - 1) as f32;
-            e.hp = 2400.0 * (1.0 + t / 300.0).powf(1.6) * self.diff.hp * coop;
+            // Far tougher than it was, and like the lords and Sven no blow takes more than a
+            // sliver of it: it can no longer be felled the moment it steps out of the fog.
+            e.hp = 9000.0 * (1.0 + t / 300.0).powf(1.7) * self.diff.hp * coop;
+            e.dmg *= 1.3 * (1.0 + t / 600.0);
             e.max_hp = e.hp;
             e.elite = true;
             e.r = EnemyKind::Champion.radius(true);
@@ -276,31 +301,38 @@ impl World {
                 self.next_rival = t + 240.0;
                 let at = self.heroes[h].p.pos;
                 let mut e = self.make_enemy(EnemyKind::Rival, clamp_world(at + rand_dir() * 460.0, 80.0));
-                // Somewhat less than a lord of the hour, but it takes at least forty blows.
+                // Somewhat less than a lord of the hour, but it takes at least forty blows; and
+                // every time he comes back he has grown, in health, in force and in pace.
                 let coop = 1.0 + 0.6 * (self.heroes.len().max(1) - 1) as f32;
-                e.hp = 1600.0 * (1.0 + t / 300.0).powf(1.6) * self.diff.hp * coop;
+                let n = self.rivals_come as f32;
+                e.hp = 1600.0 * (1.0 + t / 300.0).powf(1.6) * self.diff.hp * coop * 1.5f32.powf(n);
                 e.max_hp = e.hp;
-                e.dmg *= 1.4 * (1.0 + t / 600.0);
-                e.speed *= 1.15;
+                e.dmg *= 1.4 * (1.0 + t / 600.0) * 1.2f32.powf(n);
+                e.speed *= 1.15 * (1.0 + 0.05 * n).min(1.3);
+                e.xp *= 1.0 + 0.5 * n;
+                // A moment to see him coming before his first lunge.
+                e.fuse = 2.5;
+                self.rivals_come += 1;
                 e.hunt = Some(h);
                 e.life_left = RIVAL_STAY;
                 self.enemies.push(e);
                 let name = self.heroes[h].name.clone();
-                self.banner("SVEN HUNTS YOU", &format!("Untouched too long, {} draws a rival. He carries many souls.", name), Color::from_rgba(230, 80, 70, 255), 4.0);
+                let title = if self.rivals_come > 1 { format!("SVEN RETURNS, STRONGER ({})", self.rivals_come) } else { "SVEN HUNTS YOU".to_string() };
+                self.banner(&title, &format!("Untouched too long, {} draws a rival. He carries many souls.", name), Color::from_rgba(230, 80, 70, 255), 4.0);
                 self.sfx("bell", 0.8);
             }
         }
     }
 
-    /// Hourglass shrines: they rise at fixed times; standing on one skips a minute of the night,
-    /// but never past the warning of the next lord or past dawn.
+    /// Hourglass shrines: they rise at fixed times; standing on one skips one to five minutes of
+    /// the night. A lord it runs past still comes, after a warning; dawn is never skipped.
     fn update_hourglass(&mut self, dt: f32) {
         let t = self.time;
         if !self.endless && HOURGLASS_AT.iter().any(|at| t >= *at && t - dt < *at) {
             let (at, _, _) = self.random_hero_pos();
             let pos = clamp_world(at + rand_dir() * gen_range(300.0, 440.0), 160.0);
             self.hourglass = Some(Hourglass { pos, life: HOURGLASS_STAY, kindle: 0.0 });
-            self.toast("An hourglass shrine rises. Stand on it to let a minute of the night pass.");
+            self.toast("An hourglass shrine rises. Stand on it to let one to five minutes of the night pass.");
         }
         let Some(g) = self.hourglass.as_mut() else { return };
         g.life -= dt;
@@ -310,18 +342,30 @@ impl World {
             Some(_) if self.boss.is_none() => g.kindle += dt,
             _ => g.kindle = (g.kindle - dt * 2.0).max(0.0),
         }
-        // Up to a minute, but the next lord still gets its warning and dawn its Sovereign.
-        let room = (self.next_boss - BOSS_WARNING - 1.0 - t).min(VICTORY_TIME - 2.0 - t);
-        let skip = HOURGLASS_SKIP.min(room).max(0.0);
-        if g.kindle >= HOURGLASS_KINDLE && skip < 5.0 {
-            // A lord is too near: the sand will not run.
+        let busy = self.boss.is_some() || self.boss_warning > 0.0;
+        if g.kindle >= HOURGLASS_KINDLE && busy {
+            // A lord is here or at the door: the sand will not run.
             g.kindle = 0.0;
             self.toast("The hourglass will not turn while a lord draws near.");
         } else if g.kindle >= HOURGLASS_KINDLE {
             self.hourglass = None;
-            self.skip_time(skip);
+            // One to five minutes, by chance, in steps of ten seconds.
+            let want = (gen_range(HOURGLASS_SKIP.0, HOURGLASS_SKIP.1) / 10.0).round() * 10.0;
+            let (skip, lord) = self.skip_time(want);
             let who = on.map(|h| self.heroes[h].name.clone()).unwrap_or_default();
-            self.banner("THE NIGHT MOVES ON", &format!("{} turns the hourglass: {:.0} seconds pass", who, skip), Color::from_rgba(170, 210, 255, 255), 3.0);
+            let mins = skip / 60.0;
+            let span = if (mins - mins.round()).abs() < 0.05 { format!("{:.0} minute{}", mins, if mins.round() == 1.0 { "" } else { "s" }) } else { format!("{:.0} seconds", skip) };
+            if lord {
+                self.banner(
+                    "THE SAND RUNS PAST A LORD",
+                    &format!("{} turns the hourglass: {} pass. A lord comes in {:.0} seconds", who, span, LORD_AFTER_SKIP),
+                    Color::from_rgba(230, 120, 110, 255),
+                    4.0,
+                );
+                self.sfx("roar", 0.7);
+            } else {
+                self.banner("THE NIGHT MOVES ON", &format!("{} turns the hourglass: {} pass", who, span), Color::from_rgba(170, 210, 255, 255), 3.0);
+            }
             self.fx.push(Fx { pos, life: 0.8, max_life: 0.8, kind: FxKind::Ring { r: 220.0, color: Color::from_rgba(170, 210, 255, 255) } });
             self.sfx("bell", 0.8);
         } else if g.life <= 0.0 {
@@ -329,13 +373,31 @@ impl World {
         }
     }
 
-    /// Lets `secs` of the night pass at once. Everything keyed to the clock (the next lord, the
-    /// next horde, shrines, relics) comes that much sooner; timed events in between pass by.
-    fn skip_time(&mut self, secs: f32) {
-        self.time += secs;
-        // Timers that count down by themselves keep their pace; the minute's cards are dealt.
-        let lost = secs / 60.0;
-        self.pending_levels += lost.round() as u32;
+    /// Lets up to `secs` of the night pass at once. Everything keyed to the clock (the next
+    /// horde, shrines, relics) comes that much sooner; timed events in between pass by. A lord
+    /// is never skipped: if the sand runs past one, it comes `LORD_AFTER_SKIP` seconds later,
+    /// with a long warning; the Sovereign keeps dawn, so the sand stops short of it. Returns the
+    /// seconds that passed and whether a lord now waits.
+    fn skip_time(&mut self, secs: f32) -> (f32, bool) {
+        let t = self.time;
+        let finale = !self.endless && self.next_boss >= VICTORY_TIME - 1.0;
+        let mut to = t + secs;
+        let mut lord = false;
+        if to > self.next_boss - LORD_AFTER_SKIP {
+            lord = true;
+            if finale {
+                // Dawn does not move: stop where its warning begins.
+                to = to.min(self.next_boss - LORD_AFTER_SKIP).max(t);
+            } else {
+                self.next_boss = to + LORD_AFTER_SKIP;
+            }
+            self.long_warning = true;
+        }
+        let secs = to - t;
+        self.time = to;
+        // Timers that count down by themselves keep their pace; the minutes' cards are dealt.
+        self.pending_levels += (secs / 60.0).round() as u32;
+        (secs, lord)
     }
 
     fn update_altars(&mut self, dt: f32) {
@@ -383,7 +445,7 @@ impl World {
             self.stone_made = self.bosses_spawned;
             let pos = clamp_world(self.center() + rand_dir() * gen_range(180.0, 260.0), 200.0);
             self.stone = Some(WagerStone { pos });
-            self.toast("A wager stone rises. Bet a third of your souls on how fast the lord falls.");
+            self.toast(&format!("A wager stone rises. Bet a third of your souls (at most {}) on how fast the lord falls.", wager_cap(t)));
         }
         if self.boss.is_some() && t - self.boss_started > WAGER_LINGER {
             self.stone = None;
@@ -406,7 +468,7 @@ impl World {
                 Some(i) if hero.wager_tile == i => {
                     hero.wager_kindle += dt;
                     if hero.wager_kindle >= WAGER_KINDLE {
-                        let stake = hero.p.souls / 3;
+                        let stake = (hero.p.souls / 3).min(wager_cap(t));
                         hero.p.souls -= stake;
                         let since = self.boss.is_some().then_some(t);
                         hero.wager = Some(Wager { tier: i, stake, since });

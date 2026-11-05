@@ -43,6 +43,16 @@ pub struct Quest {
 }
 
 impl Quest {
+    /// The seconds a quest of this kind is given.
+    pub fn left_at_start(&self) -> f32 {
+        match self.kind {
+            QuestKind::Slay => 60.0,
+            QuestKind::Elites => 120.0,
+            QuestKind::Untouched | QuestKind::Relics => 90.0,
+            QuestKind::Kindle => 75.0,
+        }
+    }
+
     /// What the quest asks, for the HUD.
     pub fn text(&self) -> String {
         match self.kind {
@@ -99,14 +109,14 @@ impl World {
             kinds.push(QuestKind::Kindle);
         }
         let kind = kinds[gen_range(0, kinds.len())];
-        let (goal, left) = match kind {
-            QuestKind::Slay => ((150.0 * k) as u32 / 10 * 10, 60.0),
-            QuestKind::Elites => ((1.0 + k).min(5.0) as u32, 120.0),
-            QuestKind::Untouched => (((20.0 + 5.0 * k) as u32).min(45), 90.0),
-            QuestKind::Kindle => (2, 75.0),
-            QuestKind::Relics => (2, 90.0),
+        let goal = match kind {
+            QuestKind::Slay => (150.0 * k) as u32 / 10 * 10,
+            QuestKind::Elites => (1.0 + k).min(5.0) as u32,
+            QuestKind::Untouched => ((20.0 + 5.0 * k) as u32).min(45),
+            QuestKind::Kindle | QuestKind::Relics => 2,
         };
-        let q = Quest { kind, goal, progress: 0, left };
+        let mut q = Quest { kind, goal, progress: 0, left: 0.0 };
+        q.left = q.left_at_start();
         if kind == QuestKind::Untouched {
             self.last_wound = self.time;
         }

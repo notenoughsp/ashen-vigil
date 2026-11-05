@@ -230,7 +230,8 @@ impl World {
     /// Renders the light map and multiplies it over what is on screen.
     pub(super) fn apply_lighting(&self, l: &Lighting, cam: &Camera2D) {
         let lights = self.collect_lights();
-        set_camera(&Camera2D { target: cam.target, zoom: vec2(cam.zoom.x, -cam.zoom.y), render_target: Some(l.target.clone()), ..Default::default() });
+        // The scene's own camera: macroquad turns y around for a render target by itself.
+        set_camera(&Camera2D { target: cam.target, zoom: cam.zoom, render_target: Some(l.target.clone()), ..Default::default() });
         // Under the Blood Moon the darkness itself turns red.
         let k = (self.blood_moon / 3.0).clamp(0.0, 1.0).min(((MOON_LENGTH - self.blood_moon) / 3.0).clamp(0.0, 1.0));
         let field = match self.biome {

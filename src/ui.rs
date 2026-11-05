@@ -23,6 +23,13 @@ thread_local! {
     /// Off-screen markers sit this share of the shorter screen side inside the edge.
     static MARKER_INSET: std::cell::Cell<f32> = const { std::cell::Cell::new(0.12) };
     static HURT_FLASH: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+    /// The small health and stamina bars under our hero.
+    static HERO_BARS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((true, true)) };
+}
+
+/// Takes the settings for the bars under the hero; called every frame.
+pub fn set_hero_bars(hp: bool, stamina: bool) {
+    HERO_BARS.with(|b| b.set((hp, stamina)));
 }
 
 /// Takes the hurt flash setting; called every frame.
@@ -136,7 +143,7 @@ pub fn warm_glyphs(font: Option<&Font>) {
 pub fn level_up_cards(n: usize) -> Vec<Rect> {
     let (sw, sh) = (ui_w(), ui_h());
     let cw = 560.0f32.min(sw - 40.0);
-    (0..n).map(|i| Rect::new((sw - cw) * 0.5, sh * 0.16 + 56.0 + i as f32 * 84.0, cw, 74.0)).collect()
+    (0..n).map(|i| Rect::new((sw - cw) * 0.5, sh * 0.16 + 56.0 + i as f32 * 100.0, cw, 90.0)).collect()
 }
 
 pub fn short(v: f64) -> String {
@@ -232,11 +239,14 @@ impl<'a> Ui<'a> {
             let d = (s - c).normalize_or_zero();
             // Inside the screen by the chosen amount, so a glance from the middle catches them.
             let m = (sw.min(sh) * MARKER_INSET.with(|m| m.get())).max(20.0);
+            // On a circle around the hero rather than along the screen's edges: on a wide
+            // screen a marker to the side would otherwise sit much further out than one above.
+            let radius = sw.min(sh) * 0.5 - m;
+            let mut p = c + d * radius;
             // Keep clear of the boss bar along the bottom edge.
-            let my = if d.y > 0.0 && w.boss_kind.is_some() { m.max(105.0) } else { m };
-            let tx = if d.x.abs() > 0.001 { ((sw * 0.5 - m) / d.x.abs()).abs() } else { f32::MAX };
-            let ty = if d.y.abs() > 0.001 { ((sh * 0.5 - my) / d.y.abs()).abs() } else { f32::MAX };
-            let p = c + d * tx.min(ty);
+            if w.boss_kind.is_some() {
+                p.y = p.y.min(sh - 105.0);
+            }
             let perp = vec2(-d.y, d.x);
             draw_triangle(p + d * 12.0, p - d * 6.0 + perp * 8.0, p - d * 6.0 - perp * 8.0, color);
             if labeled.iter().any(|q| q.distance(p) < 70.0) {
@@ -245,6 +255,204 @@ impl<'a> Ui<'a> {
             labeled.push(p);
             let dist = (target - me).length() / 10.0;
             self.text_c(&format!("{} {:.0}m", label, dist), p.x - d.x * 24.0, p.y - d.y * 24.0 + 4.0, 14.0, a(color, 0.9));
+        }
+    }
+
+    /// Weapons in a row and passives below, `k` times the HUD's size, wrapping at `max_w`.
+    /// Returns where each icon sits with its name and what it does, and the y under it all.
+    pub fn loadout(&self, w: &World, me: &Hero, x0: f32, y0: f32, k: f32, max_w: f32) -> (Vec<(Rect, String, String)>, f32) {
+        let mut tips = Vec::new();
+        let s = 40.0 * k;
+        let gap = 5.0 * k;
+        let (mut x, mut y) = (x0, y0);
+        for wp in &me.weapons {
+            if x + s > x0 + max_w && x > x0 {
+                x = x0;
+                y += s + 18.0 * k;
+            }
+            let box_c = vec2(x + s * 0.5, y + s * 0.5);
+            draw_rectangle(x, y, s, s, Color::new(0.05, 0.05, 0.05, 0.85));
+            match wp.tier() {
+                0 => crate::icons::weapon_icon(wp.kind, box_c, s * 0.8, wp.kind.color()),
+                1 => {
+                    crate::icons::weapon_icon(wp.kind, box_c - vec2(s, s) * 0.17, s * 0.56, wp.kind.color());
+                    crate::icons::weapon_icon(wp.fused[0], box_c + vec2(s, s) * 0.17, s * 0.56, wp.fused[0].color());
+                }
+                _ => {
+                    // A grid of every weapon inside the mega or ultra fusion.
+                    let kinds = wp.kinds();
+                    let cols = if kinds.len() > 4 { 4 } else { 2 };
+                    let inner = s - 4.0 * k;
+                    let cell = inner / cols as f32;
+                    let rows = kinds.len().div_ceil(cols);
+                    let cell_h = inner / rows as f32;
+                    for (n, kind) in kinds.iter().enumerate() {
+                        let at = vec2(x + 2.0 * k + (n % cols) as f32 * cell + cell * 0.5, y + 2.0 * k + (n / cols) as f32 * cell_h + cell_h * 0.5);
+                        crate::icons::weapon_icon(*kind, at, cell.min(cell_h) * 1.15, kind.color());
+                    }
+                }
+            }
+            let border = if wp.tier() >= 4 {
+                // The last flame burns around its frame.
+                let fl = 0.75 + 0.25 * (w.time * 5.0).sin();
+                draw_rectangle(x - 3.0, y - 3.0, s + 6.0, s + 6.0, Color::new(1.0, 0.8, 0.4, 0.18 * fl));
+                Color::new(1.0, 0.85 + 0.15 * fl, 0.55 + 0.3 * fl, 1.0)
+            } else if wp.tier() >= 3 {
+                Color::new(1.0, 0.95, 0.75, 1.0)
+            } else if wp.tier() == 2 {
+                Color::new(0.85, 0.55, 1.0, 1.0)
+            } else if wp.is_fused() {
+                Color::new(1.0, 0.35, 0.25, 1.0)
+            } else if wp.evolved {
+                GOLD
+            } else {
+                Color::new(0.35, 0.32, 0.3, 1.0)
+            };
+            draw_rectangle_lines(x, y, s, s, 2.0, border);
+            let lv = match wp.tier() {
+                4 => "LAST".to_string(),
+                3 => "ULTRA".to_string(),
+                2 => "MEGA".to_string(),
+                1 => "FUSED".to_string(),
+                _ if wp.level >= WEAPON_MAX_LEVEL => "MAX".to_string(),
+                _ => format!("{}", wp.level),
+            };
+            let fs = 12.0 * k;
+            draw_rectangle(x, y + s, s, fs + 2.0, Color::new(0.0, 0.0, 0.0, 0.6));
+            let lw = mono_width(&lv, fs);
+            mono(&lv, x + s * 0.5 - lw * 0.5, y + s + fs - 1.0, fs, if wp.tier() > 0 || wp.evolved { border } else { PALE });
+            let title = match wp.tier() {
+                0 => format!("{}   Lv {} / {}", wp.display_name(), wp.level, WEAPON_MAX_LEVEL),
+                _ => wp.display_name().to_string(),
+            };
+            let body = if wp.is_fused() {
+                let names: Vec<&str> = wp.kinds().iter().map(|k| k.name(false)).collect();
+                format!("Weapon, fused from {}.", names.join(", "))
+            } else {
+                let partner = wp.kind.fusion_partners();
+                format!("Weapon. {}\nAt its highest level it fuses with {} or {}.", wp.kind.desc(), partner[0].name(false), partner[1].name(false))
+            };
+            tips.push((Rect::new(x, y, s, s + fs), title, body));
+            x += s + gap;
+        }
+        if !me.weapons.is_empty() {
+            y += s + 18.0 * k;
+        }
+        let s = 32.0 * k;
+        let mut x = x0;
+        for it in &me.items {
+            if x + s > x0 + max_w && x > x0 {
+                x = x0;
+                y += s + gap;
+            }
+            draw_rectangle(x, y, s, s, Color::new(0.05, 0.05, 0.05, 0.85));
+            crate::icons::item_icon(it.kind, vec2(x + s * 0.5, y + s * 0.5), s * 0.8, it.kind.color());
+            let maxed = it.level >= it.kind.max_level();
+            draw_rectangle_lines(x, y, s, s, 1.5, if maxed { GOLD } else { Color::new(0.35, 0.32, 0.3, 1.0) });
+            let lv = it.level.to_string();
+            let fs = 12.0 * k;
+            let lw = mono_width(&lv, fs);
+            draw_rectangle(x + s - lw - 4.0, y + s - fs, lw + 4.0, fs, Color::new(0.0, 0.0, 0.0, 0.7));
+            mono(&lv, x + s - lw - 2.0, y + s - 2.0, fs, if maxed { GOLD } else { PALE });
+            let title = format!("{}   Lv {} / {}", it.kind.name(), it.level, it.kind.max_level());
+            let body = match it.kind.detail() {
+                Some(d) => format!("Passive: {} per level.\n{}", it.kind.desc(), d),
+                None => format!("Passive: {} per level.", it.kind.desc()),
+            };
+            tips.push((Rect::new(x, y, s, s), title, body));
+            x += s + gap;
+        }
+        if !me.items.is_empty() {
+            y += s;
+        }
+        (tips, y)
+    }
+
+    /// Thin health and stamina bars right under our own hero.
+    fn hero_bars(&self, w: &World, me: &Hero) {
+        let (hp, stamina) = HERO_BARS.with(|b| b.get());
+        if (!hp && !stamina) || me.downed || w.dead {
+            return;
+        }
+        let feet = w.world_to_screen(me.p.pos + vec2(0.0, 24.0));
+        let bw = 46.0;
+        let x = feet.x - bw * 0.5;
+        let mut y = feet.y;
+        if hp {
+            let frac = (me.p.hp / me.stats.max_hp).clamp(0.0, 1.0);
+            draw_rectangle(x - 1.0, y - 1.0, bw + 2.0, 6.0, Color::new(0.0, 0.0, 0.0, 0.75));
+            draw_rectangle(x, y, bw * frac, 4.0, Color::new(0.8, 0.12, 0.08, 0.95));
+            y += 6.0;
+        }
+        if stamina {
+            let frac = (me.p.stamina / me.stats.stamina_max).clamp(0.0, 1.0);
+            // Dim while a roll cannot be paid for.
+            let col = if me.p.stamina >= me.roll_cost() { Color::new(0.3, 0.75, 0.35, 0.95) } else { Color::new(0.3, 0.45, 0.32, 0.8) };
+            draw_rectangle(x - 1.0, y - 1.0, bw + 2.0, 5.0, Color::new(0.0, 0.0, 0.0, 0.75));
+            draw_rectangle(x, y, bw * frac, 3.0, col);
+        }
+    }
+
+    /// Splits `s` into lines no wider than `max_w` at `size`.
+    pub fn wrap(&self, s: &str, size: f32, max_w: f32) -> Vec<String> {
+        let mut lines: Vec<String> = Vec::new();
+        let mut cur = String::new();
+        for word in s.split_whitespace() {
+            let next = if cur.is_empty() { word.to_string() } else { format!("{} {}", cur, word) };
+            if !cur.is_empty() && self.width(&next, size) > max_w {
+                lines.push(std::mem::replace(&mut cur, word.to_string()));
+            } else {
+                cur = next;
+            }
+        }
+        if !cur.is_empty() {
+            lines.push(cur);
+        }
+        lines
+    }
+
+    /// The quest in hand at the middle of the left edge, where it catches the eye when it
+    /// comes: a few short lines rather than one long one.
+    fn quest_panel(&self, q: &Quest, sh: f32) {
+        let (x, pw) = (16.0, 236.0);
+        let lines = self.wrap(&q.text(), 18.0, pw - 24.0);
+        let ph = 74.0 + lines.len() as f32 * 21.0;
+        let y = sh * 0.45 - ph * 0.5;
+        // A brief glow when it is new.
+        let fresh = (q.left_at_start() - q.left).clamp(0.0, 1.5);
+        let glow = if fresh < 1.5 { 0.5 * (1.0 - fresh / 1.5) } else { 0.0 };
+        draw_rectangle(x, y, pw, ph, Color::new(0.03, 0.025, 0.02, 0.72 + glow * 0.4));
+        draw_rectangle_lines(x, y, pw, ph, 1.5, a(GOLD, 0.45 + glow));
+        let left = q.left.max(0.0) as u32;
+        self.text("QUEST", x + 12.0, y + 22.0, 15.0, GOLD);
+        let clock = format!("{}:{:02}", left / 60, left % 60);
+        self.text_r(&clock, x + pw - 12.0, y + 22.0, 16.0, if q.left < 10.0 { EMBER } else { PALE });
+        let mut ly = y + 46.0;
+        for l in &lines {
+            self.text(l, x + 12.0, ly, 18.0, PALE);
+            ly += 21.0;
+        }
+        let frac = q.progress as f32 / q.goal.max(1) as f32;
+        self.bar(Rect::new(x + 12.0, ly - 6.0, pw - 90.0, 7.0), frac, 0.0, GOLD);
+        self.text_r(&format!("{} / {}", q.progress, q.goal), x + pw - 12.0, ly + 2.0, 15.0, PALE);
+        self.text("A coffer for every hero", x + 12.0, ly + 20.0, 13.0, DIM);
+    }
+
+    /// The name and description of whatever icon the mouse rests on.
+    pub fn tooltip(&self, tips: &[(Rect, String, String)]) {
+        let m = crate::app::input::mouse_ui();
+        let Some((_, title, body)) = tips.iter().find(|(r, _, _)| r.contains(m)) else { return };
+        let lines: Vec<&str> = body.lines().collect();
+        let tw = lines.iter().map(|l| self.width(l, 16.0)).fold(self.width(title, 19.0), f32::max) + 24.0;
+        let th = 34.0 + lines.len() as f32 * 21.0;
+        let (sw, sh) = (ui_w(), ui_h());
+        let x = (m.x + 18.0).min(sw - tw - 8.0).max(8.0);
+        let y = (m.y + 18.0).min(sh - th - 8.0).max(8.0);
+        draw_rectangle(x, y, tw, th, Color::new(0.04, 0.035, 0.035, 0.96));
+        draw_rectangle_lines(x, y, tw, th, 1.5, a(GOLD, 0.7));
+        self.text(title, x + 12.0, y + 24.0, 19.0, GOLD);
+        for (i, l) in lines.iter().enumerate() {
+            self.text(l, x + 12.0, y + 48.0 + i as f32 * 21.0, 16.0, PALE);
         }
     }
 
@@ -278,71 +486,11 @@ impl<'a> Ui<'a> {
         let st_w = 120.0 + me.stats.stamina_max * 0.8;
         self.bar(Rect::new(22.0, 38.0, st_w, 7.0), pl.stamina / me.stats.stamina_max, 0.0, Color::new(0.25, 0.55, 0.28, 1.0));
 
-        // Weapons: an icon each, a coloured frame for evolved and fused ones, the level below.
-        let mut x = 22.0;
-        for wp in &me.weapons {
-            let box_c = vec2(x + 15.0, 71.0);
-            draw_rectangle(x, 56.0, 30.0, 30.0, Color::new(0.05, 0.05, 0.05, 0.85));
-            match wp.tier() {
-                0 => crate::icons::weapon_icon(wp.kind, box_c, 24.0, wp.kind.color()),
-                1 => {
-                    crate::icons::weapon_icon(wp.kind, box_c + vec2(-5.0, -5.0), 17.0, wp.kind.color());
-                    crate::icons::weapon_icon(wp.fused[0], box_c + vec2(5.0, 5.0), 17.0, wp.fused[0].color());
-                }
-                _ => {
-                    // A grid of every weapon inside the mega or ultra fusion.
-                    let kinds = wp.kinds();
-                    let cols = if kinds.len() > 4 { 4 } else { 2 };
-                    let cell = 26.0 / cols as f32;
-                    let rows = kinds.len().div_ceil(cols);
-                    let cell_h = 26.0 / rows as f32;
-                    for (k, kind) in kinds.iter().enumerate() {
-                        let at = vec2(x + 2.0 + (k % cols) as f32 * cell + cell * 0.5, 58.0 + (k / cols) as f32 * cell_h + cell_h * 0.5);
-                        crate::icons::weapon_icon(*kind, at, cell.min(cell_h) * 1.15, kind.color());
-                    }
-                }
-            }
-            let border = if wp.tier() >= 4 {
-                // The last flame burns around its frame.
-                let fl = 0.75 + 0.25 * (w.time * 5.0).sin();
-                draw_rectangle(x - 3.0, 53.0, 36.0, 36.0, Color::new(1.0, 0.8, 0.4, 0.18 * fl));
-                Color::new(1.0, 0.85 + 0.15 * fl, 0.55 + 0.3 * fl, 1.0)
-            } else if wp.tier() >= 3 {
-                Color::new(1.0, 0.95, 0.75, 1.0)
-            } else if wp.tier() == 2 {
-                Color::new(0.85, 0.55, 1.0, 1.0)
-            } else if wp.is_fused() {
-                Color::new(1.0, 0.35, 0.25, 1.0)
-            } else if wp.evolved {
-                GOLD
-            } else {
-                Color::new(0.35, 0.32, 0.3, 1.0)
-            };
-            draw_rectangle_lines(x, 56.0, 30.0, 30.0, 2.0, border);
-            let lv = match wp.tier() {
-                4 => "LAST".to_string(),
-                3 => "ULTRA".to_string(),
-                2 => "MEGA".to_string(),
-                1 => "FUSED".to_string(),
-                _ if wp.evolved => "EVO".to_string(),
-                _ => format!("{}", wp.level),
-            };
-            draw_rectangle(x, 86.0, 30.0, 11.0, Color::new(0.0, 0.0, 0.0, 0.6));
-            let lw = mono_width(&lv, 11.0);
-            mono(&lv, x + 15.0 - lw * 0.5, 95.0, 11.0, if wp.tier() > 0 || wp.evolved { border } else { PALE });
-            x += 34.0;
-        }
-        // Items: an icon each and their level.
-        let mut x = 22.0;
-        for it in &me.items {
-            draw_rectangle(x, 100.0, 22.0, 22.0, Color::new(0.05, 0.05, 0.05, 0.85));
-            crate::icons::item_icon(it.kind, vec2(x + 11.0, 111.0), 18.0, it.kind.color());
-            draw_rectangle_lines(x, 100.0, 22.0, 22.0, 1.5, Color::new(0.35, 0.32, 0.3, 1.0));
-            let lv = it.level.to_string();
-            draw_rectangle(x + 13.0, 113.0, 9.0, 9.0, Color::new(0.0, 0.0, 0.0, 0.7));
-            mono(&lv, x + 14.5, 121.0, 11.0, PALE);
-            x += 26.0;
-        }
+        self.hero_bars(w, me);
+
+        // Weapons and passives, with what they do when the mouse rests on one.
+        let (tips, below) = self.loadout(w, me, 22.0, 54.0, 1.0, sw * 0.45);
+        let by = below + 4.0;
 
         let mut bx = 22.0;
         for b in ALL_BUFFS {
@@ -350,9 +498,9 @@ impl<'a> Ui<'a> {
             if t <= 0.0 {
                 continue;
             }
-            draw_rectangle(bx, 128.0, 70.0, 14.0, Color::new(0.0, 0.0, 0.0, 0.6));
-            draw_rectangle(bx, 138.0, 70.0 * (t / b.duration()).min(1.0), 4.0, b.color());
-            mono(b.name(), bx + 3.0, 137.0, 13.0, b.color());
+            draw_rectangle(bx, by, 70.0, 14.0, Color::new(0.0, 0.0, 0.0, 0.6));
+            draw_rectangle(bx, by + 10.0, 70.0 * (t / b.duration()).min(1.0), 4.0, b.color());
+            mono(b.name(), bx + 3.0, by + 9.0, 13.0, b.color());
             bx += 76.0;
         }
 
@@ -362,14 +510,15 @@ impl<'a> Ui<'a> {
         let ready = me.skill_cd <= 0.0;
         let frac = if ready { 1.0 } else { 1.0 - (me.skill_cd / cd).clamp(0.0, 1.0) };
         let col = if ready { Color::new(1.0, 0.8, 0.45, 0.75 + 0.25 * (w.time * 4.0).sin()) } else { DIM };
-        draw_rectangle(22.0, 145.0, 150.0, 14.0, Color::new(0.0, 0.0, 0.0, 0.6));
-        draw_rectangle(22.0, 155.0, 150.0 * frac, 4.0, if ready { GOLD } else { Color::new(0.45, 0.4, 0.35, 1.0) });
+        let sy = by + 17.0;
+        draw_rectangle(22.0, sy, 150.0, 14.0, Color::new(0.0, 0.0, 0.0, 0.6));
+        draw_rectangle(22.0, sy + 10.0, 150.0 * frac, 4.0, if ready { GOLD } else { Color::new(0.45, 0.4, 0.35, 1.0) });
         let label = if ready { format!("[{}] {}", key, skill) } else { format!("[{}] {}  {:.0}s", key, skill, me.skill_cd.ceil()) };
-        mono(&label, 25.0, 154.0, 13.0, col);
+        mono(&label, 25.0, sy + 9.0, 13.0, col);
 
         // Companions.
         if w.heroes.len() > 1 {
-            let mut y = 172.0;
+            let mut y = sy + 44.0;
             // Bars line up just past the longest name.
             let bar_x = w.heroes.iter().filter(|h| h.slot != me.slot).map(|h| 36.0 + self.width(&h.name, 15.0) + 10.0).fold(140.0, f32::max);
             for h in w.heroes.iter().filter(|h| h.slot != me.slot) {
@@ -512,10 +661,7 @@ impl<'a> Ui<'a> {
             ey += 20.0;
         }
         if let Some(q) = &w.quest {
-            let left = q.left.max(0.0) as u32;
-            let line = format!("Quest: {}   {} / {}   {}:{:02}", q.text(), q.progress, q.goal, left / 60, left % 60);
-            self.text_c(&line, sw * 0.5, ey, 17.0, GOLD);
-            ey += 20.0;
+            self.quest_panel(q, sh);
         }
         if w.boss_warning > 0.0 {
             // A lord is coming: a red pulse at the edges and a countdown under the clock.
@@ -548,6 +694,7 @@ impl<'a> Ui<'a> {
         if w.pause == Pause::Choosing {
             return;
         }
+        self.tooltip(&tips);
         for (i, (t, life)) in w.toasts.iter().enumerate() {
             // Toasts start below the event timers.
             self.text_c(t, sw * 0.5, ey.max(78.0) + i as f32 * 22.0, 18.0, a(PALE, life.min(1.0)));
@@ -623,7 +770,7 @@ impl<'a> Ui<'a> {
         }
         self.text_c("Choose what the ash grants you", sw * 0.5, sh * 0.16 + 30.0, 18.0, DIM);
         let cards = level_up_cards(me.choices.len());
-        let (cw, ch) = (cards.first().map(|r| r.w).unwrap_or(0.0), 74.0);
+        let (cw, ch) = (cards.first().map(|r| r.w).unwrap_or(0.0), 90.0);
         let mut y = sh * 0.16 + 56.0;
         for ((i, c), card) in me.choices.iter().enumerate().zip(&cards) {
             let x = card.x;
@@ -655,6 +802,15 @@ impl<'a> Ui<'a> {
                 self.text_r(&hint, x + cw - 14.0, y + 56.0, 15.0, hint_col);
             }
             self.text(&format!("{}", i + 1), x + cw - 24.0, y + 22.0, 16.0, DIM);
+            // Weapon or passive, said plainly, and what it does when the numbers alone do not tell.
+            let (kind, detail) = me.choice_kind(*c);
+            if !kind.is_empty() {
+                let kc = if kind == "WEAPON" { Color::new(1.0, 0.62, 0.4, 0.95) } else { Color::new(0.5, 0.85, 0.95, 0.95) };
+                self.text_r(kind, x + cw - 36.0, y + 22.0, 14.0, kc);
+            }
+            if let Some(d) = detail {
+                self.text(d, x + 70.0, y + 78.0, 15.0, a(PALE, 0.55));
+            }
             self.text(&title, x + 70.0, y + 30.0, 22.0, if on { PALE } else { a(PALE, 0.8) });
             let tag_col = if tag == "NEW" { EMBER } else { GOLD };
             self.text(&tag, x + 78.0 + self.width(&title, 22.0), y + 30.0, 16.0, tag_col);

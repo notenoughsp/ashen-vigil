@@ -35,7 +35,7 @@ pub const MAX_ENEMIES: usize = 1600;
 /// Boss health grows by this factor every minute past 5:00.
 pub const BOSS_GROWTH: f32 = 1.17;
 /// How much tougher ordinary foes get every minute after the fifth, on top of the old ramp.
-pub const ENEMY_GROWTH: f32 = 1.08;
+pub const ENEMY_GROWTH: f32 = 1.09;
 /// The most of a lord's health that can go in one second: every lord fight lasts at least
 /// twenty seconds, however strong the heroes.
 pub const BOSS_SECOND_CAP: f32 = 0.05;
@@ -423,6 +423,10 @@ pub struct Enemy {
     pub fuse: f32,
     /// Velocity estimated from snapshots, used by clients to extrapolate.
     pub net_vel: Vec2,
+    /// Sven's dance: 0 circling, 1 winding up a lunge, 2 lunging, 3 recovering; and the
+    /// direction the lunge was locked to when he wound up.
+    pub step: u8,
+    pub lunge: Vec2,
     /// A hero this foe hunts instead of the nearest (the rival).
     pub hunt: Option<usize>,
     /// Seconds until it leaves the field by itself (the courier, the rival).
@@ -797,6 +801,8 @@ pub struct World {
     pub weather: Option<(Weather, f32)>,
     next_weather: f32,
     next_rival: f32,
+    /// How often Sven has come this vigil; he grows each time.
+    rivals_come: u32,
     next_quest: f32,
     pub quests_done: u32,
     /// When a hero was last hurt, for the quest to stay unhurt.
@@ -808,6 +814,8 @@ pub struct World {
     pub next_boss: f32,
     /// Seconds until the next lord arrives while the warning shows, else 0. Sent to clients.
     pub boss_warning: f32,
+    /// The hourglass ran past a lord: its warning lasts the whole wait.
+    pub long_warning: bool,
     /// Lord after lord with only a short breather, no warning, and thin hordes.
     pub boss_rush: bool,
     /// Curse bits on this vigil, see `Curse`.
@@ -871,9 +879,9 @@ pub struct World {
 
 pub fn xp_for(level: u32) -> f32 {
     let l = level as f32;
-    // Past level 30 each level asks 8% more on top for every level beyond: a night ends
-    // nearer level 70 than 230.
-    let late = 1.0 + (l - 30.0).max(0.0) * 0.08;
+    // Past level 25 each level asks 10% more on top for every level beyond: a night ends
+    // nearer level 70 than 230, and a full arsenal comes late in it rather than at its middle.
+    let late = 1.0 + (l - 25.0).max(0.0) * 0.10;
     (6.0 + (l - 1.0) * 10.0 + l.powf(1.7)) * late
 }
 
@@ -950,6 +958,7 @@ impl World {
             weather: None,
             next_weather: 420.0,
             next_rival: 180.0,
+            rivals_come: 0,
             next_quest: 0.0,
             quests_done: 0,
             last_wound: 0.0,
@@ -960,6 +969,7 @@ impl World {
             arena: None,
             next_boss: BOSS_INTERVAL,
             boss_warning: 0.0,
+            long_warning: false,
             boss_rush: false,
             curses: 0,
             endless_since: 0.0,
@@ -1370,7 +1380,18 @@ impl World {
         }
         if self.pause == Pause::Running && !self.dead && !self.won {
             let arena = self.arena;
+            // The wager tile fills under our feet here too; the host decides the bet itself.
+            let tiles = self.stone.as_ref().map(|s| [s.tile(0), s.tile(1), s.tile(2)]);
             if let Some(hero) = self.heroes.get_mut(self.local) {
+                let on = tiles.and_then(|t| t.iter().position(|q| hero.p.pos.distance(*q) < 26.0)).filter(|_| hero.wager.is_none());
+                match on {
+                    Some(i) if hero.wager_tile == i => hero.wager_kindle = (hero.wager_kindle + dt).min(1.0),
+                    Some(i) => {
+                        hero.wager_tile = i;
+                        hero.wager_kindle = 0.0;
+                    }
+                    None => hero.wager_kindle = 0.0,
+                }
                 if !hero.downed {
                     rolled = hero.step_movement(dt, arena);
                     let (pos, rolling) = (hero.p.pos, hero.p.roll_t > 0.0);

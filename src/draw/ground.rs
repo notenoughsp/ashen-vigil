@@ -148,8 +148,8 @@ impl World {
         let rt = render_target(px, px);
         rt.texture.set_filter(FilterMode::Linear);
         let center = vec2((cx as f32 + 0.5) * size, (cy as f32 + 0.5) * size);
-        // A render target's y runs the other way, as for the light map.
-        set_camera(&Camera2D { target: center, zoom: vec2(2.0 / size, -2.0 / size), render_target: Some(rt.clone()), ..Default::default() });
+        // Macroquad turns y around for a render target by itself.
+        set_camera(&Camera2D { target: center, zoom: vec2(2.0 / size, 2.0 / size), render_target: Some(rt.clone()), ..Default::default() });
         clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
         for ty in cy * CHUNK..(cy + 1) * CHUNK {
             for tx in cx * CHUNK..(cx + 1) * CHUNK {

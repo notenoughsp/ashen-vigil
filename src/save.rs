@@ -219,6 +219,9 @@ pub struct Settings {
     pub mute_unfocused: bool,
     /// The screen flashes when the hero is hit.
     pub hurt_flash: bool,
+    /// Small health and stamina bars under our own hero.
+    pub hero_hp_bar: bool,
+    pub hero_stamina_bar: bool,
     /// How bright the night is, in percent.
     pub brightness: u8,
     /// Lords speak their lines.
@@ -277,6 +280,8 @@ impl Default for Settings {
             pause_unfocused: true,
             mute_unfocused: false,
             hurt_flash: true,
+            hero_hp_bar: true,
+            hero_stamina_bar: true,
             brightness: 100,
             boss_lines: true,
             discord: true,
@@ -470,6 +475,8 @@ impl Save {
                 "pause_unfocused" => st.pause_unfocused = flag(v),
                 "mute_unfocused" => st.mute_unfocused = flag(v),
                 "hurt_flash" => st.hurt_flash = flag(v),
+                "hero_hp_bar" => st.hero_hp_bar = flag(v),
+                "hero_stamina_bar" => st.hero_stamina_bar = flag(v),
                 "brightness" => st.brightness = v.parse::<u8>().unwrap_or(100).clamp(MIN_BRIGHTNESS, MAX_BRIGHTNESS),
                 "boss_lines" => st.boss_lines = flag(v),
                 "discord" => st.discord = flag(v),
@@ -609,6 +616,7 @@ impl Save {
             b(st.discord),
             b(st.check_updates)
         );
+        out += &format!("hero_hp_bar={}\nhero_stamina_bar={}\n", b(st.hero_hp_bar), b(st.hero_stamina_bar));
         out += &format!(
             "skins={}\nskin={}\nshrine_levels={}\nwon_classes={}\nmarker_inset={}\n",
             self.skins, self.profile.skin, self.shrine_levels, self.won_classes, st.marker_inset

@@ -405,6 +405,32 @@ impl App {
                 }
             }
             2170 => want.push("arsenal"),
+            // ASHEN_AUTOTEST_FXPROBE=1: still projectiles beside a key, drawn through the faded
+            // layer at half opacity, before and after the hero walks aside. Both must stay
+            // together on screen.
+            2171 if std::env::var("ASHEN_AUTOTEST_FXPROBE").is_ok() => {
+                self.save.settings.effect_alpha = 50;
+                let w = self.world.as_mut().unwrap();
+                w.enemies.clear();
+                w.projs.clear();
+                w.next_boss = f32::MAX;
+                w.heroes[0].weapons.clear();
+                let p = w.heroes[0].p.pos;
+                let src = crate::world::Src { hero: 0, weapon: WeaponKind::Lance };
+                for (k, kind) in [crate::world::PKind::Lance, crate::world::PKind::Orb].into_iter().enumerate() {
+                    let at = p + vec2(220.0, -60.0 + k as f32 * 120.0);
+                    w.projs.push(crate::world::Proj { pos: at, vel: vec2(0.0, 0.001), dir: vec2(0.0, 1.0), r: 9.0, dmg: 0.0, pierce: 999, life: 1e6, age: 0.0, kind, evo: false, area: 1.0, src, hits: Vec::new(), dead: false });
+                    w.pickups.push(Pickup::new(at + vec2(0.0, 26.0), PickKind::Key));
+                }
+            }
+            2172 if std::env::var("ASHEN_AUTOTEST_FXPROBE").is_ok() => want.push("probe_a"),
+            2173 if std::env::var("ASHEN_AUTOTEST_FXPROBE").is_ok() => {
+                let w = self.world.as_mut().unwrap();
+                w.heroes[0].p.pos.y -= 160.0;
+                w.heroes[0].p.pos.x += 120.0;
+            }
+            2178 if std::env::var("ASHEN_AUTOTEST_FXPROBE").is_ok() => want.push("probe_b"),
+            2179 if std::env::var("ASHEN_AUTOTEST_FXPROBE").is_ok() => std::process::exit(0),
             2171 => {
                 // The omens, all at once around the hero: an altar and a pact, the wager stone,
                 // a cursed coffer, the courier and its vault, the mist's champion, the rival,
@@ -421,7 +447,7 @@ impl App {
                 w.stone = Some(crate::world::WagerStone { pos: p + vec2(300.0, -230.0) });
                 w.pickups.push(Pickup::new(p + vec2(-170.0, 150.0), PickKind::CursedCoffer));
                 w.pickups.push(Pickup::new(p + vec2(-60.0, 190.0), PickKind::Key));
-                w.vault = Some(crate::world::Vault { pos: p + vec2(-520.0, 120.0), open: false });
+                w.vault = Some(crate::world::Vault { pos: p + vec2(-520.0, 120.0), open: false, left: 25.0 });
                 w.vault_key = true;
                 w.hourglass = Some(crate::world::Hourglass { pos: p + vec2(180.0, 250.0), life: 40.0, kindle: 0.7 });
                 w.weather = Some((crate::world::Weather::AshRain, 120.0));

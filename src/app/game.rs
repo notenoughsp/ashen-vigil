@@ -441,6 +441,42 @@ impl App {
             ui.text_c(label, sw * 0.5, r.y + 26.0, 22.0, col);
         }
         ui.text_c(hint("W/S or mouse to choose, Enter or click to confirm, Esc to resume", "Stick to choose, A to confirm, Start or B to resume"), sw * 0.5, sh - 30.0, 16.0, DIM);
+        self.draw_pause_loadout(ui);
+    }
+
+    /// The vigil so far beside the pause menu: time, level, damage per second, and every
+    /// weapon and passive large enough to read, each explained under the mouse.
+    fn draw_pause_loadout(&self, ui: &Ui) {
+        let Some(w) = self.world.as_ref() else { return };
+        if w.heroes.is_empty() {
+            return;
+        }
+        let (sw, sh) = (ui_w(), ui_h());
+        let me = w.me();
+        let x = 40.0;
+        let mut y = sh * 0.3 - 30.0;
+        let pw = (sw * 0.5 - 250.0).clamp(240.0, 520.0);
+        let secs = w.time as u32;
+        // Damage per second over the last minute (or the vigil so far, if shorter).
+        let dps = me.dmg_minute / w.time.clamp(1.0, 60.0);
+        let lines = [
+            ("Vigil", format!("{:02}:{:02}", secs / 60, secs % 60)),
+            ("Level", w.level.to_string()),
+            ("Damage per second", crate::ui::short(dps as f64)),
+            ("Damage this vigil", crate::ui::short(me.dmg_total)),
+            ("Felled", w.kills.to_string()),
+        ];
+        draw_rectangle(x - 16.0, y - 30.0, pw + 32.0, sh * 0.62, Color::new(0.0, 0.0, 0.0, 0.35));
+        for (label, value) in lines {
+            ui.text(label, x, y, 19.0, DIM);
+            ui.text_r(&value, x + pw, y, 21.0, PALE);
+            y += 28.0;
+        }
+        y += 12.0;
+        ui.text("Weapons and passives", x, y, 17.0, crate::ui::GOLD);
+        let (tips, _) = ui.loadout(w, me, x, y + 14.0, 1.4, pw);
+        ui.text("Rest the mouse on one to read what it does.", x, sh * 0.3 - 74.0 + sh * 0.62, 14.0, DIM);
+        ui.tooltip(&tips);
     }
 
     /// Leaves the current vigil from the pause menu.
@@ -537,11 +573,17 @@ impl App {
     }
 
     /// One frame of the running game for whichever network role we have.
-    pub(super) fn step_game(&mut self, dt: f32, input: Input, level_keys: bool) {
+    pub(super) fn step_game(&mut self, dt: f32, mut input: Input, level_keys: bool) {
+        // The level-up cards are read after the fight's input, so a Space that just took a
+        // card (or one pressed while the cards are up) must not reach the hero as a roll.
+        let choosing = self.world.as_ref().is_some_and(|w| w.pause == Pause::Choosing);
         if level_keys {
             self.level_up_input();
         }
         let now = get_time();
+        if choosing || now < self.roll_blocked_until {
+            input.roll = false;
+        }
         let my_class = class_to_u8(self.class());
         let name = self.player_name();
         let Some(w) = self.world.as_mut() else { return };

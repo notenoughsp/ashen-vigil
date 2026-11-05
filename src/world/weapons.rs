@@ -184,7 +184,9 @@ impl World {
                         None => Vec2::from_angle(base + k as f32 * 0.4),
                     };
                     let r = if evo { 18.0 } else { 9.0 } * area.sqrt();
-                    self.projs.push(proj(p, dir, s.speed * if evo { 0.6 } else { 1.0 }, r, 0, 2.0, PKind::Orb));
+                    // Well faster than a hero runs, fused or not, so an orb never seems to float along
+                    // beside its thrower.
+                    self.projs.push(proj(p, dir, s.speed, r, 0, 1.5, PKind::Orb));
                 }
                 self.sfx_gap_at("fire", 0.4, 0.1, p);
             }
@@ -310,7 +312,6 @@ impl World {
     pub(crate) fn update_projs(&mut self, dt: f32) {
         for pi in 0..self.projs.len() {
             let (kind, evo, src) = (self.projs[pi].kind, self.projs[pi].evo, self.projs[pi].src);
-            let home = self.heroes.get(src.hero).map(|h| h.p.pos).unwrap_or(self.projs[pi].pos);
             {
                 let pr = &mut self.projs[pi];
                 pr.age += dt;
@@ -318,6 +319,7 @@ impl World {
             }
             // The axe flies out, slows down and comes back to its thrower.
             if kind == PKind::Axe {
+                let home = self.heroes.get(src.hero).map(|h| h.p.pos).unwrap_or(self.projs[pi].pos);
                 let pr = &mut self.projs[pi];
                 if pr.age < 0.55 {
                     let decel = pr.dir * 520.0 * 1.6 * dt;

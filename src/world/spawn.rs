@@ -18,7 +18,7 @@ impl World {
     pub(crate) fn make_enemy(&mut self, kind: EnemyKind, pos: Vec2) -> Enemy {
         let m = self.time / 60.0;
         let hp_scale = self.hp_scale();
-        let dmg_scale = (1.0 + m * 0.06) * self.diff.at(self.time).dmg * if self.blood_moon > 0.0 { 1.25 } else { 1.0 };
+        let dmg_scale = (1.0 + m * 0.06 + (m - 10.0).max(0.0) * 0.03) * self.diff.at(self.time).dmg * if self.blood_moon > 0.0 { 1.25 } else { 1.0 };
         let (hp, speed, dmg, xp) = match kind {
             EnemyKind::Hollow => (10.0, 55.0, 8.0, 1.0),
             EnemyKind::Ghoul => (8.0, 95.0, 6.0, 1.0),
@@ -67,6 +67,8 @@ impl World {
             alpha: 1.0,
             fuse: -1.0,
             net_vel: Vec2::ZERO,
+            step: 0,
+            lunge: Vec2::ZERO,
             hunt: None,
             life_left: f32::INFINITY,
         }
@@ -235,11 +237,13 @@ impl World {
         }
 
         // Five seconds of warning before a lord, with a bell at the start; none in a boss rush.
-        let warn = if self.boss_rush || self.boss.is_some() { 0.0 } else { (self.next_boss - self.time).clamp(0.0, BOSS_WARNING + 0.01) };
-        if warn > 0.0 && warn <= BOSS_WARNING && self.boss_warning == 0.0 {
+        // A lord the hourglass ran past is warned of for all of its wait.
+        let window = if self.long_warning { LORD_AFTER_SKIP } else { BOSS_WARNING };
+        let warn = if self.boss_rush || self.boss.is_some() { 0.0 } else { (self.next_boss - self.time).clamp(0.0, window + 0.01) };
+        if warn > 0.0 && warn <= window && self.boss_warning == 0.0 {
             self.sfx("bell", 0.9);
         }
-        self.boss_warning = if warn <= BOSS_WARNING { warn } else { 0.0 };
+        self.boss_warning = if warn <= window { warn } else { 0.0 };
         // Each lord comes a frame or so late, so by 30:00 the next one is a little past dawn;
         // the Sovereign must not miss its hour.
         if !self.boss_rush && !self.endless && !self.finale_came && self.time >= VICTORY_TIME {
@@ -248,6 +252,7 @@ impl World {
         if self.time >= self.next_boss && self.boss.is_none() {
             self.next_boss = self.time + BOSS_INTERVAL;
             self.boss_warning = 0.0;
+            self.long_warning = false;
             self.spawn_boss();
         }
 

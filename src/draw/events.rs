@@ -170,6 +170,14 @@ impl World {
             let c = if chosen { Color::new(0.4, 1.0, 0.5, 1.0) } else { Color::new(0.55, 0.85, 1.0, 1.0) };
             draw_circle(q.x, q.y, 26.0, with_alpha(c, 0.12 + 0.05 * glow));
             draw_circle_lines(q.x, q.y, 26.0, 2.0, with_alpha(c, 0.8));
+            // Standing on a tile fills it, from the middle out and round the rim, until the
+            // bet is placed.
+            let me = self.me();
+            if me.wager.is_none() && me.wager_tile == i && me.wager_kindle > 0.0 {
+                let k = (me.wager_kindle / WAGER_KINDLE).clamp(0.0, 1.0);
+                draw_circle(q.x, q.y, 26.0 * k, with_alpha(c, 0.35 + 0.25 * k));
+                draw_arc(q.x, q.y, 40, 27.0, -90.0, 4.0, 360.0 * k, with_alpha(c, 1.0));
+            }
         }
     }
 
@@ -244,7 +252,7 @@ impl World {
         if let Some(s) = &self.stone {
             let pale = rgba(220, 232, 245, 255);
             say(
-                &[("WAGER STONE", 24.0, rgba(140, 210, 255, 255)), ("Stand on a tile: bet a third of your souls", 18.0, pale), ("on how fast the next lord falls", 18.0, pale)],
+                &[("WAGER STONE", 24.0, rgba(140, 210, 255, 255)), ("Stand on a tile: bet a third of your souls", 18.0, pale), ("(a capped stake) on how fast the next lord falls", 18.0, pale)],
                 s.pos.x,
                 s.pos.y - 130.0,
             );
@@ -267,7 +275,7 @@ impl World {
         }
         if let Some(g) = &self.hourglass {
             let pale = rgba(225, 235, 250, 255);
-            say(&[("HOURGLASS SHRINE", 24.0, rgba(170, 210, 255, 255)), ("Stand here: a minute of the night passes at once", 18.0, pale)], g.pos.x, g.pos.y - 80.0);
+            say(&[("HOURGLASS SHRINE", 24.0, rgba(170, 210, 255, 255)), ("Stand here: one to five minutes of the night pass at once", 18.0, pale)], g.pos.x, g.pos.y - 80.0);
         }
         if let Some(v) = &self.vault {
             let label = if v.open {

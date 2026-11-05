@@ -651,6 +651,17 @@ impl Hero {
         }
     }
 
+    /// Whether a card is a weapon or a passive (or neither), and a line on what it does.
+    pub fn choice_kind(&self, c: Choice) -> (&'static str, Option<&'static str>) {
+        match c {
+            Choice::NewWeapon(_) => ("WEAPON", None),
+            Choice::UpWeapon(i) => ("WEAPON", self.weapons.get(i).map(|w| w.kind.desc())),
+            Choice::NewItem(k) => ("PASSIVE", k.detail()),
+            Choice::UpItem(i) => ("PASSIVE", self.items.get(i).and_then(|it| it.kind.detail())),
+            _ => ("", None),
+        }
+    }
+
     /// Whether a card fuses with something this hero already carries. (Weapons no longer
     /// evolve on their own: every weapon ends in the one fused flame anyway.)
     pub fn choice_hint(&self, c: Choice) -> Option<(String, Color)> {

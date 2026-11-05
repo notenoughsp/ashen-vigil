@@ -3,6 +3,12 @@
 use super::*;
 use std::collections::HashMap;
 
+/// Sven's lunge: how long he winds up (with a red line on the ground), how long the lunge
+/// lasts and how many times his pace it goes.
+const RIVAL_WINDUP: f32 = 0.85;
+const RIVAL_LUNGE_TIME: f32 = 0.35;
+const RIVAL_LUNGE_SPEED: f32 = 3.6;
+
 impl World {
     /// Damages enemy `i`. `tag` stamps the per-weapon hit timer used by lingering attacks.
     pub fn hit(&mut self, i: usize, base: f32, knock: Vec2, src: Src, tag: bool) -> bool {
@@ -27,7 +33,7 @@ impl World {
         if self.weather.is_some_and(|(w, _)| w == Weather::AshRain) && src.weapon.is_fire() {
             dmg *= 1.4;
         }
-        if e.boss || e.kind == EnemyKind::Rival {
+        if e.boss || matches!(e.kind, EnemyKind::Rival | EnemyKind::Champion) {
             // No single blow takes more than a sliver of a lord (or of Sven): every fight lasts
             // a while.
             dmg = dmg.min(e.max_hp * BOSS_HIT_CAP);
@@ -189,9 +195,12 @@ impl World {
         let luck = self.heroes.iter().map(|h| h.stats.luck).fold(1.0f32, f32::max);
         // Draughts and magnets lie until picked up, so on a crowded floor they stop dropping.
         let room = self.pickups.len() < MAX_PICKUPS - 50;
-        if room && chance(0.009 * luck) {
+        // Late in the night far more foes fall each second; each drops a draught or a magnet
+        // that much more rarely, so the floor is not strewn with them.
+        let late = 1.0 / (1.0 + self.time / 60.0 * 0.3);
+        if room && chance(0.009 * luck * late) {
             self.pickups.push(Pickup::new(pos + rand_dir() * 8.0, PickKind::Draught));
-        } else if room && chance(0.0025 * luck) {
+        } else if room && chance(0.0025 * luck * late) {
             self.pickups.push(Pickup::new(pos + rand_dir() * 8.0, PickKind::Magnet));
         }
     }
@@ -591,6 +600,7 @@ impl World {
         let mut burns: Vec<(usize, f32, Src)> = Vec::new();
         let mut slams: Vec<Vec2> = Vec::new();
         let mut volleys: Vec<(Vec2, Vec2)> = Vec::new();
+        let mut lunges: Vec<(Vec2, Vec2, f32)> = Vec::new();
         let (anchor, anchor_facing, anchor_moving) = self.random_hero_pos();
         let sight = self.spawn_ring_dist() * 0.9;
         // Where each hero stands, for a foe that hunts one of them.
@@ -732,24 +742,54 @@ impl World {
                     }
                 }
                 EnemyKind::Rival => {
-                    // Circles at sword's length, dashes in, and throws volleys of three.
-                    e.timer -= dt;
-                    if e.timer <= 0.0 && d < 650.0 {
-                        e.timer = gen_range(1.1, 1.5);
-                        volleys.push((e.pos, dir));
-                    }
-                    if e.fuse > 0.0 {
-                        e.fuse -= dt;
-                        dir * 3.5
-                    } else if d < 260.0 && chance(dt * 0.6) {
-                        e.fuse = 0.3;
-                        dir * 3.5
-                    } else if d > 300.0 {
-                        dir
-                    } else if d < 160.0 {
-                        -dir
-                    } else {
-                        vec2(-dir.y, dir.x) * (e.phase - std::f32::consts::PI).signum()
+                    // A dance that can be read: he circles and throws fans of blades; every few
+                    // seconds he stops, marks his lunge with a red line, lunges straight along
+                    // it (no turning), and stands a moment to catch his breath.
+                    e.fuse -= dt;
+                    match e.step {
+                        1 => {
+                            if e.fuse <= 0.0 {
+                                e.step = 2;
+                                e.fuse = RIVAL_LUNGE_TIME;
+                            }
+                            Vec2::ZERO
+                        }
+                        2 => {
+                            if e.fuse <= 0.0 {
+                                e.step = 3;
+                                e.fuse = 0.7;
+                            }
+                            e.lunge * RIVAL_LUNGE_SPEED
+                        }
+                        3 => {
+                            if e.fuse <= 0.0 {
+                                e.step = 0;
+                                e.fuse = gen_range(3.5, 5.0);
+                            }
+                            Vec2::ZERO
+                        }
+                        _ => {
+                            e.timer -= dt;
+                            if e.timer <= 0.0 && d < 650.0 {
+                                e.timer = gen_range(1.3, 1.7);
+                                volleys.push((e.pos, dir));
+                            }
+                            if e.fuse <= 0.0 && d < 420.0 {
+                                e.step = 1;
+                                e.fuse = RIVAL_WINDUP;
+                                e.lunge = dir;
+                                // Never a volley right on top of the wind-up.
+                                e.timer = e.timer.max(RIVAL_WINDUP + RIVAL_LUNGE_TIME + 0.9);
+                                lunges.push((e.pos, dir, e.speed));
+                                Vec2::ZERO
+                            } else if d > 320.0 {
+                                dir
+                            } else if d < 200.0 {
+                                -dir
+                            } else {
+                                vec2(-dir.y, dir.x) * (e.phase - std::f32::consts::PI).signum()
+                            }
+                        }
                     }
                 }
                 _ => dir,
@@ -799,6 +839,12 @@ impl World {
             self.waves.push(Shockwave { pos: at, r: 10.0, max_r: 220.0, speed: 520.0, dmg, hit: [false; MAX_HEROES] });
             self.shake = self.shake.max(8.0);
             self.sfx_at("slam", 0.8, at);
+        }
+        for (at, dir, speed) in lunges {
+            // The lunge's path, shown for the whole wind-up.
+            let len = RIVAL_LUNGE_SPEED * RIVAL_LUNGE_TIME * speed;
+            self.telegraphs.push(Telegraph { a: at, b: at + dir * len, width: 34.0, life: RIVAL_WINDUP, max_life: RIVAL_WINDUP, line: true });
+            self.sfx_gap_at("roar", 0.25, 0.5, at);
         }
         for (at, dir) in volleys {
             // Sven throws five blades in a fan, fast.

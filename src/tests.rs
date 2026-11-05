@@ -1996,3 +1996,43 @@ fn balance_night_report() {
 fn wp_level(h: &Hero, k: WeaponKind) -> u32 {
     h.weapons.iter().find(|w| w.has(k)).map(|w| w.level).unwrap_or(1)
 }
+
+#[test]
+fn thrown_projectiles_do_not_follow_their_thrower() {
+    let mut w = world_with(1, Difficulty::default());
+    w.enemies.clear();
+    let src = Src { hero: 0, weapon: WeaponKind::Lance };
+    let start = w.heroes[0].p.pos;
+    for kind in [PKind::Lance, PKind::Orb, PKind::Dagger] {
+        w.projs.push(Proj { pos: start, vel: vec2(0.0, 300.0), dir: vec2(0.0, 1.0), r: 6.0, dmg: 1.0, pierce: 999, life: 5.0, age: 0.0, kind, evo: true, area: 1.0, src, hits: Vec::new(), dead: false });
+    }
+    for _ in 0..30 {
+        w.heroes[0].input = Input { dir: vec2(1.0, 0.0), roll: false, skill: false };
+        w.update(1.0 / 60.0);
+    }
+    assert!(w.heroes[0].p.pos.x > start.x + 50.0, "the hero walked aside");
+    assert_eq!(w.projs.iter().filter(|p| p.vel.x == 0.0).count(), 3, "all three still fly");
+    for p in w.projs.iter().filter(|p| matches!(p.kind, PKind::Lance | PKind::Orb | PKind::Dagger) && p.vel.x == 0.0) {
+        assert!((p.pos.x - start.x).abs() < 0.01, "{:?} drifted sideways to {}", p.kind, p.pos.x - start.x);
+    }
+}
+
+#[test]
+fn a_wager_stakes_no_more_than_its_cap() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.time = 590.0;
+    w.next_boss = 600.0;
+    w.heroes[0].p.souls = 10_000_000;
+    simulate(&mut w, 0.2, true, |_, _| {});
+    let stone = w.stone.as_ref().expect("no wager stone before the lord").tile(0);
+    for _ in 0..40 {
+        w.heroes[0].input = Input::default();
+        w.heroes[0].p.pos = stone;
+        w.enemies.clear();
+        w.pickups.clear();
+        w.update(1.0 / 30.0);
+    }
+    let g = w.heroes[0].wager.expect("no bet was placed");
+    assert!(g.stake <= crate::world::wager_cap(600.0), "staked {}", g.stake);
+    assert!(g.stake >= 900, "the cap is not tiny: {}", g.stake);
+}

@@ -166,7 +166,7 @@ impl WeaponKind {
         let mut s = match self {
             Blade => WStat { dmg: 14.0 + 5.0 * l, cd: 1.25 - 0.05 * l, amount: 1 + at(&[3, 6, 9]), area: 1.0 + 0.1 * at(&[2, 4, 7, 10]) as f32, speed: 0.0, pierce: 0 },
             Daggers => WStat { dmg: 7.0 + 2.5 * l, cd: 0.9 - 0.04 * l, amount: 1 + at(&[2, 4, 6, 8, 10]), area: 1.0, speed: 650.0, pierce: 1 + at(&[5, 9]) as i32 },
-            Orb => WStat { dmg: 18.0 + 6.0 * l, cd: 1.8 - 0.08 * l, amount: 1 + at(&[4, 7, 10]), area: 1.0 + 0.15 * at(&[3, 5, 8]) as f32, speed: 330.0, pierce: 0 },
+            Orb => WStat { dmg: 18.0 + 6.0 * l, cd: 1.8 - 0.08 * l, amount: 1 + at(&[4, 7, 10]), area: 1.0 + 0.15 * at(&[3, 5, 8]) as f32, speed: 470.0, pierce: 0 },
             Chime => WStat { dmg: 5.0 + 2.0 * l, cd: 0.55 - 0.02 * l, amount: 1, area: 1.0 + 0.1 * l, speed: 0.0, pierce: 0 },
             Lanterns => WStat { dmg: 10.0 + 3.0 * l, cd: 0.45, amount: 2 + at(&[2, 4, 6, 8, 10]), area: 1.0 + 0.04 * l, speed: 3.0 + 0.15 * l, pierce: 0 },
             Spear => WStat { dmg: 22.0 + 7.0 * l, cd: 2.0 - 0.09 * l, amount: 1 + at(&[3, 5, 7, 9]), area: 1.0 + 0.1 * at(&[4, 8, 10]) as f32, speed: 0.0, pierce: 0 },
@@ -383,6 +383,24 @@ impl ItemKind {
             LeechFang => "+0.4 health per kill",
             CrackedCrown => "+10% experience",
             GraveCandle => "+15% damage to elites and bosses",
+        }
+    }
+
+    /// What the number means in play, for the passives whose short line is not obvious.
+    pub fn detail(self) -> Option<&'static str> {
+        use ItemKind::*;
+        match self {
+            EmberHeart => Some("Might: every weapon deals more damage."),
+            Hourglass => Some("Every weapon attacks more often."),
+            Lens => Some("Swings, blasts, auras and sigils grow larger."),
+            Sigil => Some("Every weapon fires one more blade, bolt or orb."),
+            Censer => Some("Souls and experience are drawn in from further away."),
+            Shell => Some("Every hit you take is lessened by your armor."),
+            Feather => Some("Luck brings better drops; crits deal double damage."),
+            Lung => Some("Stamina is spent on rolls and refills over time."),
+            CrackedCrown => Some("You level up faster."),
+            GraveCandle => Some("Elite foes and lords take the extra damage."),
+            Boots | Moss | LeechFang => None,
         }
     }
 

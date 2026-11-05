@@ -208,8 +208,16 @@ impl World {
                     bought.push((h, ware, price_for(&self.heroes[h])));
                 }
             }
+            // An empty shelf: the merchant packs up and goes after a short farewell.
+            let sold_out = m.sold.iter().all(|s| *s) && m.life > 3.0;
+            if sold_out {
+                m.life = 3.0;
+            }
             if m.life <= 0.0 {
                 self.merchant = None;
+            }
+            if sold_out {
+                self.toast(&format!("{} has sold everything and moves on.", MERCHANT_NAME));
             }
         }
         for (h, ware, price) in bought {

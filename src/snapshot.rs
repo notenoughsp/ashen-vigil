@@ -998,6 +998,8 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             hunt: None,
             life_left: f32::INFINITY,
             net_vel: vel,
+            step: 0,
+            lunge: Vec2::ZERO,
         });
     }
     *prev = next_prev;
@@ -1146,7 +1148,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         let pos = d.pos();
         let bits = d.r.u8();
         w.vault_key = bits & 2 != 0;
-        Some(Vault { pos, open: bits & 1 != 0 })
+        Some(Vault { pos, open: bits & 1 != 0, left: 1.0 })
     } else {
         w.vault_key = false;
         None
