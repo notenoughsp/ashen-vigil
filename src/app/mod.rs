@@ -134,6 +134,8 @@ pub struct App {
     vignette: Texture2D,
     grain: Texture2D,
     font: Option<Font>,
+    /// The text scale the glyph atlas was last filled for.
+    glyphs_for: f32,
     t: f32,
     embers: Vec<TitleEmber>,
     pub auto: Option<AutoTest>,
@@ -236,7 +238,11 @@ impl App {
             muted_away: false,
             heard_quote: None,
             // The self-test never talks to Discord.
-            discord: if auto.is_some() { crate::discord::Discord::off() } else { crate::discord::Discord::start() },
+            discord: if auto.is_some() && std::env::var("ASHEN_AUTOTEST_DISCORD").is_err() && !std::env::var("ASHEN_AUTOTEST_ROLE").is_ok_and(|r| r == "menus") {
+                crate::discord::Discord::off()
+            } else {
+                crate::discord::Discord::start()
+            },
             // The self-test never asks GitHub; the player may turn the check off.
             updater: if auto.is_some() || !check_updates { crate::update::Updater::off() } else { crate::update::Updater::start() },
             vigil_since: 0,
@@ -257,6 +263,7 @@ impl App {
             vignette: make_vignette(),
             grain: make_grain(),
             font,
+            glyphs_for: 0.0,
             t: 0.0,
             embers: Vec::new(),
             auto,
@@ -559,6 +566,11 @@ impl App {
 
     pub fn draw(&mut self, dt: f32) {
         set_ui_scale(self.save.settings.ui_scale);
+        let k = crate::ui::raster_k();
+        if k != self.glyphs_for {
+            self.glyphs_for = k;
+            crate::ui::warm_glyphs(self.font.as_ref());
+        }
         set_ui_camera();
         crate::ui::clear_hit_areas();
         let font = self.font.clone();

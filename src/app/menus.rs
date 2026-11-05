@@ -608,6 +608,13 @@ impl App {
         }
     }
 
+    /// The option row under the cursor changes the window or waits for a key: the
+    /// self-test leaves those alone, so it never takes over a monitor or hangs.
+    pub(super) fn option_is_risky(&self) -> bool {
+        let rows = PAGES[self.opt_page.min(PAGES.len() - 1)].1;
+        matches!(rows.get(self.opt_sel), Some(Opt::Resolution | Opt::Fullscreen | Opt::Vsync | Opt::Msaa | Opt::Bind(_) | Opt::Name))
+    }
+
     fn change_option(&mut self, opt: Opt, dir: i32) {
         let st = &mut self.save.settings;
         let cycle_u8 = |v: u8, n: u8| ((v as i32 + dir).rem_euclid(n as i32)) as u8;

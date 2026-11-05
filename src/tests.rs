@@ -1894,6 +1894,9 @@ fn a_wager_pays_when_the_lord_falls_in_time_and_is_lost_when_not() {
         for _ in 0..40 {
             w.heroes[0].input = Input::default();
             w.heroes[0].p.pos = stone;
+            // No souls picked up or foes felled meanwhile, so the stake can be checked exactly.
+            w.enemies.clear();
+            w.pickups.clear();
             w.update(1.0 / 30.0);
         }
         let g = w.heroes[0].wager.expect("no bet was placed");
@@ -1922,4 +1925,22 @@ fn a_wager_pays_when_the_lord_falls_in_time_and_is_lost_when_not() {
             assert!(gained < 900, "a lost bet still paid {}", gained);
         }
     }
+}
+
+/// How long saving takes on this machine: `cargo test --release save_timing -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn save_timing_report() {
+    let dir = std::env::temp_dir().join(format!("ashen_save_timing_{}", std::process::id()));
+    let p = dir.join("ashen_vigil.sav");
+    let save = Save::default();
+    let mut times = Vec::new();
+    for _ in 0..20 {
+        let t = std::time::Instant::now();
+        save.store_at(&p).unwrap();
+        times.push(t.elapsed().as_secs_f64() * 1000.0);
+    }
+    times.sort_by(|a, b| a.total_cmp(b));
+    println!("save: median {:.1} ms, worst {:.1} ms", times[10], times[19]);
+    let _ = std::fs::remove_dir_all(&dir);
 }

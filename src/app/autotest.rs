@@ -14,6 +14,8 @@ pub enum Role {
     Client,
     /// Worst case on screen: a huge late-game horde with every effect on.
     Stress,
+    /// Only the menus, page after page for minutes, to find hitches and leaks there.
+    Menus,
 }
 
 pub struct AutoTest {
@@ -33,6 +35,8 @@ pub struct AutoTest {
     again: bool,
     /// Frames at which the client left and came back; host: a hero was seen gone.
     left_at: Option<u32>,
+    /// Menus only: the frame a vigil started by a button began.
+    in_vigil: Option<u32>,
 }
 
 fn screenshot(path: &str) {
@@ -50,13 +54,14 @@ impl AutoTest {
             "host" => Role::Host,
             "client" => Role::Client,
             "stress" => Role::Stress,
+            "menus" => Role::Menus,
             _ => Role::Single,
         };
         let rejoin = std::env::var("ASHEN_AUTOTEST_REJOIN").is_ok();
         let name = std::env::var("ASHEN_AUTOTEST_NAME").ok().map(|n| &*Box::leak(n.chars().take(16).collect::<String>().into_boxed_str()));
         let players = std::env::var("ASHEN_AUTOTEST_PLAYERS").ok().and_then(|v| v.parse().ok()).unwrap_or(2usize).clamp(2, crate::world::MAX_HEROES);
         let again = std::env::var("ASHEN_AUTOTEST_AGAIN").is_ok();
-        Some(AutoTest { dir, role, frame: 0, run_start: None, choosing_since: None, shots: Vec::new(), rejoin, left_at: None, name, players, again })
+        Some(AutoTest { dir, role, frame: 0, run_start: None, choosing_since: None, shots: Vec::new(), rejoin, left_at: None, in_vigil: None, name, players, again })
     }
 
     pub fn log_file(&self) -> std::path::PathBuf {
@@ -70,7 +75,7 @@ impl AutoTest {
         match self.role {
             Role::Client => "Joiner",
             Role::Host => "Host",
-            Role::Single | Role::Stress => "Tester",
+            Role::Single | Role::Stress | Role::Menus => "Tester",
         }
     }
 
@@ -95,6 +100,7 @@ impl AutoTest {
             Role::Host => "host_",
             Role::Client => "client_",
             Role::Stress => "stress_",
+            Role::Menus => "menus_",
         }
         .to_string()
     }
@@ -160,6 +166,7 @@ impl App {
             Role::Host => self.script_host(f),
             Role::Client => self.script_client(f),
             Role::Stress => self.script_stress(f),
+            Role::Menus => self.script_menus(f),
         };
         let au = self.auto.as_mut().unwrap();
         for name in want {
@@ -559,6 +566,83 @@ impl App {
         self.save.settings.lighting = false;
         self.world = Some(w);
         self.screen = Screen::Playing;
+    }
+
+    fn script_menus(&mut self, f: u32) -> Vec<&'static str> {
+        // Presses buttons like a player clicking around a new save: moves, confirms, changes
+        // options, buys, pages, goes back. ASHEN_AUTOTEST_FRAMES long; ASHEN_AUTOTEST_PAGES=1
+        // only flips through the screens instead.
+        let end = std::env::var("ASHEN_AUTOTEST_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(18_000u32);
+        if f >= end {
+            std::process::exit(0);
+        }
+        crate::app::input::press_fake(None);
+        // ASHEN_AUTOTEST_RESIZE=1: a player dragging the window bigger and smaller.
+        if std::env::var("ASHEN_AUTOTEST_RESIZE").is_ok() && f % 20 == 10 {
+            let k = (f / 20) % 40;
+            request_new_screen_size(1500.0 + k as f32 * 9.0, 1090.0 + k as f32 * 7.0);
+        }
+        if std::env::var("ASHEN_AUTOTEST_PAGES").is_err() {
+            // A vigil started by a button: let it run a little, then back to the menus.
+            if matches!(self.screen, Screen::Playing | Screen::Paused | Screen::Dead { .. } | Screen::Victory { .. }) {
+                let au = self.auto.as_mut().unwrap();
+                let since = *au.in_vigil.get_or_insert(f);
+                if f > since + 240 {
+                    au.in_vigil = None;
+                    self.world = None;
+                    self.screen = Screen::Menu;
+                }
+                return Vec::new();
+            }
+            if !f.is_multiple_of(4) {
+                return Vec::new();
+            }
+            // A small fixed random walk, the same every run.
+            let r = (f.wrapping_mul(2_654_435_761) >> 7) % 100;
+            let mut pad = match r {
+                0..=34 => Pad::Down,
+                35..=44 => Pad::Up,
+                45..=69 => Pad::Confirm,
+                70..=79 => Pad::Right,
+                80..=84 => Pad::Left,
+                85..=94 => Pad::Back,
+                _ => Pad::PageNext,
+            };
+            let risky = match self.screen {
+                // Exit would end the test.
+                Screen::Menu => self.menu_sel == 7,
+                Screen::Options => self.option_is_risky(),
+                _ => false,
+            };
+            if risky && matches!(pad, Pad::Confirm | Pad::Left | Pad::Right) {
+                pad = Pad::Down;
+            }
+            crate::app::input::press_fake(Some(pad));
+            return Vec::new();
+        }
+        if f.is_multiple_of(15) {
+            let step = (f / 15) % 16;
+            match step {
+                0 => self.screen = Screen::Menu,
+                1 => self.screen = Screen::Hub,
+                2 | 3 => {
+                    self.screen = Screen::Reliquary;
+                    self.relic_page = (step - 2) as usize;
+                }
+                4 => self.screen = Screen::Wardrobe,
+                5..=8 => {
+                    self.screen = Screen::Records;
+                    self.records_page = (step - 5) as usize;
+                }
+                9..=13 => {
+                    self.screen = Screen::Options;
+                    self.opt_page = (step - 9) as usize;
+                }
+                14 => self.screen = Screen::Credits,
+                _ => self.screen = Screen::Menu,
+            }
+        }
+        Vec::new()
     }
 
     fn script_stress(&mut self, f: u32) -> Vec<&'static str> {

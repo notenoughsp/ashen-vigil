@@ -324,7 +324,20 @@ pub fn poll_gamepad() {
     });
 }
 
+thread_local! {
+    /// A button the self-test presses this frame, as if on a gamepad.
+    static FAKE_PAD: std::cell::Cell<Option<Pad>> = const { std::cell::Cell::new(None) };
+}
+
+/// Presses `p` for this frame (the self-test's hands); None lets go.
+pub fn press_fake(p: Option<Pad>) {
+    FAKE_PAD.with(|f| f.set(p));
+}
+
 pub fn pad_pressed(action: Pad) -> bool {
+    if FAKE_PAD.with(|f| f.get()) == Some(action) {
+        return true;
+    }
     PAD.with(|p| {
         let p = p.borrow();
         let has = |b: Button| p.pressed.contains(&b);

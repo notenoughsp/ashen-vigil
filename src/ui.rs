@@ -93,15 +93,42 @@ pub fn set_ui_camera() {
     set_camera(&Camera2D { target: vec2(w, h) * 0.5, zoom: vec2(2.0 / w, 2.0 / h), ..Default::default() });
 }
 
-/// Text in the built-in font, rasterized at the real pixel size so it stays sharp when scaled.
+/// The scale text is rasterized at: the UI scale in quarter steps. Every distinct pixel size
+/// of every letter takes room in macroquad's glyph atlas, which only ever grows (and copies
+/// itself pixel by pixel when it does); a scale that follows the window pixel by pixel filled
+/// it until it crashed. Quarter steps keep text sharp and the atlas small.
+pub fn raster_k() -> f32 {
+    ((ui_scale() * 4.0).round() / 4.0).max(0.5)
+}
+
+/// Text in the built-in font, rasterized near the real pixel size so it stays sharp when scaled.
 pub fn mono(s: impl AsRef<str>, x: f32, y: f32, size: f32, color: Color) {
-    let k = ui_scale();
+    let k = raster_k();
     draw_text_ex(s.as_ref(), x, y, TextParams { font_size: (size * k) as u16, font_scale: 1.0 / k, color, ..Default::default() });
 }
 
 pub fn mono_width(s: &str, size: f32) -> f32 {
-    let k = ui_scale();
+    let k = raster_k();
     measure_text(s, None, (size * k) as u16, 1.0 / k).width
+}
+
+/// Puts every printable letter in the sizes the game uses into the glyph atlas at once, so it
+/// grows while loading rather than in the middle of the menus or a fight.
+pub fn warm_glyphs(font: Option<&Font>) {
+    let start = std::time::Instant::now();
+    let k = raster_k();
+    let letters: String = (32u8..127).map(|c| c as char).collect();
+    let ui_sizes = [11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 32.0, 36.0, 40.0, 48.0, 56.0, 72.0];
+    for size in ui_sizes {
+        let px = (size * k) as u16;
+        measure_text(&letters, font, px, 1.0 / k);
+        measure_text(&letters, None, px, 1.0 / k);
+    }
+    // Words on the field are drawn in world units with the built-in font.
+    for size in 12..=24u16 {
+        measure_text(&letters, None, size, 1.0);
+    }
+    crate::log!("glyphs ready for text scale {} in {} ms", k, start.elapsed().as_millis());
 }
 
 /// 12345 -> "12.3k".
@@ -134,12 +161,12 @@ pub fn a(c: Color, alpha: f32) -> Color {
 
 impl<'a> Ui<'a> {
     pub fn width(&self, s: &str, size: f32) -> f32 {
-        let k = ui_scale();
+        let k = raster_k();
         measure_text(s, self.font, (size * k) as u16, 1.0 / k).width
     }
 
     pub fn text(&self, s: &str, x: f32, y: f32, size: f32, color: Color) {
-        let k = ui_scale();
+        let k = raster_k();
         let p = TextParams { font: self.font, font_size: (size * k) as u16, font_scale: 1.0 / k, color: Color::new(0.0, 0.0, 0.0, color.a * 0.8), ..Default::default() };
         draw_text_ex(s, x + 1.5, y + 1.5, p.clone());
         draw_text_ex(s, x, y, TextParams { color, ..p });

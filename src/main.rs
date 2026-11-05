@@ -119,8 +119,19 @@ async fn main() {
         // Tests never touch the real save and never make a sound.
         save = Save { readonly: true, ..Save::default() };
         save.settings.name = au.player_name().into();
-        save.profile.unlocks = u64::MAX;
-        audio.toggle_mute();
+        // ASHEN_AUTOTEST_FRESH=1 plays as a brand-new save would, with little unlocked.
+        // The menus test always plays a brand-new save, with sound and Discord as in the game.
+        let menus = std::env::var("ASHEN_AUTOTEST_ROLE").is_ok_and(|r| r == "menus");
+        if std::env::var("ASHEN_AUTOTEST_FRESH").is_err() && !menus {
+            save.profile.unlocks = u64::MAX;
+        }
+        // ASHEN_AUTOTEST_AUDIO=1 runs the sound code at volume zero instead of muting it.
+        if std::env::var("ASHEN_AUTOTEST_AUDIO").is_ok() || menus {
+            save.settings.sfx = 0.0;
+            save.settings.music = 0.0;
+        } else {
+            audio.toggle_mute();
+        }
     }
     audio.sfx_vol = save.settings.sfx;
     audio.kind_vol = save.settings.vols;
@@ -165,11 +176,21 @@ async fn main() {
             crate::log!("perf: {:.0} fps average, slowest frame {:.0} ms; {}", perf_frames as f32 / perf_t, perf_worst * 1000.0, app.log_status());
             (perf_t, perf_frames, perf_worst) = (0.0, 0, 0.0);
         }
+        let t0 = Instant::now();
         app.update(dt);
+        let t1 = Instant::now();
         app.draw(dt);
+        let t2 = Instant::now();
         app.autotest();
         limit_fps(frame_start, app.save.settings.fps_cap);
-        frame_start = Instant::now();
+        let t3 = Instant::now();
         next_frame().await;
+        // A hitch: say where the time went, so slow screens can be found from a player's log.
+        let ms = |a: Instant, b: Instant| (b - a).as_secs_f64() * 1000.0;
+        let total = ms(t0, Instant::now());
+        if total > 100.0 {
+            crate::log!("slow frame {:.0} ms: update {:.0}, draw {:.0}, present {:.0}; {}", total, ms(t0, t1), ms(t1, t2), ms(t3, Instant::now()), app.log_status());
+        }
+        frame_start = Instant::now();
     }
 }
