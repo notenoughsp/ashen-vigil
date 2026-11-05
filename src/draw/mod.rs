@@ -41,6 +41,14 @@ const LOD_ENEMIES: usize = 350;
 
 thread_local! {
     static BRIGHTNESS: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+    static EFFECT_ALPHA: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+    /// The layer the heroes' weapons and skills are drawn into when they are faded.
+    static EFFECT_LAYER: std::cell::RefCell<Option<RenderTarget>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Takes the weapon and skill opacity setting (1.0 is opaque); called every frame.
+pub fn set_effect_alpha(k: f32) {
+    EFFECT_ALPHA.with(|a| a.set(k.clamp(0.0, 1.0)));
 }
 
 /// Takes the brightness setting (1.0 is normal); called every frame.
@@ -164,28 +172,45 @@ impl World {
         }
     }
 
-    /// Attack warnings are drawn after lighting so they read even in the dark.
+    /// The lords' attacks and their warnings, drawn after lighting and over the heroes'
+    /// weapons so they read even in the dark and in the thick of a fight: a dark edge under a
+    /// bright one, so they stand out on light and dark ground alike.
     fn draw_warnings(&self) {
+        let ink = Color::new(0.0, 0.0, 0.0, 0.55);
         for t in &self.telegraphs {
             let k = 1.0 - t.life / t.max_life;
             let pulse = 0.5 + 0.5 * (self.time * 20.0).sin();
             if t.line {
                 let end = t.a + (t.b - t.a) * k.min(1.0);
-                draw_line(t.a.x, t.a.y, t.b.x, t.b.y, t.width, Color::new(0.8, 0.1, 0.05, 0.12));
-                draw_line(t.a.x, t.a.y, end.x, end.y, t.width * 0.4, Color::new(0.9, 0.15, 0.1, 0.25 + 0.2 * pulse));
+                draw_line(t.a.x, t.a.y, t.b.x, t.b.y, t.width + 4.0, Color::new(0.0, 0.0, 0.0, 0.25));
+                draw_line(t.a.x, t.a.y, t.b.x, t.b.y, t.width, Color::new(0.85, 0.1, 0.05, 0.22));
+                draw_line(t.a.x, t.a.y, end.x, end.y, t.width * 0.45, Color::new(1.0, 0.2, 0.1, 0.45 + 0.3 * pulse));
             } else {
-                draw_circle(t.a.x, t.a.y, t.width, Color::new(0.8, 0.1, 0.05, 0.10));
-                draw_circle(t.a.x, t.a.y, t.width * k, Color::new(0.9, 0.15, 0.1, 0.22));
-                draw_circle_lines(t.a.x, t.a.y, t.width, 2.0, Color::new(0.95, 0.2, 0.1, 0.5 + 0.3 * pulse));
+                draw_circle(t.a.x, t.a.y, t.width, Color::new(0.85, 0.1, 0.05, 0.18));
+                draw_circle(t.a.x, t.a.y, t.width * k, Color::new(1.0, 0.2, 0.1, 0.3));
+                draw_circle_lines(t.a.x, t.a.y, t.width + 2.0, 4.0, ink);
+                draw_circle_lines(t.a.x, t.a.y, t.width, 3.0, Color::new(1.0, 0.3, 0.15, 0.75 + 0.25 * pulse));
             }
         }
         for p in &self.pillars {
             if p.delay > 0.0 {
                 let k = 1.0 - p.delay / p.max_delay;
-                draw_circle(p.pos.x, p.pos.y, p.r, Color::new(0.8, 0.2, 0.05, 0.12));
-                draw_circle(p.pos.x, p.pos.y, p.r * k, Color::new(1.0, 0.35, 0.1, 0.25));
-                draw_circle_lines(p.pos.x, p.pos.y, p.r, 1.5, Color::new(1.0, 0.4, 0.1, 0.6));
+                draw_circle(p.pos.x, p.pos.y, p.r, Color::new(0.85, 0.2, 0.05, 0.2));
+                draw_circle(p.pos.x, p.pos.y, p.r * k, Color::new(1.0, 0.4, 0.1, 0.35));
+                draw_circle_lines(p.pos.x, p.pos.y, p.r + 2.0, 4.0, ink);
+                draw_circle_lines(p.pos.x, p.pos.y, p.r, 2.5, Color::new(1.0, 0.5, 0.15, 0.9));
+            } else {
+                let k = (p.after / 0.35).max(0.0);
+                draw_rectangle(p.pos.x - p.r * 0.5, p.pos.y - 160.0, p.r, 160.0, Color::new(1.0, 0.45, 0.1, 0.4 * k));
+                draw_circle(p.pos.x, p.pos.y, p.r, Color::new(1.0, 0.5, 0.15, 0.6 * k));
             }
+        }
+        // Shockwaves.
+        for w in &self.waves {
+            let k = 1.0 - w.r / w.max_r;
+            draw_circle_lines(w.pos.x, w.pos.y, w.r, 14.0, Color::new(0.0, 0.0, 0.0, 0.3 * k));
+            draw_circle_lines(w.pos.x, w.pos.y, w.r, 10.0, Color::new(1.0, 0.75, 0.45, 0.35 * k));
+            draw_circle_lines(w.pos.x, w.pos.y, w.r, 3.5, Color::new(1.0, 0.95, 0.8, 0.9 * k));
         }
     }
 
@@ -260,21 +285,9 @@ impl World {
                 FxKind::Ghost => draw_circle(f.pos.x, f.pos.y, 9.0, Color::new(0.5, 0.45, 0.4, 0.35 * k)),
             }
         }
-        for w in &self.waves {
-            let k = 1.0 - w.r / w.max_r;
-            draw_circle_lines(w.pos.x, w.pos.y, w.r, 10.0, Color::new(0.75, 0.65, 0.5, 0.25 * k));
-            draw_circle_lines(w.pos.x, w.pos.y, w.r, 3.0, Color::new(0.95, 0.85, 0.7, 0.7 * k));
-        }
-        for p in &self.pillars {
-            if p.delay <= 0.0 {
-                let k = (p.after / 0.35).max(0.0);
-                draw_rectangle(p.pos.x - p.r * 0.5, p.pos.y - 160.0, p.r, 160.0, Color::new(1.0, 0.45, 0.1, 0.35 * k));
-                draw_circle(p.pos.x, p.pos.y, p.r, Color::new(1.0, 0.5, 0.15, 0.5 * k));
-            }
-        }
     }
 
-    /// Enemy projectiles: big, red and dark-cored so they read against everything.
+    /// Enemy projectiles: big, red and black-rimmed so they read against everything.
     fn draw_bullets(&self) {
         let pulse = 0.85 + 0.15 * (self.time * 12.0).sin();
         for b in self.ebullets.iter().filter(|b| self.on_screen(b.pos, b.r * 2.0)) {
@@ -287,12 +300,15 @@ impl World {
                 draw_circle(p.x - r * 0.45, p.y - r * 0.35, r * 0.18, Color::new(1.0, 0.9, 0.95, 0.9));
                 continue;
             }
-            draw_circle(p.x, p.y, b.r * 2.0, with_alpha(BULLET_RED, 0.12));
+            // A red glow, a black rim, a red body and a hot core: readable on any ground and
+            // through any spell.
+            draw_circle(p.x, p.y, b.r * 2.2, with_alpha(BULLET_RED, 0.2));
+            draw_circle(p.x, p.y, b.r * pulse + 2.5, rgba(10, 0, 0, 230));
             draw_circle(p.x, p.y, b.r * pulse, BULLET_RED);
-            draw_circle(p.x, p.y, b.r * 0.55, rgba(40, 0, 0, 255));
-            draw_circle(p.x - b.r * 0.25, p.y - b.r * 0.25, b.r * 0.2, rgba(255, 140, 120, 220));
+            draw_circle(p.x, p.y, b.r * 0.5, rgba(255, 190, 120, 255));
+            draw_circle(p.x - b.r * 0.15, p.y - b.r * 0.15, b.r * 0.22, rgba(255, 250, 230, 255));
             if b.homing > 0.0 {
-                draw_circle_lines(p.x, p.y, b.r * 1.3, 1.5, with_alpha(BULLET_RED, 0.7));
+                draw_circle_lines(p.x, p.y, b.r * 1.45, 2.0, with_alpha(BULLET_RED, 0.85));
             }
         }
     }
@@ -339,6 +355,34 @@ impl World {
                     draw_circle(p.x, p.y, 14.0, rgba(120, 200, 255, 30));
                     draw_circle_lines(p.x, p.y, 7.0, 2.5, rgba(130, 210, 255, 255));
                     draw_circle(p.x, p.y, 2.5, WHITE);
+                }
+                PickKind::CursedCoffer => {
+                    // A coffer bound in chains, wreathed in violet: richer, and guarded.
+                    let pulse = 0.5 + 0.5 * (self.time * 3.0).sin();
+                    draw_rectangle(p.x - 6.0, p.y - 200.0, 12.0, 200.0, Color::new(0.65, 0.25, 0.9, 0.06 + 0.05 * pulse));
+                    draw_circle(p.x, p.y, 30.0, Color::new(0.6, 0.2, 0.9, 0.14 + 0.06 * pulse));
+                    draw_ellipse(p.x, p.y + 11.0, 16.0, 4.0, 0.0, rgba(0, 0, 0, 120));
+                    draw_rectangle(p.x - 14.5, p.y - 10.5, 29.0, 21.0, rgba(6, 5, 7, 255));
+                    draw_rectangle(p.x - 13.0, p.y - 9.0, 26.0, 18.0, rgba(54, 30, 62, 255));
+                    draw_rectangle(p.x - 13.0, p.y - 9.0, 26.0, 6.0, rgba(76, 42, 88, 255));
+                    for (a, b) in [(vec2(-15.0, -10.0), vec2(15.0, 9.0)), (vec2(15.0, -10.0), vec2(-15.0, 9.0))] {
+                        draw_line(p.x + a.x, p.y + a.y, p.x + b.x, p.y + b.y, 3.0, rgba(120, 120, 130, 255));
+                        draw_line(p.x + a.x, p.y + a.y, p.x + b.x, p.y + b.y, 1.0, rgba(60, 60, 66, 255));
+                    }
+                    // A skull for a lock.
+                    draw_circle(p.x, p.y - 1.0, 4.5, rgba(220, 210, 190, 255));
+                    draw_circle(p.x - 1.6, p.y - 1.5, 1.1, rgba(40, 10, 50, 255));
+                    draw_circle(p.x + 1.6, p.y - 1.5, 1.1, rgba(40, 10, 50, 255));
+                }
+                PickKind::Key => {
+                    let spin = (self.time * 2.0).sin();
+                    draw_circle(p.x, p.y, 20.0, Color::new(1.0, 0.85, 0.35, 0.15));
+                    draw_rectangle(p.x - 4.0, p.y - 160.0, 8.0, 160.0, Color::new(1.0, 0.85, 0.4, 0.06));
+                    let gold = rgba(240, 200, 90, 255);
+                    draw_circle_lines(p.x - 6.0 * spin, p.y - 4.0, 4.5, 2.2, gold);
+                    draw_line(p.x - 2.0 * spin, p.y - 4.0, p.x + 9.0 * spin, p.y - 4.0, 2.2, gold);
+                    draw_line(p.x + 6.0 * spin, p.y - 4.0, p.x + 6.0 * spin, p.y + 1.0, 2.0, gold);
+                    draw_line(p.x + 9.0 * spin, p.y - 4.0, p.x + 9.0 * spin, p.y + 0.0, 2.0, gold);
                 }
                 PickKind::Coffer(boss) => {
                     let g = if boss { rgba(255, 210, 100, 255) } else { rgba(220, 180, 90, 255) };
@@ -527,6 +571,9 @@ impl World {
             EnemyKind::Shieldbearer => (p + vec2(-dir.x * r * 0.15, -r * 0.85) + dir * r * 0.12, r * 0.12, rgba(255, 90, 40, 255)),
             EnemyKind::Necromancer => (p + vec2(fx * r * 0.1, -r * 0.85 + (t * 2.0).sin() * r * 0.15), r * 0.12, rgba(120, 255, 140, 255)),
             EnemyKind::Leech => return None,
+            EnemyKind::Courier => (p + vec2(fx * r * 0.2, -r * 0.85), r * 0.1, rgba(255, 220, 120, 255)),
+            EnemyKind::Champion => (p + vec2(fx * r * 0.18, -r * 1.0), r * 0.1, rgba(210, 230, 255, 255)),
+            EnemyKind::Rival => (p + vec2(fx * r * 0.15, -r * 0.95), r * 0.12, rgba(255, 50, 40, 255)),
             EnemyKind::Gargoyle => (p + vec2(fx * r * 0.32, -r * 0.77), r * 0.14, rgba(255, 150, 60, 255)),
             EnemyKind::Banshee => (p + vec2(fx * r * 0.05, -r * 0.77 + (t * 2.4).sin() * r * 0.15), r * 0.12, rgba(200, 220, 255, 255)),
             EnemyKind::Boss(_) => return None,
@@ -559,20 +606,38 @@ impl World {
 
     /// Ash drifting down through the light of the camera, now and then an ember; petals
     /// in cute mode. Fixed to the world, so it moves with the field, not the screen.
+    /// The mist and the grave mist: drifting banks of grey over everything but the lords' attacks.
+    fn draw_mist(&self) {
+        let k = (self.mist / 3.0).clamp(0.0, 1.0) + if self.weather.is_some_and(|(w, _)| w == Weather::GraveMist) { 0.5 } else { 0.0 };
+        if k <= 0.0 {
+            return;
+        }
+        let view = view_size();
+        for i in 0..14 {
+            let s = i as f32 * 7.31;
+            let drift = vec2((self.time * 0.07 + s).sin(), (self.time * 0.05 + s * 1.3).cos()) * view * 0.45;
+            let p = self.cam + drift;
+            let r = view.y * (0.35 + 0.1 * (s * 3.1).sin().abs());
+            draw_circle(p.x, p.y, r, Color::new(0.62, 0.64, 0.68, 0.06 * k.min(1.2)));
+        }
+    }
+
     fn draw_ash(&self) {
         let view = view_size() + vec2(200.0, 200.0);
         let origin = self.cam - view * 0.5;
-        let n = (90.0 * self.particle_mult) as usize;
+        // The ash rain: four times as much, falling fast, a lot of it glowing.
+        let rain = self.weather.is_some_and(|(w, _)| w == Weather::AshRain);
+        let n = (90.0 * self.particle_mult * if rain { 4.0 } else { 1.0 }) as usize;
         for k in 0..n {
             let s = k as f32 * 12.9898;
             let seed = (s.sin() * 43758.547).fract().abs();
             let seed2 = ((s * 1.7).sin() * 24634.635).fract().abs();
-            let speed = 12.0 + seed2 * 18.0;
+            let speed = (12.0 + seed2 * 18.0) * if rain { 6.0 } else { 1.0 };
             let drift = (self.time * (0.3 + seed * 0.4) + seed * 30.0).sin() * 25.0;
             // Wrap inside the view so there is always the same amount on screen.
             let x = (seed * 7919.0 + self.time * 6.0 + drift - origin.x).rem_euclid(view.x) + origin.x;
             let y = (seed2 * 6271.0 + self.time * speed - origin.y).rem_euclid(view.y) + origin.y;
-            let ember = k % 11 == 0;
+            let ember = k % if rain { 4 } else { 11 } == 0;
             let c = if self.cute {
                 [Color::new(1.0, 0.75, 0.88, 0.75), Color::new(1.0, 0.95, 0.98, 0.7)][k % 2]
             } else if ember {
@@ -601,7 +666,48 @@ impl World {
         }
     }
 
+    /// Draws the heroes' weapons or skills through `draw`, faded to the player's opacity
+    /// setting: into a layer of its own, laid over the scene at that opacity.
+    fn faded(&self, cam: &Camera2D, draw: impl FnOnce(&Self)) {
+        let alpha = EFFECT_ALPHA.with(|a| a.get());
+        if alpha >= 0.999 {
+            draw(self);
+            return;
+        }
+        let (w, h) = (screen_width().max(1.0) as u32, screen_height().max(1.0) as u32);
+        let rt = EFFECT_LAYER.with(|l| {
+            let mut l = l.borrow_mut();
+            if l.as_ref().is_none_or(|rt| rt.texture.width() as u32 != w || rt.texture.height() as u32 != h) {
+                *l = Some(render_target(w, h));
+            }
+            l.clone().expect("just made")
+        });
+        // A render target's y runs the other way, as for the light map.
+        set_camera(&Camera2D {
+            target: cam.target,
+            zoom: vec2(cam.zoom.x, -cam.zoom.y),
+            rotation: cam.rotation,
+            offset: cam.offset,
+            render_target: Some(rt.clone()),
+            ..Default::default()
+        });
+        clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
+        draw(self);
+        set_default_camera();
+        draw_texture_ex(
+            &rt.texture,
+            0.0,
+            0.0,
+            Color::new(1.0, 1.0, 1.0, alpha),
+            DrawTextureParams { dest_size: Some(vec2(screen_width(), screen_height())), ..Default::default() },
+        );
+        set_camera(cam);
+    }
+
     pub fn draw(&self, light: Option<&Lighting>) {
+        // A world drawn without updating (a client between snapshots, a paused vigil) still
+        // shows its own field.
+        crate::world::set_field_half(self.half());
         let cam = self.camera();
         set_camera(&cam);
         self.draw_ground(&cam);
@@ -614,8 +720,10 @@ impl World {
         self.draw_shrines();
         self.draw_braziers();
         self.draw_events();
-        self.draw_fx_under();
-        self.draw_auras();
+        self.faded(&cam, |w| {
+            w.draw_fx_under();
+            w.draw_auras();
+        });
         self.draw_pickups();
         // Only what can be seen is drawn; a huge horde on screen gets the cheap models.
         let mut order: Vec<&Enemy> = self.enemies.iter().filter(|e| !e.boss && self.on_screen(e.pos, e.r * 2.0)).collect();
@@ -648,7 +756,7 @@ impl World {
             self.draw_cat(cat);
         }
         // Projectiles first so big weapons never hide the heroes.
-        self.draw_projs();
+        self.faded(&cam, |w| w.draw_projs());
         let others = self.heroes.len() > 1;
         for (i, hero) in self.heroes.iter().enumerate() {
             if i != self.local {
@@ -660,15 +768,28 @@ impl World {
                 self.draw_hero(me, false);
             }
         }
-        for hero in self.heroes.iter().filter(|h| !h.downed) {
-            let evo = hero.weapons.iter().any(|w| w.has(WeaponKind::Lanterns) && (w.evolved || w.is_fused()));
-            let c = if evo { rgba(140, 255, 230, 255) } else { rgba(120, 200, 255, 255) };
-            for (p, r) in hero.lantern_positions() {
-                glow(p, r * 0.55, c, 1.2);
-                draw_circle(p.x, p.y - r * 0.2, r * 0.25, WHITE);
+        // A blood pact shows on the hero: a red ring and drops of blood falling.
+        for hero in self.heroes.iter().filter(|h| h.pact && !h.downed) {
+            let p = hero.p.pos;
+            let pulse = 0.5 + 0.5 * (self.time * 4.0).sin();
+            draw_circle_lines(p.x, p.y + 4.0, 22.0, 2.0, Color::new(0.85, 0.08, 0.08, 0.5 + 0.4 * pulse));
+            for k in 0..3 {
+                let f = (self.time * 1.4 + k as f32 / 3.0).fract();
+                let q = p + vec2((k as f32 - 1.0) * 9.0, -18.0 + f * 26.0);
+                draw_circle(q.x, q.y, 2.0, Color::new(0.75, 0.04, 0.05, 1.0 - f));
             }
         }
-        self.draw_fx_over();
+        self.faded(&cam, |w| {
+            for hero in w.heroes.iter().filter(|h| !h.downed) {
+                let evo = hero.weapons.iter().any(|w| w.has(WeaponKind::Lanterns) && (w.evolved || w.is_fused()));
+                let c = if evo { rgba(140, 255, 230, 255) } else { rgba(120, 200, 255, 255) };
+                for (p, r) in hero.lantern_positions() {
+                    glow(p, r * 0.55, c, 1.2);
+                    draw_circle(p.x, p.y - r * 0.2, r * 0.25, WHITE);
+                }
+            }
+            w.draw_fx_over();
+        });
         for p in self.particles.iter().filter(|p| self.on_screen(p.pos, p.size * 3.0)) {
             let k = p.life / p.max_life;
             if p.glow {
@@ -691,6 +812,8 @@ impl World {
             self.draw_eye_glow();
         }
         self.draw_ash();
+        self.draw_mist();
+        self.draw_omen_labels();
         // Everything below must stay readable in the dark.
         self.draw_warnings();
         self.draw_bullets();

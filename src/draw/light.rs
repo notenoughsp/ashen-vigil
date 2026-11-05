@@ -147,6 +147,15 @@ impl World {
         if let Some(m) = &self.merchant {
             out.push((m.pos + vec2(22.0, -25.0), 260.0 * flicker, Color::new(0.85, 0.6, 0.3, 1.0)));
         }
+        for a in &self.altars {
+            out.push((a.pos, 230.0 * flicker, Color::new(0.85, 0.12, 0.1, 1.0)));
+        }
+        if let Some(v) = self.vault.as_ref().filter(|v| !v.open) {
+            out.push((v.pos, if self.vault_key { 260.0 } else { 150.0 }, Color::new(0.85, 0.65, 0.3, 1.0)));
+        }
+        for p in self.pickups.iter().filter(|p| matches!(p.kind, PickKind::CursedCoffer)) {
+            out.push((p.pos, 200.0, Color::new(0.55, 0.2, 0.85, 1.0)));
+        }
         for p in &self.pools {
             let k = (p.life / p.max_life * 2.0).min(1.0) * 0.6;
             let c = if p.hex { Color::new(0.6, 0.15, 0.8, 1.0) } else { Color::new(1.0, 0.45, 0.12, 1.0) };
@@ -229,7 +238,9 @@ impl World {
             Biome::Cathedral => Color::new(0.33, 0.23, 0.22, 1.0),
         };
         let (base, moon) = if self.cute { (AMBIENT_CUTE, Color::new(0.85, 0.5, 0.7, 1.0)) } else { (field, Color::new(0.34, 0.08, 0.08, 1.0)) };
-        let b = super::brightness();
+        // The mist and the grave mist darken the night.
+        let murk = (self.mist / 3.0).clamp(0.0, 1.0) * 0.35 + if self.weather.is_some_and(|(w, _)| w == Weather::GraveMist) { 0.25 } else { 0.0 };
+        let b = super::brightness() * (1.0 - murk);
         let mix = |a: f32, m: f32| ((a + (m - a) * k) * b).min(1.0);
         clear_background(Color::new(mix(base.r, moon.r), mix(base.g, moon.g), mix(base.b, moon.b), 1.0));
         gl_use_material(&l.add);

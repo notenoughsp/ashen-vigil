@@ -1041,6 +1041,65 @@ impl World {
                 let wail = 0.12 + 0.05 * (t * 9.0).sin();
                 draw_ellipse(head.x, head.y + r * 0.2, r * 0.1, r * wail, 0.0, Color::new(0.05, 0.05, 0.1, a));
             }
+            EnemyKind::Courier => {
+                // A small hooded runner, bent low, a golden key bouncing on its back.
+                let s = (t * 14.0).sin() * r * 0.35;
+                for (side, sw) in [(-1.0, s), (1.0, -s)] {
+                    limb(p + vec2(side * r * 0.25, r * 0.2), p + vec2(side * r * 0.3 + sw * fx, r * 0.95), r * 0.2, c(rgba(60, 50, 40, 255)), true);
+                }
+                rag(p + vec2(-r * 0.55, -r * 0.6), p + vec2(r * 0.55, -r * 0.6), r * 1.1, -fx * 3.0, c(rgba(110, 86, 50, 255)), e.phase, true);
+                let head = p + vec2(fx * r * 0.35, -r * 0.8);
+                ball(head, r * 0.38, c(rgba(90, 70, 44, 255)), true);
+                draw_circle(head.x + fx * r * 0.12, head.y + r * 0.05, r * 0.22, c(rgba(16, 12, 10, 255)));
+                let key = p + vec2(-fx * r * 0.55, -r * 0.65 + (t * 14.0).cos().abs() * r * 0.2);
+                draw_circle(key.x, key.y, r * 0.9, Color::new(1.0, 0.85, 0.35, 0.18 * a));
+                draw_circle_lines(key.x, key.y, r * 0.3, 2.0, with_alpha(rgba(240, 200, 90, 255), a));
+                draw_line(key.x, key.y + r * 0.3, key.x, key.y + r * 0.9, 2.0, with_alpha(rgba(240, 200, 90, 255), a));
+            }
+            EnemyKind::Champion => {
+                // A towering knight of the mist: horned helm, a great maul, fog trailing off it.
+                let mist = Color::new(0.75, 0.78, 0.82, 0.12 * a);
+                for k in 0..4 {
+                    let off = vec2((t * 0.8 + k as f32).sin() * r * 0.6, r * 0.3 - k as f32 * r * 0.2);
+                    draw_circle(p.x + off.x, p.y + off.y, r * (1.0 - k as f32 * 0.12), mist);
+                }
+                let s = walk.sin() * r * 0.2;
+                for (side, sw) in [(-1.0, s), (1.0, -s)] {
+                    limb(p + vec2(side * r * 0.3, r * 0.3), p + vec2(side * r * 0.38 + sw * fx, r * 1.0), r * 0.26, c(rgba(52, 54, 60, 255)), true);
+                }
+                ball(p + vec2(0.0, -r * 0.15), r * 0.72, c(rgba(78, 82, 92, 255)), true);
+                draw_line(p.x - r * 0.6, p.y - r * 0.2, p.x + r * 0.6, p.y - r * 0.2, r * 0.12, c(rgba(46, 48, 54, 255)));
+                let head = p + vec2(fx * r * 0.1, -r * 0.95);
+                ball(head, r * 0.36, c(rgba(96, 100, 110, 255)), true);
+                for sd in [-1.0, 1.0] {
+                    draw_triangle(head + vec2(sd * r * 0.25, -r * 0.15), head + vec2(sd * r * 0.4, -r * 0.05), head + vec2(sd * r * 0.62, -r * 0.6), c(rgba(200, 190, 170, 255)));
+                }
+                draw_line(head.x - r * 0.25, head.y + r * 0.02, head.x + r * 0.25, head.y + r * 0.02, r * 0.07, c(rgba(10, 10, 14, 255)));
+                let swing = if e.fuse > 0.0 { 1.2 } else { (t * 1.5).sin() * 0.3 };
+                let grip = p + vec2(fx * r * 0.7, -r * 0.2);
+                let head2 = grip + Vec2::from_angle(-1.2 * fx + swing * fx) * r * 1.3 * vec2(fx, 1.0);
+                draw_line(grip.x, grip.y, head2.x, head2.y, r * 0.1, c(rgba(70, 50, 34, 255)));
+                draw_rectangle(head2.x - r * 0.3, head2.y - r * 0.22, r * 0.6, r * 0.44, c(rgba(90, 92, 100, 255)));
+            }
+            EnemyKind::Rival => {
+                // A dark hero like you: a red scarf, a black blade, eyes like coals.
+                let s = walk.sin() * r * 0.3;
+                for (side, sw) in [(-1.0, s), (1.0, -s)] {
+                    limb(p + vec2(side * r * 0.28, r * 0.25), p + vec2(side * r * 0.32 + sw * fx, r * 0.95), r * 0.2, c(rgba(24, 22, 28, 255)), true);
+                }
+                ball(p + vec2(0.0, -r * 0.2), r * 0.6, c(rgba(36, 32, 40, 255)), true);
+                let scarf = c(rgba(170, 20, 24, 255));
+                let tail = p + vec2(-fx * r * (1.2 + (t * 6.0).sin() * 0.2), -r * 0.45 + (t * 6.0).cos() * r * 0.15);
+                draw_line(p.x, p.y - r * 0.6, tail.x, tail.y, r * 0.22, scarf);
+                draw_line(p.x - r * 0.35, p.y - r * 0.6, p.x + r * 0.35, p.y - r * 0.6, r * 0.2, scarf);
+                let head = p + vec2(fx * r * 0.12, -r * 0.92);
+                ball(head, r * 0.34, c(rgba(30, 28, 34, 255)), true);
+                let hand = p + vec2(fx * r * 0.65, -r * 0.1);
+                let tip = hand + vec2(fx * r * 1.3, -r * 0.6);
+                draw_line(hand.x, hand.y, tip.x, tip.y, r * 0.12, c(rgba(18, 16, 20, 255)));
+                draw_line(hand.x, hand.y, tip.x, tip.y, r * 0.04, with_alpha(rgba(200, 60, 50, 255), a * 0.8));
+                draw_circle_lines(p.x, p.y, r * 1.5, 1.5, Color::new(0.9, 0.15, 0.1, 0.35 * a));
+            }
             EnemyKind::Boss(_) => {}
         }
     }
@@ -1062,6 +1121,9 @@ impl World {
             EnemyKind::Leech => rgba(96, 22, 34, 255),
             EnemyKind::Gargoyle => rgba(104, 102, 98, 255),
             EnemyKind::Banshee => Color::new(0.8, 0.85, 0.95, 0.6),
+            EnemyKind::Courier => rgba(110, 86, 50, 255),
+            EnemyKind::Champion => rgba(84, 88, 98, 255),
+            EnemyKind::Rival => rgba(36, 32, 40, 255),
             _ => rgba(66, 70, 82, 255),
         };
         let col = with_alpha(flashed(col, e.flash), e.alpha);

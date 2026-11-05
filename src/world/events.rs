@@ -7,8 +7,12 @@ const MOONS: [f32; 2] = [480.0, 1080.0];
 pub const MOON_LENGTH: f32 = 60.0;
 const CURSED_SHRINES: [f32; 3] = [240.0, 780.0, 1320.0];
 pub const CURSE_LENGTH: f32 = 40.0;
-const MERCHANTS: [f32; 3] = [360.0, 960.0, 1560.0];
-pub const MERCHANT_STAY: f32 = 75.0;
+const MERCHANTS: [f32; 5] = [300.0, 660.0, 960.0, 1260.0, 1560.0];
+pub const MERCHANT_STAY: f32 = 90.0;
+/// The wandering merchant's name.
+pub const MERCHANT_NAME: &str = "Ksur";
+/// How many wares the merchant lays out.
+pub const SHELF: usize = 6;
 
 /// A shrine that asks for a trial: survive its curse, take its reward.
 pub struct CursedShrine {
@@ -20,15 +24,25 @@ pub struct CursedShrine {
     pub accepted: bool,
 }
 
-/// The wares a merchant offers, in pedestal order.
+/// What the merchant may sell; each visit lays out `SHELF` of them.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Ware {
     Draught,
     Relic,
     Coffer,
+    /// Two more rerolls of the level-up cards.
+    Dice,
+    /// Fury for half a minute.
+    Rage,
+    /// Haste for half a minute.
+    Wings,
+    /// A ward for eight seconds.
+    Ward,
+    /// Every soul on the field flies to you.
+    Lodestone,
 }
 
-pub const WARES: [Ware; 3] = [Ware::Draught, Ware::Relic, Ware::Coffer];
+pub const WARES: [Ware; 8] = [Ware::Draught, Ware::Relic, Ware::Coffer, Ware::Dice, Ware::Rage, Ware::Wings, Ware::Ward, Ware::Lodestone];
 
 impl Ware {
     pub fn name(self) -> &'static str {
@@ -36,6 +50,11 @@ impl Ware {
             Ware::Draught => "Ashen Draught",
             Ware::Relic => "Relic",
             Ware::Coffer => "Coffer",
+            Ware::Dice => "Bone Dice",
+            Ware::Rage => "Draught of Rage",
+            Ware::Wings => "Ashen Wings",
+            Ware::Ward => "Warding Charm",
+            Ware::Lodestone => "Lodestone",
         }
     }
 
@@ -44,20 +63,36 @@ impl Ware {
             Ware::Draught => 250.0,
             Ware::Relic => 700.0,
             Ware::Coffer => 1400.0,
+            Ware::Dice => 500.0,
+            Ware::Rage => 450.0,
+            Ware::Wings => 350.0,
+            Ware::Ward => 400.0,
+            Ware::Lodestone => 300.0,
         }
+    }
+
+    pub fn from_u8(v: u8) -> Ware {
+        WARES.get(v as usize).copied().unwrap_or(Ware::Draught)
+    }
+
+    pub fn to_u8(self) -> u8 {
+        WARES.iter().position(|w| *w == self).unwrap_or(0) as u8
     }
 }
 
 pub struct Merchant {
     pub pos: Vec2,
     pub life: f32,
-    pub sold: [bool; 3],
-    pub prices: [u32; 3],
+    pub wares: [Ware; SHELF],
+    pub sold: [bool; SHELF],
+    pub prices: [u32; SHELF],
 }
 
 impl Merchant {
+    /// The pedestals stand in an arc in front of the merchant.
     pub fn pedestal(&self, i: usize) -> Vec2 {
-        self.pos + [vec2(-64.0, 46.0), vec2(0.0, 58.0), vec2(64.0, 46.0)][i]
+        let k = i as f32 - (SHELF as f32 - 1.0) * 0.5;
+        self.pos + vec2(k * 54.0, 52.0 - k.abs() * k.abs() * 4.0)
     }
 }
 
@@ -148,14 +183,20 @@ impl World {
         if MERCHANTS.iter().any(|m| passed(t, dt, *m)) {
             let pos = clamp_world(self.center() + rand_dir() * 420.0, 220.0);
             let scale = 1.0 + self.time / 900.0;
-            let prices = WARES.map(|w| (w.base_price() * scale / 10.0).round() as u32 * 10);
-            self.merchant = Some(Merchant { pos, life: MERCHANT_STAY, sold: [false; 3], prices });
-            self.toast("A merchant has set up shop. Walk onto a ware to buy it with carried souls.");
+            // A draught and a relic always, four of the rest by chance.
+            let mut rest: Vec<Ware> = WARES[2..].to_vec();
+            let mut wares = [Ware::Draught, Ware::Relic, Ware::Coffer, Ware::Dice, Ware::Rage, Ware::Wings];
+            for slot in wares.iter_mut().skip(2) {
+                *slot = rest.remove(gen_range(0, rest.len()));
+            }
+            let prices = wares.map(|w| (w.base_price() * scale / 10.0).round() as u32 * 10);
+            self.merchant = Some(Merchant { pos, life: MERCHANT_STAY, wares, sold: [false; SHELF], prices });
+            self.toast(&format!("{} the Ash Peddler has set up shop. Walk onto a ware to buy it with carried souls.", MERCHANT_NAME));
         }
         let mut bought = Vec::new();
         if let Some(m) = self.merchant.as_mut() {
             m.life -= dt;
-            for (i, ware) in WARES.into_iter().enumerate() {
+            for (i, ware) in m.wares.into_iter().enumerate() {
                 if m.sold[i] {
                     continue;
                 }
@@ -183,6 +224,14 @@ impl World {
                 Ware::Coffer => {
                     let pos = self.heroes[h].p.pos;
                     self.pickups.push(Pickup::new(pos, PickKind::Coffer(false)));
+                }
+                Ware::Dice => self.heroes[h].rerolls += 2,
+                Ware::Rage => self.heroes[h].buffs[Buff::Fury as usize] += 30.0,
+                Ware::Wings => self.heroes[h].buffs[Buff::Haste as usize] += 30.0,
+                Ware::Ward => self.heroes[h].buffs[Buff::Aegis as usize] += 8.0,
+                Ware::Lodestone => {
+                    let pos = self.heroes[h].p.pos;
+                    self.pickups.push(Pickup::new(pos, PickKind::Magnet));
                 }
             }
             let who = if self.multiplayer() { format!("{} buys ", self.heroes[h].name) } else { "Bought ".to_string() };

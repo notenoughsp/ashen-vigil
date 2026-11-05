@@ -352,9 +352,11 @@ impl App {
         self.draw_run_graph(rx, gy + 12.0, rw, gh, k2);
         if t > 2.5 {
             let client = matches!(self.net, NetMode::Client(_));
+            let rush = self.world.as_ref().is_some_and(|w| w.boss_rush);
+            let onward = if rush { "Endless boss rush" } else { "Into the endless night" };
             if s.won && !client {
                 // Two buttons for the mouse: leave, or fight on.
-                for (i, label) in ["Leave", "Into the endless night"].iter().enumerate() {
+                for (i, label) in ["Leave", onward].iter().enumerate() {
                     let r = Rect::new(sw * 0.5 - 250.0 + i as f32 * 260.0, sh - 92.0, 240.0, 34.0);
                     crate::ui::register_tab(r);
                     let hot = r.contains(mouse_ui());
@@ -363,8 +365,12 @@ impl App {
                     ui.text_c(label, r.x + r.w * 0.5, r.y + 23.0, 18.0, a(if i == 1 { EMBER } else { PALE }, k2));
                 }
             }
-            let more = if s.won && !client {
+            let more = if s.won && !client && rush {
+                hint("Enter: leave     C: the lords keep coming, until you fall", "A: leave     Y: the lords keep coming, until you fall")
+            } else if s.won && !client {
                 hint("Enter: leave     C: keep fighting into the endless night", "A: leave     Y: keep fighting into the endless night")
+            } else if s.won && rush {
+                "The host decides: back to the lobby, or on into an endless boss rush."
             } else if s.won {
                 "The host decides: back to the lobby, or on into the endless night."
             } else {

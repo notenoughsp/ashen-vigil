@@ -17,6 +17,7 @@ mod snapshot;
 #[cfg(test)]
 mod tests;
 mod ui;
+mod update;
 mod voice;
 mod world;
 
@@ -122,6 +123,7 @@ async fn main() {
         audio.toggle_mute();
     }
     audio.sfx_vol = save.settings.sfx;
+    audio.kind_vol = save.settings.vols;
     audio.music_vol = save.settings.music;
     let font_bytes = std::fs::read("assets/font.ttf").unwrap_or_else(|_| embedded::FONT.to_vec());
     let font = load_ttf_font_from_bytes(&font_bytes).ok();

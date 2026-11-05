@@ -36,6 +36,10 @@ enum Opt {
     HurtFlash,
     BossLines,
     Discord,
+    Updates,
+    /// Volume of one of `audio::SOUND_KINDS`.
+    Vol(u8),
+    FxAlpha,
     Brightness,
     Resolution,
     Fullscreen,
@@ -78,6 +82,9 @@ impl Opt {
             Opt::HurtFlash => "Flash when hit",
             Opt::BossLines => "Lords speak",
             Opt::Discord => "Discord status",
+            Opt::Updates => "Check for updates",
+            Opt::Vol(i) => crate::audio::SOUND_KINDS[i as usize].1,
+            Opt::FxAlpha => "Weapon and skill opacity",
             Opt::Brightness => "Brightness",
             Opt::Resolution => "Resolution",
             Opt::Fullscreen => "Fullscreen",
@@ -110,6 +117,15 @@ impl Opt {
             Opt::HurtFlash => "The screen edge flashes red when your hero is hit.",
             Opt::BossLines => "The lords' words on arrival, at each phase and as they fall.",
             Opt::Discord => "Friends on Discord see what you are playing: menus, lobby, vigil or boss rush.",
+            Opt::Updates => "At start, ask GitHub whether a newer version is out. The main menu then offers to update.",
+            Opt::Vol(0) => "The lords' spoken lines.",
+            Opt::Vol(1) => "Swings, shots, spells and your rolls.",
+            Opt::Vol(2) => "Foes being struck, and you being hurt.",
+            Opt::Vol(3) => "Foes falling, lords roaring, the bell before a lord.",
+            Opt::Vol(4) => "Souls, coffers, level-ups, fusions and fires being lit.",
+            Opt::Vol(_) => "Menus and everything else.",
+            Opt::Sfx => "All sound effects at once; the kinds below are shares of it.",
+            Opt::FxAlpha => "Lower it to see foes and lords' attacks through your own weapons and skills.",
             Opt::Brightness => "How dark the night is away from the fires.",
             Opt::Vsync => "Syncs to the monitor refresh. Takes effect after a restart.",
             Opt::Bind(_) => "Enter, then press the new key. Arrow keys, Shift and Esc always work too.",
@@ -126,7 +142,7 @@ impl Opt {
     }
 }
 
-const PAGES: [(&str, &[Opt]); 4] = [
+const PAGES: [(&str, &[Opt]); 5] = [
     (
         "Controls",
         &[
@@ -149,23 +165,21 @@ const PAGES: [(&str, &[Opt]); 4] = [
         "General",
         &[
             Opt::Name,
-            Opt::Music,
-            Opt::Sfx,
             Opt::Numbers,
             Opt::Meter,
             Opt::Overlay,
             Opt::Shake,
             Opt::HurtFlash,
-            Opt::BossLines,
             Opt::UiScale,
             Opt::Markers,
             Opt::PauseUnfocused,
-            Opt::MuteUnfocused,
             Opt::Discord,
+            Opt::Updates,
             Opt::Cute,
             Opt::Back,
         ],
     ),
+    ("Sound", &[Opt::Music, Opt::Sfx, Opt::Vol(0), Opt::Vol(1), Opt::Vol(2), Opt::Vol(3), Opt::Vol(4), Opt::Vol(5), Opt::BossLines, Opt::MuteUnfocused, Opt::Back]),
     (
         "Graphics",
         &[
@@ -182,6 +196,7 @@ const PAGES: [(&str, &[Opt]); 4] = [
             Opt::Fog,
             Opt::Grain,
             Opt::Brightness,
+            Opt::FxAlpha,
             Opt::Back,
         ],
     ),
@@ -200,6 +215,11 @@ pub(super) fn short_num(v: u64) -> String {
 /// A volume one percent up or down.
 fn percent_step(v: f32, dir: i32) -> f32 {
     ((v * 100.0).round() + dir as f32).clamp(0.0, 100.0) / 100.0
+}
+
+/// Where the notice about a newer version sits: the top right of the main menu.
+fn update_notice() -> Rect {
+    Rect::new(ui_w() - 356.0, 16.0, 340.0, 58.0)
 }
 
 /// Where the main menu rows sit, for drawing and for the mouse.
@@ -240,6 +260,19 @@ impl App {
         }
         if nav(&mut self.menu_sel, MENU_ITEMS.len(), false) {
             self.audio.play("select", 0.4);
+        }
+        // A newer version: click the notice (or Y on a pad) to update, then to restart.
+        let state = self.updater.state();
+        if state != crate::update::State::Idle && ((clicked() && update_notice().contains(mouse_ui())) || pad_pressed(Pad::Reroll)) {
+            self.audio.play("select", 0.6);
+            match state {
+                crate::update::State::Ready { .. } => {
+                    self.save.store();
+                    self.updater.restart();
+                }
+                _ => self.updater.install(),
+            }
+            return;
         }
         // Seven clicks on the title stir the embers.
         let title = Rect::new(ui_w() * 0.5 - 320.0, ui_h() * 0.27 - 70.0, 640.0, 90.0);
@@ -379,6 +412,25 @@ impl App {
             DIM,
         );
         ui.text_r(&format!("v{}", crate::net::VERSION), sw - 12.0, sh - 12.0, 14.0, DIM);
+        self.draw_update_notice(ui);
+    }
+
+    /// The corner notice about a newer version and how far its update has come.
+    fn draw_update_notice(&self, ui: &Ui) {
+        use crate::update::State;
+        let (title, sub) = match self.updater.state() {
+            State::Idle => return,
+            State::Available { version } => (format!("Version {} is out", version), hint("Click here to update", "Y to update").to_string()),
+            State::Downloading { version } => (format!("Downloading {}...", version), "This takes a moment.".to_string()),
+            State::Ready { version } => (format!("Version {} is ready", version), hint("Click here to restart", "Y to restart").to_string()),
+            State::Failed(why) => ("The update failed".to_string(), format!("{}. {}", why.chars().take(48).collect::<String>(), hint("Click to retry", "Y to retry"))),
+        };
+        let r = update_notice();
+        let hot = r.contains(mouse_ui());
+        draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.07, 0.06, 0.06, if hot { 0.95 } else { 0.75 }));
+        draw_rectangle_lines(r.x, r.y, r.w, r.h, 1.5, if hot { GOLD } else { crate::ui::EMBER });
+        ui.text_c(&title, r.x + r.w * 0.5, r.y + 24.0, 20.0, GOLD);
+        ui.text_c(&sub, r.x + r.w * 0.5, r.y + 46.0, 15.0, DIM);
     }
 
     // ---------------------------------------------------------------- credits
@@ -516,7 +568,7 @@ impl App {
         } else {
             0
         };
-        if matches!(opt, Opt::Music | Opt::Sfx | Opt::Markers | Opt::Brightness) {
+        if matches!(opt, Opt::Music | Opt::Sfx | Opt::Vol(_) | Opt::FxAlpha | Opt::Markers | Opt::Brightness) {
             let held = if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) || pad_stick().x < -0.5 {
                 -1
             } else if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) || pad_stick().x > 0.5 {
@@ -581,6 +633,12 @@ impl App {
             Opt::HurtFlash => st.hurt_flash = !st.hurt_flash,
             Opt::BossLines => st.boss_lines = !st.boss_lines,
             Opt::Discord => st.discord = !st.discord,
+            Opt::Updates => st.check_updates = !st.check_updates,
+            Opt::Vol(i) => {
+                st.vols[i as usize] = percent_step(st.vols[i as usize], dir);
+                self.audio.kind_vol = st.vols;
+            }
+            Opt::FxAlpha => st.effect_alpha = (st.effect_alpha as i32 + dir * 5).clamp(crate::save::MIN_EFFECT_ALPHA as i32, 100) as u8,
             Opt::Brightness => st.brightness = (st.brightness as i32 + dir * 5).clamp(crate::save::MIN_BRIGHTNESS as i32, crate::save::MAX_BRIGHTNESS as i32) as u8,
             Opt::Cute => st.cute = !st.cute,
             Opt::Resolution => {
@@ -667,6 +725,9 @@ impl App {
             Opt::HurtFlash => onoff(st.hurt_flash),
             Opt::BossLines => onoff(st.boss_lines),
             Opt::Discord => onoff(st.discord),
+            Opt::Updates => onoff(st.check_updates),
+            Opt::Vol(i) => pct(st.vols[i as usize]),
+            Opt::FxAlpha => format!("{}%", st.effect_alpha),
             Opt::Brightness => format!("{}%", st.brightness),
             Opt::Markers => match st.marker_inset {
                 0 => "At the edge".into(),

@@ -360,7 +360,7 @@ impl App {
         } else {
             Input {
                 dir: move_input(),
-                roll: pressed_any(&[key_for(Action::Roll), KeyCode::LeftShift, KeyCode::RightShift]) || pad_pressed(Pad::Roll),
+                roll: (pressed_any(&[key_for(Action::Roll), KeyCode::LeftShift, KeyCode::RightShift]) || pad_pressed(Pad::Roll)) && get_time() >= self.roll_blocked_until,
                 skill: act_pressed(Action::Skill) || pad_pressed(Pad::Skill),
             }
         };
@@ -511,6 +511,8 @@ impl App {
             if let Some(c) = w.me().choices.get(i) {
                 crate::log!("level {}: picked {}", w.level, w.me().choice_text(*c).0);
             }
+            // Space (or a pad button) both takes a card and rolls; taking one must not roll.
+            self.roll_blocked_until = get_time() + 0.4;
         }
         if let NetMode::Client(_) = self.net {
             if reroll {

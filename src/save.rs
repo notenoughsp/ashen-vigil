@@ -178,6 +178,10 @@ pub struct Settings {
     pub binds: [KeyCode; ACTIONS.len()],
     pub music: f32,
     pub sfx: f32,
+    /// Volume of each kind of sound, see `audio::SOUND_KINDS`.
+    pub vols: [f32; crate::audio::SOUND_KINDS.len()],
+    /// How opaque the heroes' weapons and skills are drawn, in percent.
+    pub effect_alpha: u8,
     pub numbers: bool,
     pub overlay: bool,
     pub meter: bool,
@@ -221,6 +225,8 @@ pub struct Settings {
     pub boss_lines: bool,
     /// Friends on Discord see what you are doing.
     pub discord: bool,
+    /// Ask GitHub at start whether a newer version is out.
+    pub check_updates: bool,
     /// The soft variant: pink instead of blood, hearts instead of bullets, blushing foes.
     pub cute: bool,
 }
@@ -233,6 +239,8 @@ pub const MAX_MARKER_INSET: u8 = 35;
 /// How dark or bright the night can be made, in percent.
 pub const MIN_BRIGHTNESS: u8 = 70;
 pub const MAX_BRIGHTNESS: u8 = 150;
+/// The faintest the heroes' weapons and skills can be drawn, in percent.
+pub const MIN_EFFECT_ALPHA: u8 = 15;
 
 impl Default for Settings {
     fn default() -> Self {
@@ -241,6 +249,8 @@ impl Default for Settings {
             name: "Ashen One".into(),
             music: 0.4,
             sfx: 0.55,
+            vols: [1.0; crate::audio::SOUND_KINDS.len()],
+            effect_alpha: 100,
             numbers: true,
             overlay: true,
             meter: true,
@@ -270,6 +280,7 @@ impl Default for Settings {
             brightness: 100,
             boss_lines: true,
             discord: true,
+            check_updates: true,
             cute: false,
         }
     }
@@ -455,6 +466,7 @@ impl Save {
                 "brightness" => st.brightness = v.parse::<u8>().unwrap_or(100).clamp(MIN_BRIGHTNESS, MAX_BRIGHTNESS),
                 "boss_lines" => st.boss_lines = flag(v),
                 "discord" => st.discord = flag(v),
+                "check_updates" => st.check_updates = flag(v),
                 "marker_inset" => st.marker_inset = v.parse::<u8>().unwrap_or(12).min(MAX_MARKER_INSET),
                 "best_kills" => s.best_kills = v.parse().unwrap_or(0),
                 "best_level" => s.best_level = v.parse().unwrap_or(0),
@@ -503,6 +515,12 @@ impl Save {
                 "last_ip" => st.last_ip = v.to_string(),
                 "music" => st.music = f(0.4),
                 "sfx" => st.sfx = f(0.55),
+                k if k.starts_with("vol_") => {
+                    if let Some(i) = crate::audio::SOUND_KINDS.iter().position(|(key, _)| k == format!("vol_{}", key)) {
+                        st.vols[i] = f(1.0).clamp(0.0, 1.0);
+                    }
+                }
+                "effect_alpha" => st.effect_alpha = v.parse::<u8>().unwrap_or(100).clamp(MIN_EFFECT_ALPHA, 100),
                 "numbers" => st.numbers = flag(v),
                 "overlay" => st.overlay = flag(v),
                 "meter" => st.meter = flag(v),
@@ -575,13 +593,14 @@ impl Save {
         out += &format!("name={}\nlast_ip={}\nui_scale={}\n", st.name, st.last_ip, st.ui_scale);
         out += &format!("cute={}\ncute_found={}\nboss_rush={}\nbiome={}\ncurses={}\n", b(st.cute), b(self.cute_found), b(st.boss_rush), st.biome, self.curses);
         out += &format!(
-            "pause_unfocused={}\nmute_unfocused={}\nhurt_flash={}\nbrightness={}\nboss_lines={}\ndiscord={}\n",
+            "pause_unfocused={}\nmute_unfocused={}\nhurt_flash={}\nbrightness={}\nboss_lines={}\ndiscord={}\ncheck_updates={}\n",
             b(st.pause_unfocused),
             b(st.mute_unfocused),
             b(st.hurt_flash),
             st.brightness,
             b(st.boss_lines),
-            b(st.discord)
+            b(st.discord),
+            b(st.check_updates)
         );
         out += &format!(
             "skins={}\nskin={}\nshrine_levels={}\nwon_classes={}\nmarker_inset={}\n",
@@ -590,7 +609,10 @@ impl Save {
         for (a, k) in ACTIONS.iter().zip(st.binds) {
             out += &format!("bind_{}={}\n", a.key(), key_name(k));
         }
-        out += &format!("music={:.2}\nsfx={:.2}\n", st.music, st.sfx);
+        out += &format!("music={:.2}\nsfx={:.2}\neffect_alpha={}\n", st.music, st.sfx, st.effect_alpha);
+        for ((key, _), v) in crate::audio::SOUND_KINDS.iter().zip(st.vols) {
+            out += &format!("vol_{}={:.2}\n", key, v);
+        }
         out += &format!(
             "numbers={}\noverlay={}\nmeter={}\ngore={}\nlighting={}\nfullscreen={}\n",
             b(st.numbers),

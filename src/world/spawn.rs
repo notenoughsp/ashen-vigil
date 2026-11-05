@@ -30,6 +30,9 @@ impl World {
             EnemyKind::Leech => (5.0, 135.0, 4.0, 0.5),
             EnemyKind::Gargoyle => (70.0, 55.0, 14.0, 5.0),
             EnemyKind::Banshee => (30.0, 70.0, 9.0, 3.0),
+            EnemyKind::Courier => (45.0, 175.0, 0.0, 6.0),
+            EnemyKind::Champion => (900.0, 75.0, 30.0, 60.0),
+            EnemyKind::Rival => (500.0, 165.0, 22.0, 30.0),
             EnemyKind::Boss(_) => (1000.0, 80.0, 25.0, 0.0),
         };
         let r = kind.radius(false);
@@ -61,6 +64,8 @@ impl World {
             alpha: 1.0,
             fuse: -1.0,
             net_vel: Vec2::ZERO,
+            hunt: None,
+            life_left: f32::INFINITY,
         }
     }
 
@@ -201,7 +206,7 @@ impl World {
         }
 
         if self.time >= self.next_relic {
-            self.next_relic = self.time + gen_range(30.0, 45.0);
+            self.next_relic = self.time + gen_range(18.0, 30.0);
             self.spawn_relic();
         }
 
@@ -211,6 +216,11 @@ impl World {
             self.sfx("bell", 0.9);
         }
         self.boss_warning = if warn <= BOSS_WARNING { warn } else { 0.0 };
+        // Each lord comes a frame or so late, so by 30:00 the next one is a little past dawn;
+        // the Sovereign must not miss its hour.
+        if !self.boss_rush && !self.endless && !self.finale_came && self.time >= VICTORY_TIME {
+            self.next_boss = self.next_boss.min(self.time);
+        }
         if self.time >= self.next_boss && self.boss.is_none() {
             self.next_boss = self.time + BOSS_INTERVAL;
             self.boss_warning = 0.0;
@@ -218,7 +228,7 @@ impl World {
         }
 
         if self.time >= self.next_shrine {
-            self.next_shrine = self.time + BOSS_INTERVAL;
+            self.next_shrine = self.time + SHRINE_INTERVAL;
             let pos = clamp_world(self.center() + rand_dir() * 380.0, 200.0);
             self.shrines.push(Shrine { pos, life: 90.0, kindle: 0.0, used: false });
             self.toast("An Ash Shrine stirs nearby. Rest to bank your souls.");
@@ -246,7 +256,8 @@ impl World {
         let n = self.bosses_spawned;
         // The last hour always belongs to the Sovereign; past dawn the lords take turns again.
         // A boss rush has no last hour: its lords simply follow each other.
-        let finale = self.time >= VICTORY_TIME - 1.0 && !self.endless && !self.boss_rush;
+        let finale = self.time >= VICTORY_TIME - 1.0 && !self.endless && !self.boss_rush && !self.finale_came;
+        self.finale_came |= finale;
         // A rush meets every lord in turn; a vigil the five of its field, then the Sovereign.
         let kind = if finale {
             BossKind::Sovereign
@@ -300,7 +311,8 @@ impl World {
         self.say(kind.lines()[0], boss_voice(kind));
         self.boss_kind = Some(kind);
         self.boss_bar_lag = 1.0;
-        self.arena = Some((center, 560.0));
+        // A boss rush's whole small field is the arena; a vigil rings its lord in fog.
+        self.arena = if self.boss_rush { None } else { Some((center, 560.0)) };
         let rush_title = format!("Lord {} of {}", n + 1, RUSH_LORDS);
         let title = if finale {
             "The Last Hour"

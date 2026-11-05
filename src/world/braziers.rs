@@ -25,10 +25,13 @@ pub fn brazier_spots() -> Vec<Vec2> {
         ((h ^ (h >> 16)) % 10_000) as f32 / 10_000.0
     };
     let mut out = Vec::new();
-    let step = WORLD_HALF * 2.0 / 6.0;
-    for gy in 0..6 {
-        for gx in 0..6 {
-            let c = vec2(-WORLD_HALF + (gx as f32 + 0.5) * step, -WORLD_HALF + (gy as f32 + 0.5) * step);
+    // About one brazier per 1200 units square: 36 on a vigil's field, 4 in a boss rush.
+    let half = field_half();
+    let cells = ((half * 2.0 / 1200.0).round() as i32).max(2);
+    let step = half * 2.0 / cells as f32;
+    for gy in 0..cells {
+        for gx in 0..cells {
+            let c = vec2(-half + (gx as f32 + 0.5) * step, -half + (gy as f32 + 0.5) * step);
             let p = c + vec2(mix(gx, gy, 1) - 0.5, mix(gx, gy, 2) - 0.5) * step * 0.6;
             if p.length() > 400.0 && inside_world(p, 200.0) {
                 out.push(p);
@@ -57,6 +60,7 @@ impl World {
         for i in lit {
             let p = self.braziers[i].pos;
             self.braziers_lit += 1;
+            self.quest_count(QuestKind::Kindle, 1);
             let burning = self.braziers.iter().filter(|b| b.burn > 0.0).count();
             self.toast(&format!("A brazier burns again. ({} of {} alight)", burning, self.braziers.len()));
             self.sfx_at("kindle", 0.8, p);

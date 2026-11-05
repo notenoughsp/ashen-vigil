@@ -676,6 +676,25 @@ async fn load_override(dir: &str, name: &str) -> Option<Sound> {
     load_sound_from_bytes(bytes).await.ok()
 }
 
+/// The kinds of sound with a volume of their own: save key and name in the options.
+pub const SOUND_KINDS: [(&str, &str); 6] =
+    [("voices", "Lord voices"), ("weapons", "Weapons"), ("hits", "Hits"), ("foes", "Foes"), ("pickups", "Pickups"), ("interface", "Interface")];
+const VOICES: usize = 0;
+
+/// Which kind of sound a sound is, for its volume.
+pub fn sound_kind(name: &str) -> usize {
+    match name {
+        "slash" | "knife" | "fire" | "explode" | "slam" | "zap" | "arrow" | "bullet" | "clang" | "roll" => 1,
+        "hit" | "hurt" | "death" => 2,
+        "die" | "roar" | "bell" => 3,
+        "pickup" | "chest" | "levelup" | "evolve" | "kindle" | "chime" => 4,
+        _ => 5,
+    }
+}
+
+/// How long a lord's line may wait for the one before it, in seconds.
+const VOICE_PATIENCE: f64 = 3.0;
+
 /// What is playing.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Music {
@@ -698,13 +717,17 @@ pub struct Audio {
     combat: Sound,
     endless: Vec<Sound>,
     bosses: Vec<Sound>,
-    /// The lords' spoken lines by key, e.g. "bride_1".
-    voices: HashMap<&'static str, Sound>,
-    /// The line being spoken, cut off when the next one starts.
-    speaking: Option<&'static str>,
+    /// The lords' spoken lines by key, e.g. "bride_1", with their length in seconds.
+    voices: HashMap<&'static str, (Sound, f32)>,
+    /// The line being spoken and when its words end.
+    speaking: Option<(&'static str, f64)>,
+    /// A line waiting for the one before it to end, and when it was said.
+    waiting: Option<(&'static str, f64)>,
     current: Music,
     intensity: f32,
     pub sfx_vol: f32,
+    /// Volume of each of `SOUND_KINDS`, on top of `sfx_vol`.
+    pub kind_vol: [f32; SOUND_KINDS.len()],
     pub music_vol: f32,
     pub muted: bool,
 }
@@ -754,13 +777,29 @@ impl Audio {
         let bosses = take(THEMES.len());
         let endless = take(ENDLESS_STAGES as usize);
         let mut voices = HashMap::new();
-        for (name, _) in crate::embedded::VOICE {
+        for (name, secs, _) in crate::embedded::VOICE {
             if let Some(s) = load_override("voice", name).await {
-                voices.insert(name, s);
+                voices.insert(name, (s, secs));
             }
         }
         crate::log!("{} of {} lord lines loaded", voices.len(), crate::embedded::VOICE.len());
-        Audio { sfx, acts, lullaby, combat, endless, bosses, voices, speaking: None, current: Music::Silence, intensity: 0.0, sfx_vol: 0.55, music_vol: 0.4, muted: false }
+        Audio {
+            sfx,
+            acts,
+            lullaby,
+            combat,
+            endless,
+            bosses,
+            voices,
+            speaking: None,
+            waiting: None,
+            current: Music::Silence,
+            intensity: 0.0,
+            sfx_vol: 0.55,
+            kind_vol: [1.0; SOUND_KINDS.len()],
+            music_vol: 0.4,
+            muted: false,
+        }
     }
 
     /// Plays a sound unless it already played within `gap` seconds.
@@ -774,7 +813,7 @@ impl Audio {
                 return;
             }
             *last = now;
-            play_sound(snd, PlaySoundParams { looped: false, volume: vol * self.sfx_vol });
+            play_sound(snd, PlaySoundParams { looped: false, volume: vol * self.sfx_vol * self.kind_vol[sound_kind(name)] });
         }
     }
 
@@ -782,17 +821,47 @@ impl Audio {
         self.play_gap(name, vol, 0.03);
     }
 
-    /// A lord speaks a line (see `voice::line_key`); the line before it falls silent.
-    pub fn speak(&mut self, key: &str) {
-        if let Some(prev) = self.speaking.take().and_then(|k| self.voices.get(k)) {
-            stop_sound(prev);
+    /// A lord speaks a line (see `voice::line_key`). Lines wait for the one before to end,
+    /// so a lord that falls fast is still understood; last words (`last`) cut in at once.
+    pub fn speak(&mut self, key: &str, last: bool) {
+        let Some((&name, _)) = self.voices.get_key_value(key) else { return };
+        let now = get_time();
+        let busy = self.speaking.is_some_and(|(_, end)| now < end);
+        if busy && !last {
+            // Only the newest waits: a lord's later words matter more than its earlier ones.
+            self.waiting = Some((name, now));
+            return;
+        }
+        self.waiting = None;
+        self.say_now(name);
+    }
+
+    fn say_now(&mut self, name: &'static str) {
+        if let Some((prev, _)) = self.speaking.take() {
+            if let Some((snd, _)) = self.voices.get(prev) {
+                stop_sound(snd);
+            }
         }
         if self.muted {
             return;
         }
-        if let Some((name, snd)) = self.voices.get_key_value(key) {
-            play_sound(snd, PlaySoundParams { looped: false, volume: (self.sfx_vol * 1.6).min(1.0) });
-            self.speaking = Some(*name);
+        if let Some((snd, secs)) = self.voices.get(name) {
+            play_sound(snd, PlaySoundParams { looped: false, volume: (self.sfx_vol * 1.6).min(1.0) * self.kind_vol[VOICES] });
+            // The echo may ring under the next line.
+            self.speaking = Some((name, get_time() + (*secs as f64 - 0.4).max(0.5)));
+        }
+    }
+
+    /// Speaks a waiting line once the one before has ended; a line that waited too long
+    /// has missed its moment. Call every frame.
+    pub fn update_voice(&mut self) {
+        let Some((name, since)) = self.waiting else { return };
+        let now = get_time();
+        if now - since > VOICE_PATIENCE {
+            self.waiting = None;
+        } else if self.speaking.is_none_or(|(_, end)| now >= end) {
+            self.waiting = None;
+            self.say_now(name);
         }
     }
 

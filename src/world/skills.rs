@@ -40,17 +40,17 @@ impl World {
         self.fx.push(Fx { pos: p, life: 0.5, max_life: 0.5, kind: FxKind::Ring { r: 90.0, color } });
         match class {
             Class::Wanderer => {
-                self.hit_circle(p, 240.0, 40.0 * power, 520.0, src, None);
-                self.damage_bullets(p, 240.0, 1e9);
-                for hero in self.heroes.iter_mut().filter(|o| o.alive() && o.p.pos.distance(p) < 240.0) {
-                    hero.p.iframes = hero.p.iframes.max(1.5);
+                self.hit_circle(p, 300.0, 80.0 * power, 620.0, src, None);
+                self.damage_bullets(p, 300.0, 1e9);
+                for hero in self.heroes.iter_mut().filter(|o| o.alive() && o.p.pos.distance(p) < 300.0) {
+                    hero.p.iframes = hero.p.iframes.max(2.0);
                 }
-                self.fx.push(Fx { pos: p, life: 0.6, max_life: 0.6, kind: FxKind::Ring { r: 240.0, color } });
+                self.fx.push(Fx { pos: p, life: 0.6, max_life: 0.6, kind: FxKind::Ring { r: 300.0, color } });
                 self.shake = self.shake.max(10.0);
                 self.sfx_at("slam", 0.9, p);
             }
             Class::GraveHunter | Class::Arbalist => {
-                let (n, kind, speed, dmg) = if class == Class::Arbalist { (36, PKind::Quarrel, 600.0, 22.0) } else { (24, PKind::Dagger, 700.0, 25.0) };
+                let (n, kind, speed, dmg) = if class == Class::Arbalist { (48, PKind::Quarrel, 620.0, 36.0) } else { (36, PKind::Dagger, 720.0, 40.0) };
                 for k in 0..n {
                     let dir = Vec2::from_angle(k as f32 / n as f32 * TAU);
                     self.projs.push(Proj {
@@ -59,8 +59,8 @@ impl World {
                         dir,
                         r: 6.0,
                         dmg: dmg * power,
-                        pierce: 4,
-                        life: 1.2,
+                        pierce: 6,
+                        life: 1.3,
                         age: 0.0,
                         kind,
                         evo: true,
@@ -73,51 +73,60 @@ impl World {
                 self.sfx_at(if class == Class::Arbalist { "arrow" } else { "knife" }, 1.0, p);
             }
             Class::CinderAdept => {
-                let at = self.nearest_enemies(p, 650.0, 1).first().map(|&i| self.enemies[i].pos).unwrap_or(p + self.heroes[h].aim * 200.0);
-                self.explode(at, 180.0, 120.0 * power, true, src);
-                self.fx.push(Fx { pos: at, life: 0.3, max_life: 0.3, kind: FxKind::Lightning { from: at + vec2(-120.0, -600.0) } });
-                self.add_decal(at, 90.0, Color::from_rgba(15, 12, 10, 170), DecalKind::Scorch, 20.0);
-                self.shake = self.shake.max(14.0);
-                self.sfx_at("explode", 1.0, at);
+                // Three stars: on the nearest foes, or ahead of the hero where there are fewer.
+                let mut spots: Vec<Vec2> = self.nearest_enemies(p, 700.0, 3).iter().map(|&i| self.enemies[i].pos).collect();
+                let aim = self.heroes[h].aim;
+                while spots.len() < 3 {
+                    let k = spots.len() as f32;
+                    spots.push(p + Vec2::from_angle(aim.to_angle() + (k - 1.0) * 0.6) * 220.0);
+                }
+                for at in spots {
+                    self.explode(at, 220.0, 200.0 * power, true, src);
+                    self.fx.push(Fx { pos: at, life: 0.3, max_life: 0.3, kind: FxKind::Lightning { from: at + vec2(-120.0, -600.0) } });
+                    self.add_decal(at, 100.0, Color::from_rgba(15, 12, 10, 170), DecalKind::Scorch, 20.0);
+                }
+                self.shake = self.shake.max(16.0);
+                self.sfx_at("explode", 1.0, p);
             }
             Class::BellAcolyte => {
-                for hero in self.heroes.iter_mut().filter(|o| o.alive() && o.p.pos.distance(p) < 320.0) {
+                for hero in self.heroes.iter_mut().filter(|o| o.alive() && o.p.pos.distance(p) < 380.0) {
                     let max = hero.stats.max_hp;
-                    hero.heal(max * 0.35);
-                    hero.buffs[Buff::Aegis as usize] = hero.buffs[Buff::Aegis as usize].max(2.0);
+                    hero.heal(max * 0.55);
+                    hero.buffs[Buff::Aegis as usize] = hero.buffs[Buff::Aegis as usize].max(3.5);
                 }
-                self.fx.push(Fx { pos: p, life: 0.8, max_life: 0.8, kind: FxKind::Ring { r: 320.0, color } });
+                self.fx.push(Fx { pos: p, life: 0.8, max_life: 0.8, kind: FxKind::Ring { r: 380.0, color } });
                 self.sfx_at("bell", 1.0, p);
             }
             Class::Reaper => {
                 let killed = self.kills;
-                let hits = self.hit_circle(p, 290.0, 60.0 * power, 300.0, src, None);
-                let reaped = hits as f32 * 0.6 + (self.kills - killed) as f32;
-                self.heroes[h].heal(reaped.min(60.0));
-                self.fx.push(Fx { pos: p, life: 0.45, max_life: 0.45, kind: FxKind::Sweep { radius: 290.0, evo: true, owner: h as u8 } });
+                let hits = self.hit_circle(p, 340.0, 110.0 * power, 340.0, src, None);
+                let reaped = hits as f32 * 0.8 + (self.kills - killed) as f32 * 1.5;
+                self.heroes[h].heal(reaped.min(100.0));
+                self.fx.push(Fx { pos: p, life: 0.45, max_life: 0.45, kind: FxKind::Sweep { radius: 340.0, evo: true, owner: h as u8 } });
                 self.sfx_at("slash", 1.0, p);
             }
             Class::Hexblade => {
-                self.pools.push(FirePool { pos: p, r: 150.0, life: 6.0, max_life: 6.0, dps: 25.0 * power, tick: 0.1, src, hex: true });
+                self.pools.push(FirePool { pos: p, r: 210.0, life: 8.0, max_life: 8.0, dps: 45.0 * power, tick: 0.1, src, hex: true });
                 self.sfx_at("fire", 1.0, p);
             }
             Class::BloodKnight => {
                 let hero = &mut self.heroes[h];
-                hero.buffs[Buff::Fury as usize] = hero.buffs[Buff::Fury as usize].max(6.0);
+                hero.buffs[Buff::Fury as usize] = hero.buffs[Buff::Fury as usize].max(9.0);
                 let max = hero.stats.max_hp;
-                hero.heal(max * 0.25);
+                hero.heal(max * 0.4);
                 self.blood_spray(p, rand_dir(), Color::from_rgba(150, 10, 12, 255), 16.0, 20);
                 self.sfx_at("roar", 0.6, p);
             }
             Class::BucketKnight => {
-                for e in self.enemies.iter_mut().filter(|e| !e.boss && e.pos.distance(p) < 280.0) {
-                    e.slow = e.slow.max(3.0);
-                    e.knock += (e.pos - p).normalize_or_zero() * 260.0;
+                self.hit_circle(p, 340.0, 50.0 * power, 0.0, src, None);
+                for e in self.enemies.iter_mut().filter(|e| !e.boss && e.pos.distance(p) < 340.0) {
+                    e.slow = e.slow.max(4.5);
+                    e.knock += (e.pos - p).normalize_or_zero() * 320.0;
                 }
-                for hero in self.heroes.iter_mut().filter(|o| o.alive() && o.p.pos.distance(p) < 280.0) {
-                    hero.buffs[Buff::Aegis as usize] = hero.buffs[Buff::Aegis as usize].max(1.0);
+                for hero in self.heroes.iter_mut().filter(|o| o.alive() && o.p.pos.distance(p) < 340.0) {
+                    hero.buffs[Buff::Aegis as usize] = hero.buffs[Buff::Aegis as usize].max(2.0);
                 }
-                self.fx.push(Fx { pos: p, life: 0.6, max_life: 0.6, kind: FxKind::Ring { r: 280.0, color } });
+                self.fx.push(Fx { pos: p, life: 0.6, max_life: 0.6, kind: FxKind::Ring { r: 340.0, color } });
                 self.shake = self.shake.max(8.0);
                 self.sfx_at("clang", 1.0, p);
             }

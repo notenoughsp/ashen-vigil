@@ -183,7 +183,13 @@ impl App {
             18 => want.push("credits"),
             19 => self.screen = Screen::Menu,
             20 => want.push("menu"),
-            21 => self.screen = Screen::Reliquary,
+            // The notice about a newer version, pretended: the self-test never asks GitHub.
+            21 => self.updater = crate::update::Updater::pretend("9.9.9"),
+            23 => want.push("menu_update"),
+            24 => {
+                self.updater = crate::update::Updater::off();
+                self.screen = Screen::Reliquary;
+            }
             30 => want.push("reliquary"),
             31 => {
                 self.screen = Screen::Options;
@@ -230,7 +236,13 @@ impl App {
                 w.cam = Vec2::ZERO;
                 // Every map event at once, plus the late-game foes.
                 w.blood_moon = 40.0;
-                w.merchant = Some(Merchant { pos: vec2(-260.0, -150.0), life: 60.0, sold: [false, true, false], prices: [40, 90, 150] });
+                w.merchant = Some(Merchant {
+                    pos: vec2(-260.0, -150.0),
+                    life: 60.0,
+                    wares: [Ware::Draught, Ware::Relic, Ware::Dice, Ware::Rage, Ware::Ward, Ware::Lodestone],
+                    sold: [false, true, false, false, false, false],
+                    prices: [40, 90, 150, 120, 100, 80],
+                });
                 w.cursed = Some(CursedShrine { pos: vec2(280.0, -170.0), life: 60.0, kindle: 0.0, curse: 0.0, accepted: false });
                 for (i, kind) in [EnemyKind::Cultist, EnemyKind::Shieldbearer, EnemyKind::Necromancer].into_iter().enumerate() {
                     let e = w.make_enemy(kind, vec2(-120.0 + i as f32 * 120.0, 230.0));
@@ -242,6 +254,11 @@ impl App {
             350 => self.save.settings.cute = true,
             380 => want.push("cute"),
             381 => self.save.settings.cute = false,
+            400 => {
+                // A quest in hand, for the HUD in the picture.
+                let w = self.world.as_mut().unwrap();
+                w.quest = Some(crate::world::Quest { kind: crate::world::QuestKind::Slay, goal: 150, progress: 37, left: 48.0 });
+            }
             420 => want.push("run"),
             421 => self.screen = Screen::Paused,
             424 => want.push("pause"),
@@ -261,6 +278,10 @@ impl App {
             }
             460 => want.push("warning"),
             900 => want.push("boss"),
+            // The heroes' weapons faded, to see a lord's attacks through them.
+            902 => self.save.settings.effect_alpha = 30,
+            906 => want.push("boss_faded"),
+            907 => self.save.settings.effect_alpha = 100,
             1000 => self.world.as_mut().unwrap().pending_levels += 1,
             1010 => want.push("levelup"),
             1300 => {
@@ -331,6 +352,13 @@ impl App {
                 self.save.challenges = 0;
                 self.start_single();
             }
+            1880 => {
+                // Near the corner of the small rush field, so its walls are in the picture.
+                if let Some(w) = self.world.as_mut() {
+                    let at = vec2(crate::world::RUSH_HALF - 350.0, crate::world::RUSH_HALF - 250.0);
+                    w.heroes[0].p.pos = at;
+                }
+            }
             1900 => want.push("rush"),
             1901 => self.field_showcase(Biome::Marsh, BossKind::Bride),
             2000 => want.push("marsh"),
@@ -362,7 +390,40 @@ impl App {
                 }
             }
             2170 => want.push("arsenal"),
-            2171 => std::process::exit(0),
+            2171 => {
+                // The omens, all at once around the hero: an altar and a pact, the wager stone,
+                // a cursed coffer, the courier and its vault, the mist's champion, the rival,
+                // and the ash rain.
+                let w = self.world.as_mut().unwrap();
+                w.enemies.clear();
+                w.projs.clear();
+                w.time = 7.0 * 60.0;
+                w.next_boss = w.time + 20.0;
+                let p = w.heroes[0].p.pos;
+                w.heroes[0].pact = true;
+                w.heroes[0].p.hp = w.heroes[0].stats.max_hp * 0.6;
+                w.altars.push(crate::world::Altar { pos: p + vec2(-330.0, -150.0), life: 50.0, kindle: 0.9 });
+                w.stone = Some(crate::world::WagerStone { pos: p + vec2(300.0, -230.0) });
+                w.pickups.push(Pickup::new(p + vec2(-170.0, 150.0), PickKind::CursedCoffer));
+                w.pickups.push(Pickup::new(p + vec2(-60.0, 190.0), PickKind::Key));
+                w.vault = Some(crate::world::Vault { pos: p + vec2(-520.0, 120.0), open: false });
+                w.vault_key = true;
+                w.weather = Some((crate::world::Weather::AshRain, 120.0));
+                w.mist = 60.0;
+                for (kind, at) in [(EnemyKind::Champion, vec2(260.0, 120.0)), (EnemyKind::Rival, vec2(110.0, -120.0)), (EnemyKind::Courier, vec2(-250.0, 0.0))] {
+                    let mut e = w.make_enemy(kind, p + at);
+                    if kind == EnemyKind::Champion {
+                        e.elite = true;
+                        e.r = kind.radius(true);
+                    }
+                    e.speed = 0.0;
+                    e.hp = 1e9;
+                    w.enemies.push(e);
+                }
+                w.heroes[0].wager = Some(crate::world::Wager { tier: 1, stake: 1234, since: None });
+            }
+            2180 => want.push("omens"),
+            2181 => std::process::exit(0),
             _ => {}
         }
         want
@@ -645,6 +706,8 @@ impl App {
                         w.bosses_killed = w.bosses_killed.max(RUSH_LORDS);
                     } else if w.time < VICTORY_TIME {
                         w.time = VICTORY_TIME + 0.5;
+                        // Straight to dawn, without the Sovereign of the last hour.
+                        w.finale_came = true;
                     }
                 }
                 1340 => {

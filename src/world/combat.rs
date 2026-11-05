@@ -24,6 +24,9 @@ impl World {
         if e.elite || e.boss {
             dmg *= elite_dmg;
         }
+        if self.weather.is_some_and(|(w, _)| w == Weather::AshRain) && src.weapon.is_fire() {
+            dmg *= 1.4;
+        }
         if e.boss {
             // No single blow takes more than a sliver of a lord: every fight lasts a while.
             dmg = dmg.min(e.max_hp * BOSS_HIT_CAP);
@@ -75,6 +78,10 @@ impl World {
             let e = &self.enemies[i];
             (e.pos, e.kind, e.xp, e.elite, e.boss, e.r)
         };
+        self.quest_count(QuestKind::Slay, 1);
+        if elite {
+            self.quest_count(QuestKind::Elites, 1);
+        }
         if self.cursed_by(Curse::Volatile) && !boss && chance(0.2) {
             // Volatile: the body bursts into a few slow bullets.
             let dmg = 6.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
@@ -101,7 +108,8 @@ impl World {
         }
         if boss {
             self.boss = None;
-            self.boss_kind = None;
+            // Kept for the lord's last words below.
+            let fallen = self.boss_kind.take();
             self.bosses_killed += 1;
             self.arena = None;
             self.ebullets.clear();
@@ -131,7 +139,7 @@ impl World {
                 h.p.hp = h.rise_health(0.4);
                 h.p.iframes = 2.0;
             }
-            if let Some(k) = self.boss_kind {
+            if let Some(k) = fallen {
                 self.say(k.lines()[3], super::spawn::boss_voice(k));
             }
             if self.boss_rush {
@@ -143,18 +151,36 @@ impl World {
                 self.next_boss = self.next_boss.max(self.time + BOSS_WARNING);
             }
             self.events.push(Event::BossDefeated);
+            self.fulfil_pacts();
+            self.settle_wagers();
             return;
         }
         if elite {
             self.pickups.push(Pickup::new(pos, PickKind::Coffer(false)));
         }
+        match kind {
+            EnemyKind::Courier => {
+                self.pickups.push(Pickup::new(pos, PickKind::Key));
+                self.banner("THE COURIER FALLS", "Take its key to the vault", Color::from_rgba(240, 200, 90, 255), 3.0);
+            }
+            EnemyKind::Rival => {
+                for _ in 0..24 {
+                    self.drop_soul(pos + rand_dir() * gen_range(10.0, 80.0), xp * 0.4);
+                }
+                if chance(0.35) {
+                    self.pickups.push(Pickup::new(pos, PickKind::Coffer(false)));
+                }
+                self.banner("THE RIVAL FALLS", "Its souls are yours", Color::from_rgba(230, 80, 70, 255), 3.0);
+            }
+            _ => {}
+        }
         self.drop_soul(pos, xp);
         let luck = self.heroes.iter().map(|h| h.stats.luck).fold(1.0f32, f32::max);
         // Draughts and magnets lie until picked up, so on a crowded floor they stop dropping.
         let room = self.pickups.len() < MAX_PICKUPS - 50;
-        if room && chance(0.006 * luck) {
+        if room && chance(0.009 * luck) {
             self.pickups.push(Pickup::new(pos + rand_dir() * 8.0, PickKind::Draught));
-        } else if room && chance(0.0015 * luck) {
+        } else if room && chance(0.0025 * luck) {
             self.pickups.push(Pickup::new(pos + rand_dir() * 8.0, PickKind::Magnet));
         }
     }
@@ -240,6 +266,7 @@ impl World {
             return;
         }
         hero.first_hurt = hero.first_hurt.min(now);
+        hero.last_hurt = now;
         let taken = 1.0 - 0.03 * hero.profile.m(M_BULWARK) as f32;
         let d = (dmg * taken - hero.stats.armor).max(1.0);
         hero.p.hp -= d;
@@ -248,6 +275,7 @@ impl World {
             self.shake = self.shake.max(6.0);
         }
         self.sfx_at("hurt", 0.7, p);
+        self.last_wound = now;
         self.blood_spray(p, rand_dir(), Color::from_rgba(150, 10, 12, 255), 10.0, 8);
         if self.heroes[h].p.hp > 0.0 {
             return;
@@ -548,7 +576,13 @@ impl World {
         let mut raises: Vec<Vec2> = Vec::new();
         let mut wails: Vec<Vec2> = Vec::new();
         let mut burns: Vec<(usize, f32, Src)> = Vec::new();
+        let mut slams: Vec<Vec2> = Vec::new();
+        let mut volleys: Vec<(Vec2, Vec2)> = Vec::new();
         let (anchor, anchor_facing, anchor_moving) = self.random_hero_pos();
+        // Where each hero stands, for a foe that hunts one of them.
+        let hero_at: Vec<Option<Vec2>> = self.heroes.iter().map(|h| h.alive().then_some(h.p.pos)).collect();
+        // In the grave mist everything wades.
+        let wade = if self.weather.is_some_and(|(w, _)| w == Weather::GraveMist) { 0.8 } else { 1.0 };
         for (i, e) in self.enemies.iter_mut().enumerate() {
             if e.dead {
                 continue;
@@ -568,7 +602,16 @@ impl World {
                 e.pos = clamp_world(e.pos + e.knock * dt, e.r);
                 continue;
             }
-            let pp = *targets.iter().min_by(|a, b| a.distance_squared(e.pos).total_cmp(&b.distance_squared(e.pos))).unwrap();
+            if e.life_left.is_finite() {
+                e.life_left -= dt;
+                if e.life_left <= 0.0 {
+                    // It leaves the field: no souls, no drops.
+                    e.dead = true;
+                    continue;
+                }
+            }
+            let nearest = *targets.iter().min_by(|a, b| a.distance_squared(e.pos).total_cmp(&b.distance_squared(e.pos))).unwrap();
+            let pp = e.hunt.and_then(|h| hero_at.get(h).copied().flatten()).unwrap_or(nearest);
             let to = pp - e.pos;
             let d = to.length().max(0.001);
             let dir = to / d;
@@ -651,10 +694,56 @@ impl World {
                         vec2(-dir.y, dir.x) * (e.phase - std::f32::consts::PI).signum() * 0.6
                     }
                 }
+                EnemyKind::Courier => {
+                    // Runs from the nearest hero, swerving, and keeps off the walls.
+                    let away = -dir + vec2(-dir.y, dir.x) * (t * 1.3 + e.phase).sin() * 0.6;
+                    let inward = if inside_world(e.pos, 300.0) { Vec2::ZERO } else { -e.pos.normalize_or_zero() * 1.2 };
+                    (away + inward).normalize_or_zero() * if d < 500.0 { 1.0 } else { 0.55 }
+                }
+                EnemyKind::Champion => {
+                    // Charges now and then; slams the ground at the end of each charge.
+                    e.timer -= dt;
+                    if e.fuse > 0.0 {
+                        e.fuse -= dt;
+                        if e.fuse <= 0.0 {
+                            slams.push(e.pos);
+                        }
+                        dir * 3.2
+                    } else if e.timer <= 0.0 && d < 520.0 {
+                        e.timer = gen_range(4.0, 5.5);
+                        e.fuse = 0.7;
+                        dir * 3.2
+                    } else {
+                        dir
+                    }
+                }
+                EnemyKind::Rival => {
+                    // Circles at sword's length, dashes in, and throws volleys of three.
+                    e.timer -= dt;
+                    if e.timer <= 0.0 && d < 600.0 {
+                        e.timer = gen_range(1.6, 2.2);
+                        volleys.push((e.pos, dir));
+                    }
+                    if e.fuse > 0.0 {
+                        e.fuse -= dt;
+                        dir * 3.5
+                    } else if d < 260.0 && chance(dt * 0.6) {
+                        e.fuse = 0.3;
+                        dir * 3.5
+                    } else if d > 300.0 {
+                        dir
+                    } else if d < 160.0 {
+                        -dir
+                    } else {
+                        vec2(-dir.y, dir.x) * (e.phase - std::f32::consts::PI).signum()
+                    }
+                }
                 _ => dir,
             };
-            e.pos += (mv * e.speed * slow + e.knock) * dt;
-            if d > far {
+            e.pos += (mv * e.speed * slow * wade + e.knock) * dt;
+            // The courier, the champion and the rival never jump ahead of the heroes.
+            let roams = matches!(e.kind, EnemyKind::Courier | EnemyKind::Champion | EnemyKind::Rival);
+            if d > far && !roams {
                 // Wrap stragglers around to the front of a hero.
                 let ahead = if anchor_moving { anchor_facing } else { rand_dir() };
                 let mut a = ahead.to_angle() + gen_range(-0.9, 0.9);
@@ -678,6 +767,25 @@ impl World {
         }
         for (i, d, src) in burns {
             self.hit(i, d, Vec2::ZERO, src, false);
+        }
+        for at in slams {
+            // The champion's maul: a ring of bullets and a shockwave.
+            let dmg = 10.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
+            let off = gen_range(0.0, TAU);
+            for k in 0..14 {
+                self.enemy_bullet(at, Vec2::from_angle(off + k as f32 / 14.0 * TAU) * 170.0, 7.0, dmg, 0.0, 3.0);
+            }
+            self.waves.push(Shockwave { pos: at, r: 10.0, max_r: 220.0, speed: 520.0, dmg, hit: [false; MAX_HEROES] });
+            self.shake = self.shake.max(8.0);
+            self.sfx_at("slam", 0.8, at);
+        }
+        for (at, dir) in volleys {
+            let dmg = 9.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
+            for k in -1..=1 {
+                let v = Vec2::from_angle(dir.to_angle() + k as f32 * 0.18) * 330.0;
+                self.enemy_bullet(at, v, 6.0, dmg, 0.0, 2.5);
+            }
+            self.sfx_gap_at("knife", 0.35, 0.1, at);
         }
         for i in blasts {
             self.cultist_blast(i);

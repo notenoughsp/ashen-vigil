@@ -425,8 +425,8 @@ impl ItemKind {
 
     pub fn max_level(self) -> u32 {
         match self {
-            ItemKind::Sigil => 2,
-            _ => 5,
+            ItemKind::Sigil => 3,
+            _ => 8,
         }
     }
 
@@ -516,15 +516,15 @@ impl Class {
     /// The class's active skill: name, what it does, and seconds between uses.
     pub fn skill(self) -> (&'static str, &'static str, f32) {
         match self {
-            Class::Wanderer => ("Rally", "A shockwave hurls foes back; you are untouchable for a moment.", 14.0),
-            Class::GraveHunter => ("Fan of Knives", "Twenty-four piercing daggers in every direction.", 10.0),
-            Class::CinderAdept => ("Meteor", "A falling star strikes the nearest foe and burns all around it.", 16.0),
-            Class::BellAcolyte => ("Sanctuary", "Heals every hero nearby and wards them for a moment.", 18.0),
-            Class::Reaper => ("Harvest", "One vast sweep of the scythe; every soul reaped mends you.", 12.0),
-            Class::Hexblade => ("Hex Field", "A great sigil burns into the ground around you.", 14.0),
-            Class::BloodKnight => ("Blood Rite", "Fury for six seconds and a quarter of your health back.", 20.0),
-            Class::Arbalist => ("Bolt Storm", "Thirty-six quarrels fly out in every direction.", 12.0),
-            Class::BucketKnight => ("CLANG", "A deafening clang stuns every foe around you.", 15.0),
+            Class::Wanderer => ("Rally", "A great shockwave hurls foes back and wipes out their shots; you are untouchable for two seconds.", 20.0),
+            Class::GraveHunter => ("Fan of Knives", "Thirty-six piercing daggers in every direction.", 15.0),
+            Class::CinderAdept => ("Meteor", "Three falling stars strike the nearest foes and burn all around them.", 22.0),
+            Class::BellAcolyte => ("Sanctuary", "Heals every hero nearby by more than half and wards them.", 25.0),
+            Class::Reaper => ("Harvest", "One vast sweep of the scythe; every soul reaped mends you.", 17.0),
+            Class::Hexblade => ("Hex Field", "A great sigil burns into the ground around you for eight seconds.", 20.0),
+            Class::BloodKnight => ("Blood Rite", "Fury for nine seconds and two fifths of your health back.", 28.0),
+            Class::Arbalist => ("Bolt Storm", "Forty-eight quarrels fly out in every direction.", 17.0),
+            Class::BucketKnight => ("CLANG", "A deafening clang hurts and stuns every foe around you.", 21.0),
         }
     }
 }

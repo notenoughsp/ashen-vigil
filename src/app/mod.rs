@@ -106,6 +106,8 @@ pub struct App {
     /// The lord's words last heard and how long they had left, to speak each new line once.
     heard_quote: Option<(String, f32)>,
     discord: crate::discord::Discord,
+    /// Newer versions on GitHub, offered in the main menu.
+    updater: crate::update::Updater,
     /// Unix seconds when the current vigil began, for Discord's clock.
     vigil_since: i64,
     /// A tiny world for drawing heroes in the wardrobe.
@@ -158,6 +160,8 @@ pub struct App {
     input_acc: f32,
     level_round_seen: u16,
     level_shown_at: f64,
+    /// A level-up card was just taken with a key that also rolls: no roll until then.
+    roll_blocked_until: f64,
     lighting: Option<crate::draw::Lighting>,
 }
 
@@ -194,6 +198,7 @@ fn make_grain() -> Texture2D {
 
 impl App {
     pub fn new(save: Save, audio: Audio, font: Option<Font>, auto: Option<AutoTest>) -> App {
+        let check_updates = save.settings.check_updates;
         App {
             screen: Screen::Menu,
             save,
@@ -232,6 +237,8 @@ impl App {
             heard_quote: None,
             // The self-test never talks to Discord.
             discord: if auto.is_some() { crate::discord::Discord::off() } else { crate::discord::Discord::start() },
+            // The self-test never asks GitHub; the player may turn the check off.
+            updater: if auto.is_some() || !check_updates { crate::update::Updater::off() } else { crate::update::Updater::start() },
             vigil_since: 0,
             preview: None,
             party: false,
@@ -272,6 +279,7 @@ impl App {
             input_acc: 0.0,
             level_round_seen: 0,
             level_shown_at: 0.0,
+            roll_blocked_until: 0.0,
             lighting: crate::draw::Lighting::new(),
         }
     }
@@ -396,7 +404,7 @@ impl App {
         if fresh {
             if let Some(key) = quote.as_ref().and_then(|(line, _)| crate::voice::line_key(line)) {
                 crate::log!("a lord speaks: {}", key);
-                self.audio.speak(&key);
+                self.audio.speak(&key, key.ends_with("_3"));
             }
         }
         self.heard_quote = quote;
@@ -417,10 +425,12 @@ impl App {
         self.discord.set(presence);
         crate::ui::set_hurt_flash(self.save.settings.hurt_flash);
         crate::draw::set_brightness(self.save.settings.brightness as f32 / 100.0);
+        crate::draw::set_effect_alpha(self.save.settings.effect_alpha as f32 / 100.0);
         if let Some(w) = self.world.as_mut() {
             w.boss_lines = self.save.settings.boss_lines;
         }
         self.speak_quotes();
+        self.audio.update_voice();
         // Quiet while another window has the focus, if wanted; the player's own mute stays theirs.
         let away = self.auto.is_none() && self.save.settings.mute_unfocused && !game::window_focused();
         if away && !self.muted_away && !self.audio.muted {

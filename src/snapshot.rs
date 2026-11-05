@@ -110,6 +110,8 @@ fn pick_code(kind: PickKind) -> u8 {
         PickKind::Relic => 8,
         PickKind::Pyre => 9,
         PickKind::Bread => 10,
+        PickKind::CursedCoffer => 11,
+        PickKind::Key => 12,
     }
 }
 
@@ -124,6 +126,8 @@ fn pick_kind(code: u8, extra: u8) -> PickKind {
         5..=7 => PickKind::Buff(ALL_BUFFS[(code - 5) as usize]),
         8 => PickKind::Relic,
         9 => PickKind::Pyre,
+        11 => PickKind::CursedCoffer,
+        12 => PickKind::Key,
         _ => PickKind::Bread,
     }
 }
@@ -216,6 +220,14 @@ fn hero_slow(h: &Hero) -> Vec<u8> {
         w.u8(it.kind.idx() as u8);
         w.u8(it.level as u8);
     }
+    match &h.wager {
+        Some(g) => {
+            w.u8(1 + g.tier as u8);
+            w.u64(g.stake);
+            w.f32(g.since.unwrap_or(-1.0));
+        }
+        None => w.u8(0),
+    }
     w.u8(h.choices.len() as u8);
     for c in &h.choices {
         let (t, a) = c.encode();
@@ -264,6 +276,14 @@ fn read_hero_slow(data: &[u8], h: &mut Hero) -> bool {
         let level = r.u8() as u32;
         h.items.push(Item { kind, level });
     }
+    h.wager = match r.u8() {
+        0 => None,
+        n => {
+            let stake = r.u64();
+            let since = r.f32();
+            Some(Wager { tier: (n as usize - 1).min(2), stake, since: (since >= 0.0).then_some(since) })
+        }
+    };
     h.choices.clear();
     for _ in 0..r.u8() {
         let (t, a) = (r.u8(), r.u8());
@@ -283,7 +303,13 @@ fn write_hero_fast(w: &mut Writer, h: &Hero, viewer: bool) {
     for v in [h.p.hp, h.p.stamina, h.p.roll_t, h.p.roll_dir.x, h.p.roll_dir.y, h.p.iframes, h.revive, h.p.walk] {
         w.f32(v);
     }
-    w.u8(h.p.moving as u8 | (h.downed as u8) << 1 | (h.connected as u8) << 2 | (h.picked as u8) << 3 | (h.rested as u8) << 4 | ((h.first_hurt < f32::MAX) as u8) << 5);
+    w.u8(h.p.moving as u8
+        | (h.downed as u8) << 1
+        | (h.connected as u8) << 2
+        | (h.picked as u8) << 3
+        | (h.rested as u8) << 4
+        | ((h.first_hurt < f32::MAX) as u8) << 5
+        | (h.pact as u8) << 6);
     w.u64(h.p.souls);
     for b in h.buffs {
         w.f32(b);
@@ -329,6 +355,7 @@ fn read_hero_fast(r: &mut Reader, h: &mut Hero, predicted: bool) {
     h.connected = bits & 4 != 0;
     h.picked = bits & 8 != 0;
     h.rested = bits & 16 != 0;
+    h.pact = bits & 64 != 0;
     // Only whether the hero has been hit matters to clients, not when.
     if bits & 32 != 0 {
         h.first_hurt = h.first_hurt.min(0.0);
@@ -700,14 +727,50 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         }
         None => e.w.bool(false),
     }
+    match &w.stone {
+        Some(s) => {
+            e.w.bool(true);
+            e.pos(s.pos);
+        }
+        None => e.w.bool(false),
+    }
+    // Omens: altars, the vault, the mist and the weather.
+    e.w.u8(w.altars.len().min(8) as u8);
+    for a in w.altars.iter().take(8) {
+        e.pos(a.pos);
+        e.w.u8((a.kindle / ALTAR_KINDLE * 255.0).clamp(0.0, 255.0) as u8);
+        e.w.u8(a.life.clamp(0.0, 255.0) as u8);
+    }
+    match &w.vault {
+        Some(v) => {
+            e.w.bool(true);
+            e.pos(v.pos);
+            e.w.u8(v.open as u8 | (w.vault_key as u8) << 1);
+        }
+        None => e.w.bool(false),
+    }
+    e.w.u8(w.mist.clamp(0.0, 255.0).ceil() as u8);
+    e.w.u8(Weather::to_u8(w.weather.map(|(k, _)| k)));
+    e.w.u16(w.weather.map(|(_, left)| left.clamp(0.0, 65535.0) as u16).unwrap_or(0));
+    match &w.quest {
+        Some(q) => {
+            e.w.bool(true);
+            e.w.u8(q.kind.to_u8());
+            e.w.u16(q.goal.min(u16::MAX as u32) as u16);
+            e.w.u16(q.progress.min(u16::MAX as u32) as u16);
+            e.w.u8(q.left.clamp(0.0, 255.0).ceil() as u8);
+        }
+        None => e.w.bool(false),
+    }
     match &w.merchant {
         Some(m) => {
-            let (pos, life, sold, prices) = (m.pos, m.life, m.sold, m.prices);
+            let (pos, life, wares, sold, prices) = (m.pos, m.life, m.wares, m.sold, m.prices);
             e.w.bool(true);
             e.pos(pos);
             e.w.f32(life);
-            e.w.u8(sold[0] as u8 | (sold[1] as u8) << 1 | (sold[2] as u8) << 2);
-            for p in prices {
+            e.w.u8(sold.iter().enumerate().fold(0u8, |bits, (i, s)| bits | (*s as u8) << i));
+            for (w, p) in wares.iter().zip(prices) {
+                e.w.u8(w.to_u8());
                 e.w.u32(p);
             }
         }
@@ -820,6 +883,8 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.endless = flags & 4 != 0;
     w.grave_found = flags & 8 != 0;
     w.boss_rush = flags & 16 != 0;
+    // The field shrinks when a boss rush is learned of; braziers must match the host's.
+    w.fit_field();
     w.biome = Biome::from_u8(d.r.u8());
     w.curses = d.r.u8() & 63;
     w.bosses_killed = d.r.u16() as u32;
@@ -920,6 +985,8 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             phase: (id % 628) as f32 / 100.0,
             alpha,
             fuse: -1.0,
+            hunt: None,
+            life_left: f32::INFINITY,
             net_vel: vel,
         });
     }
@@ -1049,12 +1116,48 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     } else {
         None
     };
+    w.stone = if d.r.bool() { Some(WagerStone { pos: d.pos() }) } else { None };
+    let n = d.r.u8() as usize;
+    w.altars.clear();
+    for _ in 0..n {
+        let pos = d.pos();
+        let kindle = d.r.u8() as f32 / 255.0 * ALTAR_KINDLE;
+        let life = d.r.u8() as f32;
+        w.altars.push(Altar { pos, life, kindle });
+    }
+    w.vault = if d.r.bool() {
+        let pos = d.pos();
+        let bits = d.r.u8();
+        w.vault_key = bits & 2 != 0;
+        Some(Vault { pos, open: bits & 1 != 0 })
+    } else {
+        w.vault_key = false;
+        None
+    };
+    w.mist = d.r.u8() as f32;
+    let weather = Weather::from_u8(d.r.u8());
+    let left = d.r.u16() as f32;
+    w.weather = weather.map(|k| (k, left));
+    w.quest = if d.r.bool() {
+        let kind = QuestKind::from_u8(d.r.u8());
+        let goal = d.r.u16() as u32;
+        let progress = d.r.u16() as u32;
+        let left = d.r.u8() as f32;
+        Some(Quest { kind, goal, progress, left })
+    } else {
+        None
+    };
     w.merchant = if d.r.bool() {
         let pos = d.pos();
         let life = d.r.f32();
         let bits = d.r.u8();
-        let prices = [d.r.u32(), d.r.u32(), d.r.u32()];
-        Some(Merchant { pos, life, sold: [bits & 1 != 0, bits & 2 != 0, bits & 4 != 0], prices })
+        let mut wares = [Ware::Draught; SHELF];
+        let mut prices = [0u32; SHELF];
+        for (w, p) in wares.iter_mut().zip(prices.iter_mut()) {
+            *w = Ware::from_u8(d.r.u8());
+            *p = d.r.u32();
+        }
+        Some(Merchant { pos, life, wares, sold: std::array::from_fn(|i| bits & (1 << i) != 0), prices })
     } else {
         None
     };

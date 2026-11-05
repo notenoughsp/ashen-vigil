@@ -521,11 +521,13 @@ fn a_player_who_left_can_take_their_hero_back() {
 fn endless_night_goes_on_past_dawn() {
     let mut w = world_with(1, PRESETS[1].1);
     simulate(&mut w, VICTORY_TIME + 60.0, true, |_, _| {});
-    // The test heroes walk in circles and can't fell the finale; it falls here instead.
+    // The test heroes walk in circles and can't fell the finale (or the lord before it, which
+    // holds the finale back); they all fall here instead.
     w.enemies.retain(|e| !e.boss);
     w.boss = None;
     w.boss_kind = None;
     w.arena = None;
+    w.finale_came = true;
     // No new lord may arrive in the meantime and hold the dawn back.
     w.next_boss = f32::MAX;
     simulate(&mut w, 30.0, true, |_, _| {});
@@ -1444,6 +1446,64 @@ fn no_single_hit_takes_more_than_a_sliver_of_a_lord() {
 }
 
 #[test]
+fn the_sovereign_comes_at_dawn_even_when_lords_ran_late() {
+    // Every lord spawns a frame after its time, so the one due at 30:00 is a hair past dawn.
+    let mut w = world_with(1, PRESETS[1].1);
+    w.time = VICTORY_TIME - 0.5;
+    w.next_boss = VICTORY_TIME + 0.1;
+    w.bosses_spawned = 5;
+    w.enemies.clear();
+    let mut seen = None;
+    simulate(&mut w, 2.0, true, |w, _| {
+        if seen.is_none() {
+            seen = w.boss_kind;
+        }
+        // Keep the lord alive so dawn cannot pass it by.
+        for e in w.enemies.iter_mut().filter(|e| e.boss) {
+            e.hp = e.max_hp;
+        }
+    });
+    assert_eq!(seen, Some(BossKind::Sovereign), "no Sovereign at dawn");
+    assert!(!w.won, "dawn came while the Sovereign still stood");
+}
+
+#[test]
+fn a_boss_rush_is_fought_on_a_small_field_without_a_fog_ring() {
+    let mut w = world_with(2, PRESETS[1].1);
+    w.start_boss_rush();
+    assert_eq!(crate::world::field_half(), RUSH_HALF);
+    assert!(!w.braziers.is_empty() && w.braziers.iter().all(|b| inside_world(b.pos, 100.0)), "braziers outside the rush field");
+    simulate(&mut w, 8.0, true, |_, _| {});
+    assert!(w.boss.is_some(), "no lord came");
+    assert!(w.arena.is_none(), "a fog ring in a boss rush");
+    for h in &w.heroes {
+        assert!(inside_world(h.p.pos, 0.0), "a hero walked out of the rush field");
+    }
+    for e in &w.enemies {
+        assert!(inside_world(e.pos, 0.0), "{:?} stands outside the rush field", e.kind);
+    }
+    // A vigil afterwards has its full field again.
+    let w2 = world_with(1, PRESETS[1].1);
+    assert_eq!(crate::world::field_half(), WORLD_HALF);
+    assert!(w2.braziers.len() > 20);
+}
+
+#[test]
+fn a_fallen_lord_speaks_its_last_words() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.time = 5.0 * 60.0;
+    w.next_boss = w.time;
+    simulate(&mut w, 0.5, true, |_, _| {});
+    let i = w.enemies.iter().position(|e| e.boss).expect("no lord came");
+    let kind = w.boss_kind.expect("a lord kind");
+    let src = Src { hero: 0, weapon: WeaponKind::Blade };
+    while !w.enemies[i].dead {
+        w.hit(i, 1e15, Vec2::ZERO, src, false);
+    }
+    assert_eq!(w.quote.as_ref().map(|q| q.0.as_str()), Some(kind.lines()[3]));
+}
+
+#[test]
 #[ignore]
 #[cfg(windows)]
 fn discord_pipe_report() {
@@ -1528,4 +1588,338 @@ fn every_lord_line_has_a_voice_key() {
     }
     assert_eq!(crate::voice::line_key("You are not him!").as_deref(), Some("bride_1"));
     assert_eq!(crate::voice::line_key("Nobody says this."), None);
+}
+
+#[test]
+fn update_versions_compare_by_number() {
+    use crate::update::newer;
+    assert!(newer("0.2.10", "0.2.9"));
+    assert!(newer("0.3.0", "0.2.99"));
+    assert!(newer("1.0", "0.9.9"));
+    assert!(!newer("0.2.1", "0.2.1"));
+    assert!(!newer("0.2.0", "0.2.1"));
+}
+
+#[test]
+fn update_reads_githubs_answer() {
+    let json = r#"{"tag_name":"v0.2.3","assets":[{"name":"notes.txt","size":3,"browser_download_url":"https://x/notes.txt"},
+        {"name":"AshenVigil.exe","size":6195712,"browser_download_url":"https://github.com/notenoughsp/ashen-vigil/releases/download/v0.2.3/AshenVigil.exe"}]}"#;
+    let f = crate::update::parse_latest(json).expect("parsed");
+    assert_eq!(f.version, "0.2.3");
+    assert_eq!(f.size, 6195712);
+    assert!(f.url.ends_with("/AshenVigil.exe"));
+    assert!(crate::update::parse_latest(r#"{"tag_name":"v1","assets":[]}"#).is_err());
+    assert!(crate::update::parse_latest("not json").is_err());
+}
+
+/// Asks GitHub for the latest release, as the game does at start.
+#[test]
+#[ignore]
+fn update_check_report() {
+    match crate::update::latest() {
+        Ok(f) => {
+            println!("latest {} ({} bytes) at {}; newer than this {}: {}", f.version, f.size, f.url, crate::net::VERSION, crate::update::newer(&f.version, crate::net::VERSION))
+        }
+        Err(e) => println!("check failed: {}", e),
+    }
+}
+
+#[test]
+#[cfg(windows)]
+fn update_puts_the_new_game_in_place_of_the_old() {
+    // A local file stands in for the release, so nothing comes from the internet.
+    let dir = std::env::temp_dir().join(format!("ashen_update_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let exe = dir.join("AshenVigil.exe");
+    let release = dir.join("release.bin");
+    std::fs::write(&exe, b"old game").unwrap();
+    std::fs::write(&release, b"the new game").unwrap();
+    let url = format!("file:///{}", release.display().to_string().replace('\\', "/"));
+    // A download of the wrong size is refused and the old game stays.
+    assert!(crate::update::install(&exe, &url, 3).is_err());
+    assert_eq!(std::fs::read(&exe).unwrap(), b"old game");
+    crate::update::install(&exe, &url, 12).expect("installed");
+    assert_eq!(std::fs::read(&exe).unwrap(), b"the new game");
+    assert_eq!(std::fs::read(dir.join("AshenVigil.exe.old")).unwrap(), b"old game");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_quest_done_in_time_pays_every_hero_a_coffer() {
+    let mut w = world_with(2, PRESETS[1].1);
+    w.next_boss = f32::MAX;
+    w.quest = Some(Quest { kind: QuestKind::Slay, goal: 3, progress: 0, left: 30.0 });
+    let coffers = |w: &World| w.pickups.iter().filter(|p| matches!(p.kind, PickKind::Coffer(false))).count();
+    let before = coffers(&w);
+    let src = Src { hero: 0, weapon: WeaponKind::Blade };
+    for _ in 0..3 {
+        let e = w.make_enemy(EnemyKind::Hollow, vec2(200.0, 0.0));
+        w.enemies.push(e);
+        let i = w.enemies.len() - 1;
+        w.hit(i, 1e9, Vec2::ZERO, src, false);
+    }
+    // The heroes stand right by their coffers and take them at once, so count the most seen.
+    let mut most = coffers(&w);
+    simulate(&mut w, 0.2, true, |w, _| most = most.max(coffers(w)));
+    assert!(w.quest.is_none(), "the quest is still open");
+    assert_eq!(w.quests_done, 1);
+    assert!(most >= before + 2, "no coffer for every hero");
+    // A quest not done in time slips away without a reward.
+    w.quest = Some(Quest { kind: QuestKind::Elites, goal: 50, progress: 0, left: 0.5 });
+    simulate(&mut w, 1.0, true, |_, _| {});
+    assert!(w.quest.is_none());
+    assert_eq!(w.quests_done, 1);
+}
+
+#[test]
+fn quests_come_during_a_vigil_but_not_in_a_boss_rush() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = f32::MAX;
+    let mut seen = false;
+    simulate(&mut w, 100.0, true, |w, _| seen |= w.quest.is_some());
+    assert!(seen, "no quest in the first 100 seconds");
+    let mut r = world_with(1, PRESETS[1].1);
+    r.start_boss_rush();
+    simulate(&mut r, 100.0, true, |r, _| assert!(r.quest.is_none(), "a quest in a boss rush"));
+}
+
+#[test]
+fn the_merchant_lays_out_six_different_wares() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = f32::MAX;
+    w.time = 299.0;
+    simulate(&mut w, 2.0, true, |_, _| {});
+    let m = w.merchant.as_ref().expect("no merchant at 5:00");
+    assert_eq!(m.wares[0], Ware::Draught);
+    assert_eq!(m.wares[1], Ware::Relic);
+    for i in 0..SHELF {
+        for j in i + 1..SHELF {
+            assert_ne!(m.wares[i], m.wares[j], "the same ware twice");
+        }
+    }
+    assert!(m.prices.iter().all(|p| *p > 0));
+}
+
+/// An hour of endless boss rush with four heroes through snapshots, every passive item at its
+/// new top level, skills cast all the time, then absurd quest and merchant numbers on the wire.
+/// Slow; `cargo test --release huge_rush -- --ignored --nocapture`, ideally with overflow checks.
+#[test]
+#[ignore]
+fn huge_rush_and_new_systems() {
+    let mut host = world_with(4, PRESETS[3].1);
+    host.record_net = true;
+    host.start_boss_rush();
+    host.endless = true;
+    for h in host.heroes.iter_mut() {
+        h.items = crate::data::ALL_ITEMS.iter().take(6).map(|k| Item { kind: *k, level: k.max_level() }).collect();
+    }
+    let mut client = World::new(host.diff, None);
+    client.is_client = true;
+    let mut enc = snapshot::Encoder::default();
+    let mut dec = snapshot::Decoder::default();
+    let mut tick = 0;
+    let mut max_bytes = 0;
+    let peaks = simulate(&mut host, 3600.0, true, |w, f| {
+        for h in 0..w.heroes.len() {
+            w.use_skill(h);
+        }
+        if f % 30 == 0 {
+            tick += 1;
+            let ev = snapshot::begin_round(w);
+            let data = enc.encode(w, &ev, &snapshot::View::of(w, 1, vec2(1920.0, 1080.0)), tick, dec.ack);
+            max_bytes = max_bytes.max(data.len());
+            assert!(dec.decode(&mut client, &data, 1, 1.0), "decode failed at t {}", w.time);
+            assert_eq!(client.braziers.len(), w.braziers.len(), "the client's braziers differ from the host's");
+        }
+        if f % 9000 == 0 {
+            for e in &w.enemies {
+                assert!(e.hp.is_finite() && e.pos.is_finite() && e.max_hp.is_finite(), "enemy numbers broke at t {}", w.time);
+                assert!(inside_world(e.pos, -1.0), "a foe left the rush field at t {}", w.time);
+            }
+            for h in &w.heroes {
+                assert!(h.stats.max_hp.is_finite() && h.dmg_total.is_finite() && h.stats.cooldown >= 0.4, "hero numbers broke at t {}", w.time);
+            }
+        }
+    });
+    println!("1 h endless rush: t={:.0}s level={} kills={} lords={} max snapshot {} B {:?}", host.time, host.level, host.kills, host.bosses_killed, max_bytes, peaks);
+    assert_bounded(&peaks);
+    assert!(host.bosses_killed > 20 || host.bosses_spawned > 20, "too few lords in an hour: {}", host.bosses_spawned);
+
+    // Absurd quest and merchant numbers must arrive whole, or clamped where the wire is small.
+    host.quest = Some(Quest { kind: QuestKind::Slay, goal: 4_000_000_000, progress: 3_999_999_999, left: 1e9 });
+    host.merchant =
+        Some(Merchant { pos: host.heroes[1].p.pos, life: 50.0, wares: [Ware::Lodestone; SHELF], sold: [true, false, true, false, true, false], prices: [u32::MAX; SHELF] });
+    tick += 1;
+    let ev = snapshot::begin_round(&mut host);
+    let data = enc.encode(&host, &ev, &snapshot::View::of(&host, 1, vec2(1920.0, 1080.0)), tick, dec.ack);
+    assert!(dec.decode(&mut client, &data, 1, 1.0));
+    let q = client.quest.as_ref().expect("the quest did not arrive");
+    assert_eq!((q.goal, q.progress), (u16::MAX as u32, u16::MAX as u32));
+    assert!(q.left <= 255.0);
+    let m = client.merchant.as_ref().expect("the merchant did not arrive");
+    assert_eq!(m.prices, [u32::MAX; SHELF]);
+    assert_eq!(m.sold, [true, false, true, false, true, false]);
+    assert_eq!(m.wares, [Ware::Lodestone; SHELF]);
+    let text = q.text();
+    assert!(text.len() < 70, "the quest line runs off the screen: {}", text);
+}
+
+#[test]
+fn a_blood_pact_trades_life_for_might_until_the_lord_falls() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = f32::MAX;
+    w.enemies.clear();
+    let before = w.heroes[0].might();
+    let at = w.heroes[0].p.pos;
+    w.altars.push(Altar { pos: at, life: 60.0, kindle: 0.0 });
+    // Standing still on the altar: no walking in circles here.
+    for _ in 0..60 {
+        w.heroes[0].input = Input::default();
+        w.heroes[0].p.pos = at;
+        w.update(1.0 / 30.0);
+    }
+    let h = &w.heroes[0];
+    assert!(h.pact, "no pact after standing on the altar");
+    assert!(h.p.hp <= h.stats.max_hp * PACT_KEEP + 0.01, "the pact kept the full life");
+    assert!((h.might() / before - PACT_MIGHT).abs() < 0.01, "the pact gave no might");
+    assert!(w.altars.is_empty(), "the altar stayed after its pact");
+    // Healing cannot win back what was given: the next frame holds it down again.
+    w.heroes[0].heal(1e6);
+    w.update(1.0 / 30.0);
+    assert!(w.heroes[0].p.hp <= w.heroes[0].stats.max_hp * PACT_KEEP + 0.01, "healing went past the pact");
+    w.fulfil_pacts();
+    assert!(!w.heroes[0].pact);
+}
+
+#[test]
+fn a_cursed_coffer_calls_elites() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.enemies.clear();
+    let at = w.heroes[0].p.pos;
+    w.open_cursed_coffer(0, at);
+    let elites = w.enemies.iter().filter(|e| e.elite).count();
+    assert!(elites >= 4, "only {} elites guard a cursed coffer", elites);
+}
+
+#[test]
+fn the_couriers_key_opens_the_vault() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = f32::MAX;
+    w.time = 249.0;
+    simulate(&mut w, 2.0, true, |_, _| {});
+    let i = w.enemies.iter().position(|e| e.kind == EnemyKind::Courier).expect("no courier");
+    assert!(w.vault.is_some(), "no vault with the courier");
+    let src = Src { hero: 0, weapon: WeaponKind::Blade };
+    while !w.enemies[i].dead {
+        w.hit(i, 1e9, Vec2::ZERO, src, false);
+    }
+    assert!(w.pickups.iter().any(|p| matches!(p.kind, PickKind::Key)), "the courier dropped no key");
+    w.vault_key = true;
+    let vault = w.vault.as_ref().unwrap().pos;
+    let coffers = |w: &World| w.pickups.iter().filter(|p| matches!(p.kind, PickKind::Coffer(_))).count();
+    let before = coffers(&w);
+    w.heroes[0].p.pos = vault;
+    w.heroes[0].input = Input::default();
+    w.update(1.0 / 30.0);
+    assert!(w.vault.as_ref().unwrap().open, "the key did not open the vault");
+    assert!(coffers(&w) >= before + 2, "the vault held no coffers");
+}
+
+#[test]
+fn a_courier_who_gets_away_seals_the_vault() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = f32::MAX;
+    w.time = 249.0;
+    simulate(&mut w, 40.0, true, |w, _| {
+        // Nobody may touch the courier.
+        for e in w.enemies.iter_mut().filter(|e| e.kind == EnemyKind::Courier) {
+            e.hp = e.max_hp;
+        }
+    });
+    assert!(!w.enemies.iter().any(|e| e.kind == EnemyKind::Courier), "the courier never left");
+    assert!(w.vault.is_none() || w.vault_key, "the vault stayed open to anyone");
+}
+
+#[test]
+fn the_mist_brings_a_champion_and_the_rival_hunts_the_untouched() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = f32::MAX;
+    w.time = 339.0;
+    simulate(&mut w, 2.0, true, |_, _| {});
+    assert!(w.mist > 0.0, "no mist");
+    assert!(w.enemies.iter().any(|e| e.kind == EnemyKind::Champion && e.elite), "no champion in the mist");
+    // A hero untouched for a long while draws a rival that hunts them.
+    w.heroes[0].last_hurt = w.time - RIVAL_AFTER - 1.0;
+    simulate(&mut w, 0.5, true, |_, _| {});
+    let r = w.enemies.iter().find(|e| e.kind == EnemyKind::Rival).expect("no rival came");
+    assert_eq!(r.hunt, Some(0));
+}
+
+#[test]
+fn ash_rain_makes_fire_burn_hotter() {
+    let mut w = world_with(1, PRESETS[1].1);
+    let mut hit_with = |weather: Option<(Weather, f32)>, weapon: WeaponKind| {
+        w.weather = weather;
+        let e = w.make_enemy(EnemyKind::Knight, vec2(300.0, 0.0));
+        w.enemies.push(e);
+        let i = w.enemies.len() - 1;
+        // Small enough that a blow of 10 is not lost to the float's precision.
+        w.enemies[i].hp = 1e6;
+        w.enemies[i].max_hp = 1e6;
+        // Crits and the damage spread are random, so take the mean of many blows.
+        let mut total = 0.0;
+        for _ in 0..400 {
+            let before = w.enemies[i].hp;
+            w.hit(i, 10.0, Vec2::ZERO, Src { hero: 0, weapon }, false);
+            total += before - w.enemies[i].hp;
+        }
+        total
+    };
+    let plain = hit_with(None, WeaponKind::Orb);
+    let rain = hit_with(Some((Weather::AshRain, 60.0)), WeaponKind::Orb);
+    let blade = hit_with(Some((Weather::AshRain, 60.0)), WeaponKind::Blade);
+    assert!(rain / plain > 1.25, "fire is not hotter in the ash rain: {}", rain / plain);
+    assert!((blade / plain - 1.0).abs() < 0.15, "a blade gained from the ash rain: {}", blade / plain);
+}
+
+#[test]
+fn a_wager_pays_when_the_lord_falls_in_time_and_is_lost_when_not() {
+    for (late, won) in [(false, true), (true, false)] {
+        let mut w = world_with(1, PRESETS[1].1);
+        w.time = 290.0;
+        w.next_boss = 300.0;
+        w.heroes[0].p.souls = 900;
+        simulate(&mut w, 0.2, true, |_, _| {});
+        let stone = w.stone.as_ref().expect("no wager stone before the lord").tile(0);
+        for _ in 0..40 {
+            w.heroes[0].input = Input::default();
+            w.heroes[0].p.pos = stone;
+            w.update(1.0 / 30.0);
+        }
+        let g = w.heroes[0].wager.expect("no bet was placed");
+        assert_eq!(g.stake, 300);
+        assert_eq!(w.heroes[0].p.souls, 600);
+        // The lord comes; fell it at once, or after its time is up.
+        simulate(&mut w, 12.0, true, |w, _| {
+            for e in w.enemies.iter_mut().filter(|e| e.boss) {
+                e.hp = e.max_hp;
+            }
+        });
+        let i = w.enemies.iter().position(|e| e.boss).expect("no lord came");
+        if late {
+            w.time += 40.0;
+        }
+        let souls = w.heroes[0].p.souls;
+        let src = Src { hero: 0, weapon: WeaponKind::Blade };
+        while !w.enemies[i].dead {
+            w.hit(i, 1e15, Vec2::ZERO, src, false);
+        }
+        assert!(w.heroes[0].wager.is_none(), "the bet was not settled");
+        let gained = w.heroes[0].p.souls - souls;
+        if won {
+            assert!(gained >= 900, "a won bet paid only {}", gained);
+        } else {
+            assert!(gained < 900, "a lost bet still paid {}", gained);
+        }
+    }
 }

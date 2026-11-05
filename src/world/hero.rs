@@ -188,6 +188,15 @@ pub struct Hero {
     pub idle: f32,
     /// Vigil time of the first hit taken; MAX while untouched.
     pub first_hurt: f32,
+    /// When this hero was last wounded, for the rival.
+    pub last_hurt: f32,
+    /// A blood pact: a quarter of the life given for more might until the next lord falls.
+    pub pact: bool,
+    /// A bet on the lord at hand, from the wager stone.
+    pub wager: Option<Wager>,
+    /// Which tile of the wager stone the hero stands on, and for how long.
+    pub wager_tile: usize,
+    pub wager_kindle: f32,
     pub rested: bool,
     /// Challenge bits (single player).
     pub challenges: u8,
@@ -248,6 +257,11 @@ impl Hero {
             leech: LEECH_RATE,
             idle: 0.0,
             first_hurt: f32::MAX,
+            last_hurt: 0.0,
+            pact: false,
+            wager: None,
+            wager_tile: 0,
+            wager_kindle: 0.0,
             rested: false,
             challenges: 0,
             aim: vec2(1.0, 0.0),
@@ -311,7 +325,7 @@ impl Hero {
 
     /// Might including temporary blessings.
     pub fn might(&self) -> f32 {
-        self.stats.might * if self.buff(Buff::Fury) > 0.0 { 1.5 } else { 1.0 }
+        self.stats.might * if self.buff(Buff::Fury) > 0.0 { 1.5 } else { 1.0 } * if self.pact { PACT_MIGHT } else { 1.0 }
     }
 
     pub fn cooldown(&self) -> f32 {

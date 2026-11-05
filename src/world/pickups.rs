@@ -40,7 +40,8 @@ impl World {
             .collect();
         self.pickups.retain(|p| p.life > 0.0);
 
-        let soul_mult = self.diff.soul_mult() * if self.blood_moon > 0.0 { 2.0 } else { 1.0 };
+        let rich = if self.weather.is_some_and(|(w, _)| w == Weather::GraveMist) { 1.25 } else { 1.0 };
+        let soul_mult = self.diff.soul_mult() * if self.blood_moon > 0.0 { 2.0 } else { 1.0 } * rich;
         let mut gained_xp = 0.0;
         let mut picked_at = None;
         for (kind, h, pos) in got {
@@ -73,13 +74,24 @@ impl World {
                 }
                 PickKind::Coffer(boss) => self.open_coffer(h, boss),
                 PickKind::Buff(b) => {
+                    self.quest_count(QuestKind::Relics, 1);
                     self.heroes[h].buffs[b as usize] = b.duration();
                     let who = if self.multiplayer() { format!("{}: ", self.heroes[h].name) } else { String::new() };
                     self.toast(&format!("{}{} ({} for {:.0}s)", who, b.name(), b.desc(), b.duration()));
                     self.sfx_at("evolve", 0.5, self.heroes[h].p.pos);
                     self.fx.push(Fx { pos, life: 0.6, max_life: 0.6, kind: FxKind::Ring { r: 120.0, color: b.color() } });
                 }
-                PickKind::Relic => self.grant_relic(h),
+                PickKind::CursedCoffer => self.open_cursed_coffer(h, pos),
+                PickKind::Key => {
+                    self.vault_key = true;
+                    let who = self.heroes[h].name.clone();
+                    self.toast(&format!("{} takes the courier's key. The vault is marked.", who));
+                    self.sfx_at("chime", 0.8, pos);
+                }
+                PickKind::Relic => {
+                    self.quest_count(QuestKind::Relics, 1);
+                    self.grant_relic(h);
+                }
                 PickKind::Pyre => self.pyre(pos),
             }
         }

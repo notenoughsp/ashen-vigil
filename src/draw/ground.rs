@@ -9,7 +9,8 @@ const REGION: i32 = 6;
 const CHUNK: i32 = 8;
 const MAX_CHUNKS: usize = 48;
 
-type ChunkKey = (i32, i32, bool, u32, u8);
+/// Chunk position, cute, scale, biome and field size (walls cut chunks at the edge).
+type ChunkKey = (i32, i32, bool, u32, u8, u32);
 
 thread_local! {
     /// Floor chunks drawn so far, with the frame each was last used.
@@ -116,7 +117,7 @@ impl World {
             let mut cache = cache.borrow_mut();
             for cy in cy0..cy1 {
                 for cx in cx0..cx1 {
-                    let key = (cx, cy, self.cute, scale, self.biome as u8);
+                    let key = (cx, cy, self.cute, scale, self.biome as u8, crate::world::field_half() as u32);
                     let entry = cache.entry(key).or_insert_with(|| {
                         let rt = self.render_chunk(cx, cy, scale);
                         set_camera(cam);
@@ -609,7 +610,7 @@ impl World {
     pub(super) fn draw_walls(&self) {
         let half = super::view_size() * 0.5 + vec2(200.0, 200.0);
         let (lo, hi) = (self.cam - half, self.cam + half);
-        let h = WORLD_HALF;
+        let h = crate::world::field_half();
         // The abyss: the floor just ends in mist and nothing.
         for k in 0..6 {
             let d = 40.0 + k as f32 * 40.0;
@@ -703,7 +704,7 @@ impl World {
                 }
             }
         }
-        let h = WORLD_HALF;
+        let h = crate::world::field_half();
         let n = (h * 2.0 / 64.0).ceil() as i32;
         let half = super::view_size() * 0.5 + vec2(400.0, 400.0);
         for i in (4..=n).step_by(8) {

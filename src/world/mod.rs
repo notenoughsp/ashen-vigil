@@ -10,6 +10,10 @@ mod events;
 mod fx;
 mod hero;
 mod pickups;
+mod quests;
+pub use quests::*;
+mod omens;
+pub use omens::*;
 mod spawn;
 pub use braziers::*;
 mod skills;
@@ -47,6 +51,8 @@ pub const HEAR_FULL: f32 = 450.0;
 /// ...and silent from here on, about a screen away.
 pub const HEAR_MAX: f32 = 1100.0;
 pub const BOSS_INTERVAL: f32 = 5.0 * 60.0;
+/// An Ash Shrine stirs this often, twice between two lords.
+pub const SHRINE_INTERVAL: f32 = 2.5 * 60.0;
 /// The most of a lord's health one hit can take.
 pub const BOSS_HIT_CAP: f32 = 0.025;
 /// Seconds of warning before a lord arrives (not in the boss rush).
@@ -71,13 +77,32 @@ pub const REVIVE_TIME: f32 = 3.0;
 const MAX_DECALS: usize = 900;
 /// The field is a square from -WORLD_HALF to WORLD_HALF, walled in, with the abyss beyond.
 pub const WORLD_HALF: f32 = 3600.0;
+/// A boss rush is fought on a small walled field instead, with no fog ring around its lords.
+pub const RUSH_HALF: f32 = 1200.0;
+
+thread_local! {
+    /// Half the side of the field in play: every world method that runs sets it (see
+    /// `World::fit_field`), so the walls, spawns and drawing agree on one size.
+    static FIELD_HALF: std::cell::Cell<f32> = const { std::cell::Cell::new(WORLD_HALF) };
+}
+
+/// Sets the field in play, for drawing a world without changing it.
+pub fn set_field_half(h: f32) {
+    FIELD_HALF.with(|c| c.set(h));
+}
+
+/// Half the side of the field in play.
+pub fn field_half() -> f32 {
+    FIELD_HALF.with(|h| h.get())
+}
 
 pub fn inside_world(p: Vec2, margin: f32) -> bool {
-    p.x.abs() < WORLD_HALF - margin && p.y.abs() < WORLD_HALF - margin
+    let h = field_half();
+    p.x.abs() < h - margin && p.y.abs() < h - margin
 }
 
 pub fn clamp_world(p: Vec2, margin: f32) -> Vec2 {
-    let m = WORLD_HALF - margin;
+    let m = field_half() - margin;
     vec2(p.x.clamp(-m, m), p.y.clamp(-m, m))
 }
 
@@ -248,6 +273,12 @@ pub enum EnemyKind {
     Gargoyle,
     /// Keeps away and wails rings of slow bullets.
     Banshee,
+    /// Flees with the key to a vault.
+    Courier,
+    /// The mist's champion: charges and slams rings of bullets.
+    Champion,
+    /// A dark hero who hunts whoever has gone too long without a wound.
+    Rival,
     Boss(BossKind),
 }
 
@@ -267,6 +298,9 @@ impl EnemyKind {
             EnemyKind::Leech => 20,
             EnemyKind::Gargoyle => 21,
             EnemyKind::Banshee => 22,
+            EnemyKind::Courier => 23,
+            EnemyKind::Champion => 24,
+            EnemyKind::Rival => 25,
             // The first four lords keep their old numbers.
             EnemyKind::Boss(b) if (b as u8) < 4 => 7 + b as u8,
             EnemyKind::Boss(b) => 10 + b as u8,
@@ -288,6 +322,9 @@ impl EnemyKind {
             20 => EnemyKind::Leech,
             21 => EnemyKind::Gargoyle,
             22 => EnemyKind::Banshee,
+            23 => EnemyKind::Courier,
+            24 => EnemyKind::Champion,
+            25 => EnemyKind::Rival,
             7..=10 => EnemyKind::Boss(BossKind::from_u8(v - 7)),
             14..=19 => EnemyKind::Boss(BossKind::from_u8(v - 10)),
             _ => EnemyKind::Hollow,
@@ -310,6 +347,9 @@ impl EnemyKind {
             EnemyKind::Leech => 7.0,
             EnemyKind::Gargoyle => 14.0,
             EnemyKind::Banshee => 12.0,
+            EnemyKind::Courier => 10.0,
+            EnemyKind::Champion => 18.0,
+            EnemyKind::Rival => 13.0,
             EnemyKind::Boss(BossKind::Gravewarden) => 44.0,
             EnemyKind::Boss(BossKind::Matriarch) => 38.0,
             EnemyKind::Boss(BossKind::Hermit) => 34.0,
@@ -376,6 +416,10 @@ pub struct Enemy {
     pub fuse: f32,
     /// Velocity estimated from snapshots, used by clients to extrapolate.
     pub net_vel: Vec2,
+    /// A hero this foe hunts instead of the nearest (the rival).
+    pub hunt: Option<usize>,
+    /// Seconds until it leaves the field by itself (the courier, the rival).
+    pub life_left: f32,
 }
 
 /// Who dealt damage with what, for crits, lifesteal and the damage meter.
@@ -548,6 +592,10 @@ pub enum PickKind {
     Relic,
     Pyre,
     Bread,
+    /// Richer loot, and a wave of elites when opened.
+    CursedCoffer,
+    /// The courier's key to the vault.
+    Key,
 }
 
 pub struct Pickup {
@@ -715,6 +763,32 @@ pub struct World {
     pub cursed: Option<CursedShrine>,
     pub trials_won: u32,
     pub merchant: Option<Merchant>,
+    /// The quest in hand, if any.
+    pub quest: Option<Quest>,
+    pub altars: Vec<Altar>,
+    /// The wager stone before a lord.
+    pub stone: Option<WagerStone>,
+    /// The lord number the last stone was raised for.
+    stone_made: u32,
+    next_altar: f32,
+    pub vault: Option<Vault>,
+    /// Someone picked up the courier's key; anyone may open the vault with it.
+    pub vault_key: bool,
+    courier: Option<u32>,
+    next_courier: f32,
+    next_cursed: f32,
+    /// Seconds of mist left while a champion hunts.
+    pub mist: f32,
+    champion: Option<u32>,
+    next_mist: f32,
+    /// The weather and how long it lasts.
+    pub weather: Option<(Weather, f32)>,
+    next_weather: f32,
+    next_rival: f32,
+    next_quest: f32,
+    pub quests_done: u32,
+    /// When a hero was last hurt, for the quest to stay unhurt.
+    last_wound: f32,
     pub boss: Option<BossAi>,
     pub bosses_spawned: u32,
     pub bosses_killed: u32,
@@ -761,6 +835,8 @@ pub struct World {
     pub boss_bar_lag: f32,
     /// When the current boss arrived, for the quick-kill achievement.
     pub boss_started: f32,
+    /// The Sovereign of the last hour has come: dawn waits for it.
+    pub finale_came: bool,
     pub screen: Vec2,
     pub dead: bool,
     pub won: bool,
@@ -805,6 +881,8 @@ pub fn slot_color(slot: u8) -> Color {
 
 impl World {
     pub fn new(diff: Difficulty, remnant: Option<(Vec2, u64)>) -> World {
+        // A new world starts on the full field, whatever the last one was.
+        set_field_half(WORLD_HALF);
         World {
             time: 0.0,
             heroes: Vec::new(),
@@ -839,6 +917,25 @@ impl World {
             cursed: None,
             trials_won: 0,
             merchant: None,
+            quest: None,
+            altars: Vec::new(),
+            stone: None,
+            stone_made: u32::MAX,
+            next_altar: 200.0,
+            vault: None,
+            vault_key: false,
+            courier: None,
+            next_courier: 250.0,
+            next_cursed: 130.0,
+            mist: 0.0,
+            champion: None,
+            next_mist: 340.0,
+            weather: None,
+            next_weather: 420.0,
+            next_rival: 180.0,
+            next_quest: 0.0,
+            quests_done: 0,
+            last_wound: 0.0,
             cat: Some(Cat { pos: clamp_world(rand_dir() * gen_range(1800.0, 3000.0), 300.0), owner: None, facing: 1.0, sitting: true, meow: gen_range(8.0, 20.0) }),
             boss: None,
             bosses_spawned: 0,
@@ -849,11 +946,11 @@ impl World {
             boss_rush: false,
             curses: 0,
             endless_since: 0.0,
-            next_shrine: 150.0,
+            next_shrine: SHRINE_INTERVAL,
             next_elite: 75.0,
             next_horde: 90.0,
             next_swarm: 140.0,
-            next_relic: 40.0,
+            next_relic: 25.0,
             spawn_acc: 0.0,
             kills: 0,
             cam: Vec2::ZERO,
@@ -876,6 +973,7 @@ impl World {
             shake_mult: 1.0,
             boss_bar_lag: 1.0,
             boss_started: 0.0,
+            finale_came: false,
             screen: vec2(1280.0, 720.0),
             dead: false,
             won: false,
@@ -920,6 +1018,38 @@ impl World {
         self.boss_rush = true;
         self.next_boss = RUSH_BREATHER;
         self.pending_levels += RUSH_HEAD_START;
+        self.fit_field();
+    }
+
+    /// Half the side of this world's field: small for a boss rush.
+    pub fn half(&self) -> f32 {
+        if self.boss_rush {
+            RUSH_HALF
+        } else {
+            WORLD_HALF
+        }
+    }
+
+    /// Makes the field in play this world's: sets its size and, when the size changed (a
+    /// boss rush began, or a client learned of one), moves the braziers, the cat and
+    /// anything else that stood outside the walls.
+    pub fn fit_field(&mut self) {
+        let half = self.half();
+        FIELD_HALF.with(|h| h.set(half));
+        let spots = brazier_spots();
+        if self.braziers.len() == spots.len() && self.braziers.iter().zip(&spots).all(|(b, s)| b.pos == *s) {
+            return;
+        }
+        self.braziers = spots.into_iter().map(|pos| Brazier { pos, burn: 0.0, kindle: 0.0 }).collect();
+        if let Some(cat) = self.cat.as_mut() {
+            cat.pos = clamp_world(cat.pos, 150.0);
+        }
+        if let Some(r) = self.remnant.as_mut() {
+            r.pos = clamp_world(r.pos, 80.0);
+        }
+        for h in self.heroes.iter_mut() {
+            h.p.pos = clamp_world(h.p.pos, 24.0);
+        }
     }
 
     pub fn grant_head_start(&mut self) {
@@ -1146,6 +1276,7 @@ impl World {
     // ---------------------------------------------------------------- frame
 
     pub fn update(&mut self, dt: f32) {
+        self.fit_field();
         if self.dead || self.won || self.is_client {
             self.update_fx(dt);
             return;
@@ -1171,6 +1302,8 @@ impl World {
         self.update_cat(dt);
         self.update_secrets(dt);
         self.update_events(dt);
+        self.update_quests(dt);
+        self.update_omens(dt);
         self.boss_hp = match &self.boss {
             Some(b) => self.enemies.iter().find(|e| e.id == b.id).map(|e| (e.hp, e.max_hp)).unwrap_or((0.0, 1.0)),
             None => (0.0, 1.0),
@@ -1181,8 +1314,9 @@ impl World {
         }
         self.update_fx(dt);
         self.enemies.retain(|e| !e.dead);
-        // Dawn ends a vigil; the last of the lords ends a boss rush.
-        let done = if self.boss_rush { self.bosses_killed >= RUSH_LORDS } else { self.time >= VICTORY_TIME };
+        // Dawn ends a vigil once the Sovereign of the last hour has fallen; the last of the
+        // lords ends a boss rush.
+        let done = if self.boss_rush { self.bosses_killed >= RUSH_LORDS } else { self.time >= VICTORY_TIME && self.finale_came };
         if done && self.boss.is_none() && !self.won && !self.endless {
             self.won = true;
             for h in self.heroes.iter_mut() {
@@ -1197,6 +1331,7 @@ impl World {
     /// Client-side frame: predict our own hero and move the rest along their velocities.
     /// Returns true when our hero started a roll.
     pub fn client_update(&mut self, dt: f32) -> bool {
+        self.fit_field();
         let mut rolled = false;
         // The countdown runs here too, so it stays smooth between the slower paused snapshots.
         if let Pause::Countdown(t) = self.pause {

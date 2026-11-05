@@ -233,6 +233,21 @@ impl<'a> Ui<'a> {
 
         let hp_w = 180.0 + me.stats.max_hp * 0.8;
         self.bar(Rect::new(22.0, 20.0, hp_w, 11.0), pl.hp / me.stats.max_hp, 0.0, Color::new(0.6, 0.08, 0.06, 1.0));
+        if me.pact {
+            // The quarter given to the altar: dark, crossed out, and named.
+            let x0 = 22.0 + hp_w * PACT_KEEP;
+            let gw = hp_w * (1.0 - PACT_KEEP);
+            draw_rectangle(x0, 20.0, gw, 11.0, Color::new(0.18, 0.0, 0.02, 0.95));
+            let mut x = x0 - 11.0;
+            while x < x0 + gw {
+                let a = vec2(x.max(x0), 20.0 + (x0 - x).max(0.0));
+                let b = vec2((x + 11.0).min(x0 + gw), 31.0 - (x + 11.0 - x0 - gw).max(0.0));
+                draw_line(a.x, a.y, b.x, b.y, 1.5, Color::new(0.75, 0.08, 0.08, 0.9));
+                x += 6.0;
+            }
+            draw_rectangle_lines(x0, 20.0, gw, 11.0, 1.5, Color::new(0.9, 0.15, 0.12, 1.0));
+            mono("BLOOD PACT: -25% life, +35% might", x0 + gw + 8.0, 30.0, 13.0, Color::new(0.95, 0.3, 0.25, 1.0));
+        }
         let st_w = 120.0 + me.stats.stamina_max * 0.8;
         self.bar(Rect::new(22.0, 38.0, st_w, 7.0), pl.stamina / me.stats.stamina_max, 0.0, Color::new(0.25, 0.55, 0.28, 1.0));
 
@@ -371,12 +386,46 @@ impl<'a> Ui<'a> {
             self.text(k.name(), bx, by - 10.0, 22.0, PALE);
             self.bar(Rect::new(bx, by, bw, 10.0), w.boss_hp.0 / w.boss_hp.1.max(1.0), w.boss_bar_lag, Color::new(0.55, 0.07, 0.05, 1.0));
         }
+        if let Some(g) = me.wager {
+            // The bet's clock: green while it can be won, red once it cannot.
+            let y = sh - 46.0;
+            let (text, c) = match g.left(w.time) {
+                Some(left) if left >= 0.0 => (format!("Wager: {} souls, x{} if the lord falls in {:.0} s", g.stake, g.mult(), left.ceil()), Color::new(0.45, 1.0, 0.55, 1.0)),
+                Some(_) => (format!("Wager lost: {} souls", g.stake), Color::new(1.0, 0.35, 0.3, 1.0)),
+                None => (format!("Wager: {} souls on {:.0} s, x{}. The clock starts with the lord.", g.stake, g.limit(), g.mult()), Color::new(0.55, 0.85, 1.0, 1.0)),
+            };
+            self.text_c(&text, sw * 0.5, y, 16.0, c);
+        }
 
         let mut marks: Vec<(Vec2, Color, String)> = Vec::new();
         // The nearest cold brazier, so players find them.
         let me_pos = w.me().p.pos;
         if let Some(b) = w.braziers.iter().filter(|b| b.burn <= 0.0).min_by(|a, b| a.pos.distance_squared(me_pos).total_cmp(&b.pos.distance_squared(me_pos))) {
             marks.push((b.pos, Color::new(1.0, 0.75, 0.45, 0.7), "Brazier".into()));
+        }
+        for a in &w.altars {
+            marks.push((a.pos, Color::new(0.95, 0.2, 0.15, 0.9), "Blood altar".into()));
+        }
+        if let Some(s) = &w.stone {
+            marks.push((s.pos, Color::new(0.55, 0.85, 1.0, 0.9), "Wager stone".into()));
+        }
+        if let Some(v) = w.vault.as_ref().filter(|v| !v.open) {
+            marks.push((v.pos, GOLD, "Vault".into()));
+        }
+        for e in w.enemies.iter() {
+            match e.kind {
+                EnemyKind::Courier => marks.push((e.pos, GOLD, "Courier".into())),
+                EnemyKind::Champion => marks.push((e.pos, Color::new(0.8, 0.85, 0.95, 0.9), "Champion".into())),
+                EnemyKind::Rival => marks.push((e.pos, Color::new(1.0, 0.3, 0.25, 0.95), "Rival".into())),
+                _ => {}
+            }
+        }
+        for p in w.pickups.iter() {
+            match p.kind {
+                PickKind::CursedCoffer => marks.push((p.pos, Color::new(0.75, 0.4, 1.0, 0.9), "Cursed coffer".into())),
+                PickKind::Key => marks.push((p.pos, GOLD, "Key".into())),
+                _ => {}
+            }
         }
         if let Some(c) = w.cursed.as_ref().filter(|c| !c.accepted) {
             marks.push((c.pos, Color::new(0.75, 0.4, 1.0, 0.9), "Cursed shrine".into()));
@@ -409,6 +458,34 @@ impl<'a> Ui<'a> {
         if w.boss_rush {
             let lord = if w.endless { format!("Lords slain {}", w.bosses_killed) } else { format!("Lord {} of {}", (w.bosses_killed + 1).min(RUSH_LORDS), RUSH_LORDS) };
             self.text_c(&lord, sw * 0.5, ey, 17.0, EMBER);
+            ey += 20.0;
+        }
+        if let Some((weather, left)) = w.weather {
+            let left = left.max(0.0) as u32;
+            let line = format!("{}: {}   {}:{:02}", weather.name(), weather.desc(), left / 60, left % 60);
+            self.text_c(&line, sw * 0.5, ey, 17.0, Color::new(0.85, 0.8, 0.72, 1.0));
+            ey += 20.0;
+        }
+        if w.mist > 3.0 {
+            let left = w.mist as u32;
+            self.text_c(&format!("The mist: a champion hunts you   {}:{:02}", left / 60, left % 60), sw * 0.5, ey, 17.0, Color::new(0.8, 0.85, 0.92, 1.0));
+            ey += 20.0;
+        }
+        if w.vault.as_ref().is_some_and(|v| !v.open) {
+            let line = if w.vault_key {
+                "You hold the vault key: open the vault".to_string()
+            } else if w.enemies.iter().any(|e| e.kind == EnemyKind::Courier) {
+                "Catch the courier: it carries the vault key".to_string()
+            } else {
+                "The courier's key lies on the ground".to_string()
+            };
+            self.text_c(&line, sw * 0.5, ey, 17.0, GOLD);
+            ey += 20.0;
+        }
+        if let Some(q) = &w.quest {
+            let left = q.left.max(0.0) as u32;
+            let line = format!("Quest: {}   {} / {}   {}:{:02}", q.text(), q.progress, q.goal, left / 60, left % 60);
+            self.text_c(&line, sw * 0.5, ey, 17.0, GOLD);
             ey += 20.0;
         }
         if w.boss_warning > 0.0 {
