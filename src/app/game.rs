@@ -200,7 +200,8 @@ impl App {
         // In the same units as `award_marks` before the challenge bonus.
         self.endless_paid = run_marks(w, true);
         self.endless_record = self.save.runs.iter().find(|r| r.won && (r.time - w.time).abs() < 0.5 && r.kills == w.kills).cloned();
-        self.audio.music(Music::Endless(0));
+        let field = self.world.as_ref().map(|w| w.biome as u8).unwrap_or(0);
+        self.audio.music(Music::Endless(field, 0));
         self.screen = Screen::Playing;
     }
 
@@ -209,7 +210,7 @@ impl App {
         if self.save.settings.cute {
             Music::Lullaby
         } else {
-            Music::Vigil(0)
+            Music::Menu
         }
     }
 
@@ -219,11 +220,11 @@ impl App {
         if w.endless {
             // Harsher every three minutes from the moment the endless night began.
             let stage = ((w.time - w.endless_since).max(0.0) / crate::audio::ENDLESS_STAGE) as u8;
-            Music::Endless(stage.min(crate::audio::ENDLESS_STAGES - 1))
+            Music::Endless(w.biome as u8, stage.min(crate::audio::ENDLESS_STAGES - 1))
         } else if self.save.settings.cute {
             Music::Lullaby
         } else {
-            Music::Vigil(((w.time / 600.0) as u8).min(2))
+            Music::Vigil(w.biome as u8, ((w.time / 600.0) as u8).min(2))
         }
     }
 
@@ -339,7 +340,19 @@ impl App {
         }
         // The song follows the clock: a boss theme, a song per ten minutes, the endless stages.
         if !empty && matches!(self.screen, Screen::Playing | Screen::Paused) {
-            let song = if boss { Music::Boss(boss_index) } else { self.vigil_music() };
+            let field = self.world.as_ref().map(|w| w.biome as u8).unwrap_or(0);
+            let rush = self.world.as_ref().is_some_and(|w| w.boss_rush);
+            // A lord's song begins a little before the lord itself.
+            let soon = self.world.as_ref().and_then(|w| w.lord_soon);
+            let song = if rush {
+                Music::Rush
+            } else if boss {
+                Music::Boss(field, boss_index)
+            } else if let Some(k) = soon {
+                Music::Boss(field, k as usize)
+            } else {
+                self.vigil_music()
+            };
             self.audio.music(song);
         }
         if client && !empty && matches!(self.screen, Screen::Playing | Screen::Paused) {

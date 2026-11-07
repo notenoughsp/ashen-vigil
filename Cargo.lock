@@ -16,9 +16,11 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "ashen-vigil"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "gilrs",
+ "hound",
+ "lewton",
  "macroquad",
  "miniz_oxide 0.8.9",
  "serde_json",
@@ -538,8 +540,6 @@ checksum = "5a651516ddc9168ebd67b24afd085a718be02f8858fe406591b013d101ce2f40"
 [[package]]
 name = "quad-snd"
 version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cba0c4943fc67147fbe9d1eb731fb9e678bfc9d926507eebbbfe0103e154e5b0"
 dependencies = [
  "audir-sles",
  "audrey",

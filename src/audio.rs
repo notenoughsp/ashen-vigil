@@ -524,6 +524,8 @@ const THEMES: [Theme; 10] = [
 
 /// How many endless stages there are; each lasts `ENDLESS_STAGE` seconds, the last one stays.
 pub const ENDLESS_STAGES: u8 = 8;
+/// The endless stage the boss rush plays when it has no songs of its own.
+const RUSH_STAGE: usize = 4;
 pub const ENDLESS_STAGE: f32 = 180.0;
 
 /// The endless night grows harsher every stage: faster, higher, denser drums, then the grind.
@@ -670,44 +672,43 @@ async fn load_override(dir: &str, name: &str) -> Option<Sound> {
     }
     let bytes = match dir {
         "sfx" => crate::embedded::sfx(name),
-        "voice" => crate::embedded::voice(name),
         _ => None,
     }?;
     load_sound_from_bytes(bytes).await.ok()
 }
 
 /// The kinds of sound with a volume of their own: save key and name in the options.
-pub const SOUND_KINDS: [(&str, &str); 6] =
-    [("voices", "Lord voices"), ("weapons", "Weapons"), ("hits", "Hits"), ("foes", "Foes"), ("pickups", "Pickups"), ("interface", "Interface")];
-const VOICES: usize = 0;
+/// Weapons, hits and pickups have none: they follow the sound effects volume alone.
+pub const SOUND_KINDS: [(&str, &str); 2] = [("foes", "Foes"), ("interface", "Interface")];
 
-/// Which kind of sound a sound is, for its volume.
-pub fn sound_kind(name: &str) -> usize {
+/// Which kind of sound a sound is, for its volume; None for those without a volume of their own.
+pub fn sound_kind(name: &str) -> Option<usize> {
     match name {
-        "slash" | "knife" | "fire" | "explode" | "slam" | "zap" | "arrow" | "bullet" | "clang" | "roll" => 1,
-        "hit" | "hurt" | "death" => 2,
-        "die" | "roar" | "bell" => 3,
-        "pickup" | "chest" | "levelup" | "evolve" | "kindle" | "chime" => 4,
-        _ => 5,
+        "slash" | "knife" | "fire" | "explode" | "slam" | "zap" | "arrow" | "bullet" | "clang" | "roll" => None,
+        "hit" | "hurt" | "death" => None,
+        "pickup" | "chest" | "levelup" | "evolve" | "kindle" | "chime" => None,
+        "die" | "roar" | "bell" => Some(0),
+        _ => Some(1),
     }
 }
-
-/// How long a lord's line may wait for the one before it, in seconds.
-const VOICE_PATIENCE: f64 = 3.0;
-
 /// What is playing.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Music {
     Silence,
-    /// One song per ten minutes of the vigil (0, 1, 2); the combat drums fade in with
-    /// `set_intensity`. Act 0 also plays in the menus.
-    Vigil(u8),
+    /// The menus: the `menu` songs, else the graveyard's, else the first act.
+    Menu,
+    /// A field's songs (see `songs`), else one synthesized song per ten minutes of the
+    /// vigil (0, 1, 2) with combat drums that fade in with `set_intensity`.
+    Vigil(u8, u8),
     /// Cute mode's music box instead of the vigil songs.
     Lullaby,
-    /// After dawn: a stage that grows harsher every three minutes.
-    Endless(u8),
-    /// A boss theme by boss index.
-    Boss(usize),
+    /// After dawn on a field: a stage that grows harsher every three minutes.
+    Endless(u8, u8),
+    /// A lord's song on a field, by boss index.
+    Boss(u8, usize),
+    /// The boss rush: its own songs, one after another, whichever lord is about; else
+    /// one synthesized track that never changes with the lords.
+    Rush,
 }
 
 pub struct Audio {
@@ -717,18 +718,18 @@ pub struct Audio {
     combat: Sound,
     endless: Vec<Sound>,
     bosses: Vec<Sound>,
-    /// The lords' spoken lines by key, e.g. "bride_1", with their length in seconds.
-    voices: HashMap<&'static str, (Sound, f32)>,
-    /// The line being spoken and when its words end.
-    speaking: Option<(&'static str, f64)>,
-    /// A line waiting for the one before it to end, and when it was said.
-    waiting: Option<(&'static str, f64)>,
     current: Music,
+    /// The recorded songs, which win over the synthesized ones.
+    songs: crate::songs::Player,
+    /// The boss song played last, so the next lord hears another.
+    last_boss_song: Option<usize>,
     intensity: f32,
     pub sfx_vol: f32,
     /// Volume of each of `SOUND_KINDS`, on top of `sfx_vol`.
     pub kind_vol: [f32; SOUND_KINDS.len()],
     pub music_vol: f32,
+    /// The lords' music, as a share of `music_vol`. The boss rush keeps the plain music volume.
+    pub boss_vol: f32,
     pub muted: bool,
 }
 
@@ -776,13 +777,6 @@ impl Audio {
         let combat = take(1).remove(0);
         let bosses = take(THEMES.len());
         let endless = take(ENDLESS_STAGES as usize);
-        let mut voices = HashMap::new();
-        for (name, secs, _) in crate::embedded::VOICE {
-            if let Some(s) = load_override("voice", name).await {
-                voices.insert(name, (s, secs));
-            }
-        }
-        crate::log!("{} of {} lord lines loaded", voices.len(), crate::embedded::VOICE.len());
         Audio {
             sfx,
             acts,
@@ -790,14 +784,14 @@ impl Audio {
             combat,
             endless,
             bosses,
-            voices,
-            speaking: None,
-            waiting: None,
             current: Music::Silence,
+            songs: Default::default(),
+            last_boss_song: None,
             intensity: 0.0,
             sfx_vol: 0.55,
             kind_vol: [1.0; SOUND_KINDS.len()],
             music_vol: 0.4,
+            boss_vol: 1.0,
             muted: false,
         }
     }
@@ -813,56 +807,12 @@ impl Audio {
                 return;
             }
             *last = now;
-            play_sound(snd, PlaySoundParams { looped: false, volume: vol * self.sfx_vol * self.kind_vol[sound_kind(name)] });
+            play_sound(snd, PlaySoundParams { looped: false, volume: vol * self.sfx_vol * sound_kind(name).map_or(1.0, |k| self.kind_vol[k]) });
         }
     }
 
     pub fn play(&mut self, name: &str, vol: f32) {
         self.play_gap(name, vol, 0.03);
-    }
-
-    /// A lord speaks a line (see `voice::line_key`). Lines wait for the one before to end,
-    /// so a lord that falls fast is still understood; last words (`last`) cut in at once.
-    pub fn speak(&mut self, key: &str, last: bool) {
-        let Some((&name, _)) = self.voices.get_key_value(key) else { return };
-        let now = get_time();
-        let busy = self.speaking.is_some_and(|(_, end)| now < end);
-        if busy && !last {
-            // Only the newest waits: a lord's later words matter more than its earlier ones.
-            self.waiting = Some((name, now));
-            return;
-        }
-        self.waiting = None;
-        self.say_now(name);
-    }
-
-    fn say_now(&mut self, name: &'static str) {
-        if let Some((prev, _)) = self.speaking.take() {
-            if let Some((snd, _)) = self.voices.get(prev) {
-                stop_sound(snd);
-            }
-        }
-        if self.muted {
-            return;
-        }
-        if let Some((snd, secs)) = self.voices.get(name) {
-            play_sound(snd, PlaySoundParams { looped: false, volume: (self.sfx_vol * 1.6).min(1.0) * self.kind_vol[VOICES] });
-            // The echo may ring under the next line.
-            self.speaking = Some((name, get_time() + (*secs as f64 - 0.4).max(0.5)));
-        }
-    }
-
-    /// Speaks a waiting line once the one before has ended; a line that waited too long
-    /// has missed its moment. Call every frame.
-    pub fn update_voice(&mut self) {
-        let Some((name, since)) = self.waiting else { return };
-        let now = get_time();
-        if now - since > VOICE_PATIENCE {
-            self.waiting = None;
-        } else if self.speaking.is_none_or(|(_, end)| now >= end) {
-            self.waiting = None;
-            self.say_now(name);
-        }
     }
 
     fn loops(&self) -> impl Iterator<Item = &Sound> {
@@ -881,26 +831,102 @@ impl Audio {
         }
         self.stop_music();
         self.current = which;
+        self.songs.cancel_once();
         if self.muted {
             return;
         }
+        use crate::songs::{boss_songs, first_folder, FIELD_DIRS};
+        let dir = |f: u8| FIELD_DIRS[(f as usize).min(FIELD_DIRS.len() - 1)];
+        // Recorded songs first. A lord's song plays over the field's playlist, which goes on
+        // quietly underneath and comes back once the lords have fallen.
+        let playlist = match which {
+            Music::Silence => None,
+            Music::Menu => first_folder(&["menu", "graveyard"]),
+            Music::Vigil(f, _) => first_folder(&[dir(f)]),
+            Music::Lullaby => first_folder(&["lullaby"]),
+            Music::Rush => first_folder(&["rush"]),
+            Music::Endless(f, _) => first_folder(&["endless", dir(f)]),
+            // The playlist stays as it was.
+            Music::Boss(..) => Some(String::new()),
+        };
+        if playlist.as_deref() != Some("") {
+            self.songs.set_playlist(playlist.as_deref());
+        }
+        // The lord's own songs, else the field's, else the shared ones. They are decoded during
+        // the lead before the lord arrives, so nothing is kept ready in between.
+        let lords = match which {
+            Music::Boss(f, i) => {
+                let kind = crate::world::ALL_LORDS.iter().copied().find(|k| *k as usize == i).unwrap_or(crate::world::BossKind::Gravewarden);
+                boss_songs(f as usize, kind.key())
+            }
+            _ => Vec::new(),
+        };
+        self.songs.prefetch(Vec::new());
+        // One of those songs by chance, but not the one heard last if there are more.
+        let boss_song = match which {
+            Music::Boss(..) if !lords.is_empty() => {
+                let fresh: Vec<usize> = lords.iter().copied().filter(|s| lords.len() == 1 || Some(*s) != self.last_boss_song).collect();
+                let pick = fresh[macroquad::rand::gen_range(0, fresh.len())];
+                self.last_boss_song = Some(pick);
+                Some(pick)
+            }
+            _ => None,
+        };
+        self.songs.set_boss(boss_song);
+        let recorded = playlist.as_deref().is_some_and(|p| !p.is_empty());
         let params = PlaySoundParams { looped: true, volume: self.music_vol };
         match which {
-            Music::Vigil(act) => {
+            Music::Boss(_, i) if boss_song.is_none() => {
+                // A synthesized theme drowns out the recorded playlist for as long.
+                self.songs.duck(true);
+                play_sound(&self.bosses[i.min(self.bosses.len() - 1)], PlaySoundParams { looped: true, volume: self.music_vol * self.boss_vol });
+            }
+            Music::Boss(..) | Music::Silence => {}
+            _ if recorded => {}
+            Music::Menu => play_sound(&self.acts[0], params),
+            Music::Vigil(_, act) => {
                 play_sound(&self.acts[(act as usize).min(self.acts.len() - 1)], params);
                 play_sound(&self.combat, PlaySoundParams { looped: true, volume: self.music_vol * self.intensity });
             }
             Music::Lullaby => play_sound(&self.lullaby, params),
-            Music::Endless(k) => play_sound(&self.endless[(k as usize).min(self.endless.len() - 1)], params),
-            Music::Boss(i) => play_sound(&self.bosses[i.min(self.bosses.len() - 1)], params),
-            Music::Silence => {}
+            Music::Endless(_, k) => play_sound(&self.endless[(k as usize).min(self.endless.len() - 1)], params),
+            Music::Rush => play_sound(&self.endless[RUSH_STAGE.min(self.endless.len() - 1)], params),
         }
+    }
+
+    /// Fades and the next recorded song. Call every frame.
+    pub fn update_music(&mut self, play_out: bool) {
+        self.songs.play_out = play_out;
+        let dt = macroquad::time::get_frame_time().min(0.1);
+        let vol = if self.muted { 0.0 } else { self.music_vol };
+        self.songs.update(vol, self.boss_vol, dt);
+        // The secret song is over: the menu's own music comes back.
+        if self.songs.once_ended() && !self.muted {
+            let cur = self.current;
+            self.current = Music::Silence;
+            self.music(cur);
+        }
+    }
+
+    /// The menu's secret: a song of `assets/music/secret` played once, if there is one.
+    pub fn play_secret(&mut self) -> bool {
+        let songs = crate::songs::folder("secret");
+        if songs.is_empty() || self.muted {
+            return false;
+        }
+        let pick = songs[macroquad::rand::gen_range(0, songs.len())];
+        // The synthesized loops stop; recorded ones wait underneath.
+        for s in self.loops() {
+            stop_sound(s);
+        }
+        self.songs.play_once(pick);
+        true
     }
 
     /// 0 = calm, 1 = surrounded. Fades the combat drums under the vigil songs.
     pub fn set_intensity(&mut self, k: f32) {
         self.intensity = k.clamp(0.0, 1.0);
-        if matches!(self.current, Music::Vigil(_)) && !self.muted {
+        if matches!(self.current, Music::Vigil(..)) && !self.muted {
             set_sound_volume(&self.combat, self.music_vol * self.intensity);
         }
     }
@@ -910,7 +936,17 @@ impl Audio {
         for s in self.loops() {
             set_sound_volume(s, v);
         }
+        for s in &self.bosses {
+            set_sound_volume(s, v * self.boss_vol);
+        }
         set_sound_volume(&self.combat, v * self.intensity);
+    }
+
+    /// The lords' music as a share of the music volume.
+    pub fn set_boss_volume(&mut self, v: f32) {
+        self.boss_vol = v;
+        let music = self.music_vol;
+        self.set_music_volume(music);
     }
 
     pub fn toggle_mute(&mut self) {
@@ -918,6 +954,7 @@ impl Audio {
         let cur = self.current;
         if self.muted {
             self.stop_music();
+            self.songs.silence();
         } else {
             self.current = Music::Silence;
             self.music(cur);

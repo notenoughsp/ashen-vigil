@@ -105,10 +105,11 @@ pub struct App {
     /// The sound was turned off by us because the window lost focus.
     muted_away: bool,
     /// The lord's words last heard and how long they had left, to speak each new line once.
-    heard_quote: Option<(String, f32)>,
     discord: crate::discord::Discord,
     /// Newer versions on GitHub, offered in the main menu.
     updater: crate::update::Updater,
+    /// What is new in this version, on the main menu once after an update: folded or open.
+    pub(super) whats_new: Option<bool>,
     /// Unix seconds when the current vigil began, for Discord's clock.
     vigil_since: i64,
     /// A tiny world for drawing heroes in the wardrobe.
@@ -206,8 +207,15 @@ fn make_grain() -> Texture2D {
 }
 
 impl App {
-    pub fn new(save: Save, audio: Audio, font: Option<Font>, auto: Option<AutoTest>) -> App {
+    pub fn new(mut save: Save, audio: Audio, font: Option<Font>, auto: Option<AutoTest>) -> App {
         let check_updates = save.settings.check_updates;
+        // The first start of a new version shows what changed; the very first start does not.
+        let updated = auto.is_none() && save.seen_version != crate::net::VERSION;
+        let whats_new = (updated && (!save.seen_version.is_empty() || save.vigils > 0)).then_some(false);
+        if updated {
+            save.seen_version = crate::net::VERSION.to_string();
+            save.store();
+        }
         App {
             screen: Screen::Menu,
             save,
@@ -244,7 +252,6 @@ impl App {
             options_in_game: false,
             leave_armed: false,
             muted_away: false,
-            heard_quote: None,
             // The self-test never talks to Discord.
             discord: if auto.is_some() && std::env::var("ASHEN_AUTOTEST_DISCORD").is_err() && !std::env::var("ASHEN_AUTOTEST_ROLE").is_ok_and(|r| r == "menus") {
                 crate::discord::Discord::off()
@@ -253,6 +260,7 @@ impl App {
             },
             // The self-test never asks GitHub; the player may turn the check off.
             updater: if auto.is_some() || !check_updates { crate::update::Updater::off() } else { crate::update::Updater::start() },
+            whats_new,
             vigil_since: 0,
             preview: None,
             class_card_until: 0.0,
@@ -423,29 +431,6 @@ impl App {
         }
     }
 
-    /// Speaks a lord's words aloud when they appear, on the host and on clients alike (clients
-    /// get the words in snapshots). A line said again shows again with its time renewed.
-    fn speak_quotes(&mut self) {
-        let in_vigil = match self.screen {
-            Screen::Playing | Screen::Paused | Screen::Dead { .. } | Screen::Victory { .. } => true,
-            Screen::Options => self.options_in_game,
-            _ => false,
-        };
-        let quote = self.world.as_ref().filter(|w| in_vigil && w.boss_lines).and_then(|w| w.quote.as_ref()).map(|(line, _, life)| (line.clone(), *life));
-        let fresh = match (&quote, &self.heard_quote) {
-            (Some((line, life)), Some((old, old_life))) => line != old || *life > old_life + 0.5,
-            (Some(_), None) => true,
-            _ => false,
-        };
-        if fresh {
-            if let Some(key) = quote.as_ref().and_then(|(line, _)| crate::voice::line_key(line)) {
-                crate::log!("a lord speaks: {}", key);
-                self.audio.speak(&key, key.ends_with("_3"));
-            }
-        }
-        self.heard_quote = quote;
-    }
-
     fn set_note(&mut self, text: &str, secs: f32) {
         self.note = Some((text.to_string(), secs));
     }
@@ -463,11 +448,7 @@ impl App {
         crate::ui::set_hero_bars(self.save.settings.hero_hp_bar, self.save.settings.hero_stamina_bar);
         crate::draw::set_brightness(self.save.settings.brightness as f32 / 100.0);
         crate::draw::set_effect_alpha(self.save.settings.effect_alpha as f32 / 100.0);
-        if let Some(w) = self.world.as_mut() {
-            w.boss_lines = self.save.settings.boss_lines;
-        }
-        self.speak_quotes();
-        self.audio.update_voice();
+        self.audio.update_music(self.save.settings.boss_song_out);
         // Quiet while another window has the focus, if wanted; the player's own mute stays theirs.
         let away = self.auto.is_none() && self.save.settings.mute_unfocused && !game::window_focused();
         if away && !self.muted_away && !self.audio.muted {

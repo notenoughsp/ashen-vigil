@@ -1722,9 +1722,10 @@ pub enum Achievement {
     Selfless,
     Bellringer,
     Heartseeker,
+    Encore,
 }
 
-pub const ALL_ACHIEVEMENTS: [Achievement; 76] = [
+pub const ALL_ACHIEVEMENTS: [Achievement; 77] = [
     Achievement::FirstLight,
     Achievement::Gravebreaker,
     Achievement::Dawnbringer,
@@ -1801,6 +1802,7 @@ pub const ALL_ACHIEVEMENTS: [Achievement; 76] = [
     Achievement::Selfless,
     Achievement::Bellringer,
     Achievement::Heartseeker,
+    Achievement::Encore,
 ];
 
 impl Achievement {
@@ -1887,6 +1889,7 @@ impl Achievement {
             Selfless => "Selfless",
             Bellringer => "The Last Toll",
             Heartseeker => "The Heart of It",
+            Encore => "Encore",
         }
     }
 
@@ -1969,6 +1972,7 @@ impl Achievement {
             Selfless => "Offer 1,000 Ashen Marks in the Reliquary.",
             Bellringer => "Find the bell that fell from the cathedral.",
             Heartseeker => "Find the heart that beats beneath the flesh pits.",
+            Encore => "Ask the main menu for another song.",
         }
     }
 
@@ -1998,7 +2002,7 @@ impl Achievement {
             Benefactor => 25,
             PatronOfAsh | Selfless => 60,
             ThinTheHerd | Polished => 5,
-            FullArsenal | Packrat | GentleDawn | Purrfect | Dressed | Dizzy | Impatient | Partygoer => 10,
+            FullArsenal | Packrat | GentleDawn | Purrfect | Dressed | Dizzy | Impatient | Partygoer | Encore => 10,
             HalfNight | Ascendant => 15,
             DeepNight | Lordbane | MillionCuts | HoldHands | OldRegular => 20,
             KnightsDawn | CatHerder => 25,

@@ -16,7 +16,7 @@ pub fn game_port() -> u16 {
     std::env::var("ASHEN_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PORT)
 }
 // The last byte is the protocol version; different builds refuse to talk to each other.
-const MAGIC: [u8; 3] = [0xA5, 0x1C, 17];
+const MAGIC: [u8; 3] = [0xA5, 0x1C, 18];
 /// The highest field number, see `world::ALL_BIOMES`.
 const ALL_FIELDS_MAX: u8 = crate::world::ALL_BIOMES.len() as u8 - 1;
 /// Shown in menus, so players can tell whether they run the same build.

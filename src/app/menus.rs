@@ -22,6 +22,8 @@ const HUB_ROWS: usize = HUB_CURSE_ROW + ALL_CURSES.len() + 1;
 enum Opt {
     Name,
     Music,
+    /// The lords' songs, as a share of the music volume.
+    BossMusic,
     Sfx,
     Numbers,
     Meter,
@@ -37,7 +39,7 @@ enum Opt {
     HurtFlash,
     HeroHp,
     HeroStamina,
-    BossLines,
+    BossSongOut,
     Discord,
     Updates,
     /// Volume of one of `audio::SOUND_KINDS`.
@@ -70,6 +72,7 @@ impl Opt {
         match self {
             Opt::Name => "Name",
             Opt::Music => "Music volume",
+            Opt::BossMusic => "Boss music",
             Opt::Sfx => "Effects volume",
             Opt::Numbers => "Damage numbers",
             Opt::Meter => "Damage meter",
@@ -85,7 +88,7 @@ impl Opt {
             Opt::HurtFlash => "Flash when hit",
             Opt::HeroHp => "Health bar under hero",
             Opt::HeroStamina => "Stamina bar under hero",
-            Opt::BossLines => "Lords speak",
+            Opt::BossSongOut => "Boss song plays out",
             Opt::Discord => "Discord status",
             Opt::Updates => "Check for updates",
             Opt::Vol(i) => crate::audio::SOUND_KINDS[i as usize].1,
@@ -122,16 +125,13 @@ impl Opt {
             Opt::HurtFlash => "The screen edge flashes red when your hero is hit.",
             Opt::HeroHp => "A small health bar right under your hero, so you need not look to the corner.",
             Opt::HeroStamina => "A small stamina bar under your hero: how many rolls are left.",
-            Opt::BossLines => "The lords' words on arrival, at each phase and as they fall.",
+            Opt::BossSongOut => "Once the lords have fallen, a recorded boss song plays to its end before the field's music comes back. Off: it fades out at once.",
             Opt::Discord => "Friends on Discord see what you are playing: menus, lobby, vigil or boss rush.",
             Opt::Updates => "At start, ask GitHub whether a newer version is out. The main menu then offers to update.",
-            Opt::Vol(0) => "The lords' spoken lines.",
-            Opt::Vol(1) => "Swings, shots, spells and your rolls.",
-            Opt::Vol(2) => "Foes being struck, and you being hurt.",
-            Opt::Vol(3) => "Foes falling, lords roaring, the bell before a lord.",
-            Opt::Vol(4) => "Souls, coffers, level-ups, fusions and fires being lit.",
+            Opt::Vol(0) => "Foes falling, lords roaring, the bell before a lord.",
             Opt::Vol(_) => "Menus and everything else.",
-            Opt::Sfx => "All sound effects at once; the kinds below are shares of it.",
+            Opt::BossMusic => "The lords' songs, as a share of the music volume. The boss rush keeps the music volume.",
+            Opt::Sfx => "All sound effects: weapons, hits and pickups directly, and the kinds below as shares of it.",
             Opt::FxAlpha => "Lower it to see foes and lords' attacks through your own weapons and skills.",
             Opt::Brightness => "How dark the night is away from the fires.",
             Opt::Vsync => "Syncs to the monitor refresh. Takes effect after a restart.",
@@ -188,7 +188,7 @@ const PAGES: [(&str, &[Opt]); 5] = [
             Opt::Back,
         ],
     ),
-    ("Sound", &[Opt::Music, Opt::Sfx, Opt::Vol(0), Opt::Vol(1), Opt::Vol(2), Opt::Vol(3), Opt::Vol(4), Opt::Vol(5), Opt::BossLines, Opt::MuteUnfocused, Opt::Back]),
+    ("Sound", &[Opt::Music, Opt::BossMusic, Opt::Sfx, Opt::Vol(0), Opt::Vol(1), Opt::BossSongOut, Opt::MuteUnfocused, Opt::Back]),
     (
         "Graphics",
         &[
@@ -234,6 +234,32 @@ fn update_notice() -> Rect {
     Rect::new(ui_w() - 356.0, 16.0, 340.0, 58.0)
 }
 
+/// What is new in this version, in a few words each, shown once after an update.
+const WHATS_NEW: [&str; 9] = [
+    "Recorded songs for every field, the boss rush and each lord.",
+    "A lord's song begins ten seconds before the lord arrives.",
+    "New option: Boss music, its own volume.",
+    "New option: Boss song plays out after the fight.",
+    "Weapons, hits and pickups now follow the sound effects volume.",
+    "The lords no longer speak aloud; their words still show.",
+    "A new secret word waits in the main menu.",
+    "Updates let you pick the build with songs or the small synth one.",
+    "Fixed: the lords' adds no longer pile up in long endless nights.",
+];
+
+/// The button on the left of the main menu that folds out what is new.
+fn whats_new_button() -> Rect {
+    Rect::new(16.0, 16.0, 300.0, 40.0)
+}
+
+/// The two buttons under the notice while a newer version is on offer: with the recorded
+/// songs, and with the synthesized music only.
+fn update_buttons() -> [Rect; 2] {
+    let r = update_notice();
+    let w = (r.w - 8.0) * 0.5;
+    [Rect::new(r.x, r.y + r.h + 6.0, w, 46.0), Rect::new(r.x + w + 8.0, r.y + r.h + 6.0, w, 46.0)]
+}
+
 /// Where the main menu rows sit, for drawing and for the mouse.
 fn menu_rows() -> Vec<Rect> {
     let (sw, sh) = (ui_w(), ui_h());
@@ -273,16 +299,40 @@ impl App {
         if nav(&mut self.menu_sel, MENU_ITEMS.len(), false) {
             self.audio.play("select", 0.4);
         }
-        // A newer version: click the notice (or Y on a pad) to update, then to restart.
+        // What is new: a click folds it out or in.
+        if let Some(open) = self.whats_new {
+            if clicked() && whats_new_button().contains(mouse_ui()) {
+                self.whats_new = Some(!open);
+                self.audio.play("select", 0.5);
+                return;
+            }
+        }
+        // A newer version: pick a build under the notice (or Y with songs, X without on a pad),
+        // then click the notice to restart.
+        use crate::update::State;
         let state = self.updater.state();
-        if state != crate::update::State::Idle && ((clicked() && update_notice().contains(mouse_ui())) || pad_pressed(Pad::Reroll)) {
+        if matches!(state, State::Available { .. }) {
+            let [with, without] = update_buttons();
+            let (songs, synth) = self.updater.choices();
+            let pick = if (clicked() && with.contains(mouse_ui())) || pad_pressed(Pad::Reroll) {
+                songs.map(|_| true)
+            } else if (clicked() && without.contains(mouse_ui())) || pad_pressed(Pad::Skill) {
+                synth.map(|_| false)
+            } else {
+                None
+            };
+            if let Some(with_songs) = pick {
+                self.audio.play("select", 0.6);
+                self.updater.install(with_songs);
+                return;
+            }
+        } else if matches!(state, State::Ready { .. } | State::Failed(_)) && ((clicked() && update_notice().contains(mouse_ui())) || pad_pressed(Pad::Reroll)) {
             self.audio.play("select", 0.6);
-            match state {
-                crate::update::State::Ready { .. } => {
-                    self.save.store();
-                    self.updater.restart();
-                }
-                _ => self.updater.install(),
+            if matches!(state, State::Ready { .. }) {
+                self.save.store();
+                self.updater.restart();
+            } else {
+                self.updater.retry();
             }
             return;
         }
@@ -334,6 +384,14 @@ impl App {
                 let msg = if self.party { "The embers put on their party hats." } else { "The party winds down. Someone has to clean up." };
                 self.set_note(msg, 4.0);
                 self.unlock(Achievement::Partygoer);
+            } else if self.typed.ends_with("encore") {
+                self.typed.clear();
+                if self.audio.play_secret() {
+                    self.set_note("The bard of ash clears its throat. One song, then the night goes on.", 5.0);
+                    self.unlock(Achievement::Encore);
+                } else {
+                    self.set_note("No one is here to sing.", 3.0);
+                }
             }
         }
         self.menu_cat = (self.menu_cat - get_frame_time()).max(0.0);
@@ -425,6 +483,31 @@ impl App {
         );
         ui.text_r(&format!("v{}", crate::net::VERSION), sw - 12.0, sh - 12.0, 14.0, DIM);
         self.draw_update_notice(ui);
+        self.draw_whats_new(ui);
+    }
+
+    /// The fold-out list of what is new, on the left of the main menu.
+    fn draw_whats_new(&self, ui: &Ui) {
+        let Some(open) = self.whats_new else { return };
+        let b = whats_new_button();
+        let hot = b.contains(mouse_ui());
+        draw_rectangle(b.x, b.y, b.w, b.h, Color::new(0.07, 0.06, 0.06, if hot { 0.95 } else { 0.75 }));
+        draw_rectangle_lines(b.x, b.y, b.w, b.h, 1.5, if hot { GOLD } else { crate::ui::EMBER });
+        let arrow = if open { "-" } else { "+" };
+        ui.text(&format!("{}  What's new in v{}", arrow, crate::net::VERSION), b.x + 14.0, b.y + 27.0, 18.0, GOLD);
+        if !open {
+            return;
+        }
+        // Narrow enough to leave the title free at 1280 wide.
+        let w = 300.0;
+        let lines: Vec<String> = WHATS_NEW.iter().flat_map(|l| ui.wrap(&format!("- {}", l), 15.0, w - 28.0)).collect();
+        let h = 20.0 + lines.len() as f32 * 21.0;
+        let (x, y) = (b.x, b.y + b.h + 6.0);
+        draw_rectangle(x, y, w, h, Color::new(0.07, 0.06, 0.06, 0.88));
+        draw_rectangle_lines(x, y, w, h, 1.5, crate::ui::EMBER);
+        for (i, l) in lines.iter().enumerate() {
+            ui.text(l, x + 14.0, y + 26.0 + i as f32 * 21.0, 15.0, WHITE);
+        }
     }
 
     /// The corner notice about a newer version and how far its update has come.
@@ -432,7 +515,7 @@ impl App {
         use crate::update::State;
         let (title, sub) = match self.updater.state() {
             State::Idle => return,
-            State::Available { version } => (format!("Version {} is out", version), hint("Click here to update", "Y to update").to_string()),
+            State::Available { version } => (format!("Version {} is out", version), hint("Pick a build below to update", "Y with songs, X without").to_string()),
             State::Downloading { version } => (format!("Downloading {}...", version), "This takes a moment.".to_string()),
             State::Ready { version } => (format!("Version {} is ready", version), hint("Click here to restart", "Y to restart").to_string()),
             State::Failed(why) => ("The update failed".to_string(), format!("{}. {}", why.chars().take(48).collect::<String>(), hint("Click to retry", "Y to retry"))),
@@ -443,6 +526,23 @@ impl App {
         draw_rectangle_lines(r.x, r.y, r.w, r.h, 1.5, if hot { GOLD } else { crate::ui::EMBER });
         ui.text_c(&title, r.x + r.w * 0.5, r.y + 24.0, 20.0, GOLD);
         ui.text_c(&sub, r.x + r.w * 0.5, r.y + 46.0, 15.0, DIM);
+        if !matches!(self.updater.state(), State::Available { .. }) {
+            return;
+        }
+        // The two builds on offer, each with its download size.
+        let (songs, synth) = self.updater.choices();
+        let mb = |b: u64| format!("{:.0} MB", b as f64 / 1_048_576.0);
+        for (b, (label, size)) in update_buttons().iter().zip([("With songs", songs), ("Synth music only", synth)]) {
+            let hot = size.is_some() && b.contains(mouse_ui());
+            draw_rectangle(b.x, b.y, b.w, b.h, Color::new(0.07, 0.06, 0.06, if hot { 0.95 } else { 0.75 }));
+            draw_rectangle_lines(b.x, b.y, b.w, b.h, 1.5, if hot { GOLD } else { crate::ui::EMBER });
+            let (color, note) = match size {
+                Some(s) => (if hot { GOLD } else { WHITE }, mb(s)),
+                None => (DIM, "not in this release".to_string()),
+            };
+            ui.text_c(label, b.x + b.w * 0.5, b.y + 20.0, 16.0, color);
+            ui.text_c(&note, b.x + b.w * 0.5, b.y + 38.0, 13.0, DIM);
+        }
     }
 
     // ---------------------------------------------------------------- credits
@@ -590,7 +690,7 @@ impl App {
         } else {
             0
         };
-        if matches!(opt, Opt::Music | Opt::Sfx | Opt::Vol(_) | Opt::FxAlpha | Opt::Markers | Opt::Brightness) {
+        if matches!(opt, Opt::Music | Opt::BossMusic | Opt::Sfx | Opt::Vol(_) | Opt::FxAlpha | Opt::Markers | Opt::Brightness) {
             let held = if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) || pad_stick().x < -0.5 {
                 -1
             } else if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) || pad_stick().x > 0.5 {
@@ -645,6 +745,10 @@ impl App {
                 st.music = percent_step(st.music, dir);
                 self.audio.set_music_volume(st.music);
             }
+            Opt::BossMusic => {
+                st.boss_music = percent_step(st.boss_music, dir);
+                self.audio.set_boss_volume(st.boss_music);
+            }
             Opt::Sfx => {
                 st.sfx = percent_step(st.sfx, dir);
                 self.audio.sfx_vol = st.sfx;
@@ -662,7 +766,7 @@ impl App {
             Opt::HurtFlash => st.hurt_flash = !st.hurt_flash,
             Opt::HeroHp => st.hero_hp_bar = !st.hero_hp_bar,
             Opt::HeroStamina => st.hero_stamina_bar = !st.hero_stamina_bar,
-            Opt::BossLines => st.boss_lines = !st.boss_lines,
+            Opt::BossSongOut => st.boss_song_out = !st.boss_song_out,
             Opt::Discord => st.discord = !st.discord,
             Opt::Updates => st.check_updates = !st.check_updates,
             Opt::Vol(i) => {
@@ -744,6 +848,7 @@ impl App {
         match opt {
             Opt::Name | Opt::Back | Opt::Bind(_) | Opt::ResetBinds => String::new(),
             Opt::Music => pct(st.music),
+            Opt::BossMusic => pct(st.boss_music),
             Opt::Sfx => pct(st.sfx),
             Opt::Numbers => onoff(st.numbers),
             Opt::Meter => onoff(st.meter),
@@ -758,7 +863,7 @@ impl App {
             Opt::HurtFlash => onoff(st.hurt_flash),
             Opt::HeroHp => onoff(st.hero_hp_bar),
             Opt::HeroStamina => onoff(st.hero_stamina_bar),
-            Opt::BossLines => onoff(st.boss_lines),
+            Opt::BossSongOut => onoff(st.boss_song_out),
             Opt::Discord => onoff(st.discord),
             Opt::Updates => onoff(st.check_updates),
             Opt::Vol(i) => pct(st.vols[i as usize]),

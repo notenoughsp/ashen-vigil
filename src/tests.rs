@@ -1547,22 +1547,6 @@ fn discord_pipe_report() {
     println!("made-up id: {:?}", crate::discord::probe("123456789012345678"));
 }
 
-/// Voice trials: each kokoro_<lord>__<voice>.wav in VOICE_DIR, a line recorded with that
-/// Kokoro voice, comes out as fx_<lord>__<voice>.wav in the lord's voice.
-#[test]
-#[ignore]
-fn voice_samples() {
-    let dir = std::env::var("VOICE_DIR").unwrap_or_else(|_| ".".into());
-    for f in std::fs::read_dir(&dir).expect("VOICE_DIR").flatten() {
-        let file = f.file_name().to_string_lossy().into_owned();
-        let Some((lord, voice)) = file.strip_prefix("kokoro_").and_then(|v| v.strip_suffix(".wav")).and_then(|v| v.split_once("__")) else { continue };
-        let Some(kind) = crate::world::ALL_LORDS.into_iter().find(|k| crate::voice::key(*k) == lord) else { continue };
-        let rec = crate::voice::from_wav(&std::fs::read(f.path()).unwrap()).expect("a wav");
-        let out = crate::voice::trim(&crate::voice::process_from(&rec, kind, crate::voice::recorded_pitch(voice)));
-        std::fs::write(format!("{}/fx_{}__{}.wav", dir, lord, voice), crate::voice::to_wav(&out)).unwrap();
-    }
-}
-
 /// Writes the game icon as a large PNG (for Discord's art assets): `ICON_OUT=path cargo test icon_png -- --ignored`.
 #[test]
 #[ignore]
@@ -1574,55 +1558,6 @@ fn icon_png() {
     let bytes = rgba.chunks(size * 4).rev().flatten().copied().collect();
     let img = macroquad::texture::Image { width: size as u16, height: size as u16, bytes };
     img.export_png(&path);
-}
-
-/// Writes the lords' lines to record, one per row: file key, Kokoro voice, speed, text.
-/// `VOICE_RAW=dir cargo test voice_jobs -- --ignored`, then record them as <key>.wav there.
-#[test]
-#[ignore]
-fn voice_jobs() {
-    let Ok(dir) = std::env::var("VOICE_RAW") else { return };
-    let mut out = String::new();
-    for kind in crate::world::ALL_LORDS {
-        let Some((voice, speed)) = crate::voice::recorded_with(kind) else { continue };
-        for (i, line) in kind.lines().iter().enumerate().filter(|(_, l)| !l.is_empty()) {
-            out += &format!("{}_{}\t{}\t{}\t{}\n", crate::voice::key(kind), i, voice, speed, crate::voice::spoken(line));
-        }
-    }
-    std::fs::write(format!("{}/jobs.tsv", dir), out).unwrap();
-}
-
-/// Gives the recorded lines in VOICE_RAW each lord's voice and writes them to VOICE_OUT;
-/// the Hound's growls are synthesized.
-#[test]
-#[ignore]
-fn voice_bake() {
-    let (Ok(raw), Ok(out)) = (std::env::var("VOICE_RAW"), std::env::var("VOICE_OUT")) else { return };
-    for kind in crate::world::ALL_LORDS {
-        for (i, line) in kind.lines().iter().enumerate().filter(|(_, l)| !l.is_empty()) {
-            let name = format!("{}_{}", crate::voice::key(kind), i);
-            let audio = match crate::voice::recorded_with(kind) {
-                None => crate::voice::line_audio(kind, line),
-                Some((voice, _)) => {
-                    let rec = crate::voice::from_wav(&std::fs::read(format!("{}/{}.wav", raw, name)).expect("a recording")).expect("a wav");
-                    crate::voice::process_from(&rec, kind, crate::voice::recorded_pitch(voice))
-                }
-            };
-            std::fs::write(format!("{}/{}.wav", out, name), crate::voice::to_wav(&crate::voice::trim(&audio))).unwrap();
-        }
-    }
-}
-
-#[test]
-fn every_lord_line_has_a_voice_key() {
-    for kind in crate::world::ALL_LORDS {
-        for (i, line) in kind.lines().iter().enumerate().filter(|(_, l)| !l.is_empty()) {
-            assert_eq!(crate::voice::line_key(line), Some(format!("{}_{}", crate::voice::key(kind), i)), "{}", line);
-            assert!(crate::embedded::voice(&format!("{}_{}", crate::voice::key(kind), i)).is_some(), "no recording of {:?}", line);
-        }
-    }
-    assert_eq!(crate::voice::line_key("You are not him!").as_deref(), Some("bride_1"));
-    assert_eq!(crate::voice::line_key("Nobody says this."), None);
 }
 
 #[test]
@@ -1641,8 +1576,15 @@ fn update_reads_githubs_answer() {
         {"name":"AshenVigil.exe","size":6195712,"browser_download_url":"https://github.com/notenoughsp/ashen-vigil/releases/download/v0.2.3/AshenVigil.exe"}]}"#;
     let f = crate::update::parse_latest(json).expect("parsed");
     assert_eq!(f.version, "0.2.3");
-    assert_eq!(f.size, 6195712);
-    assert!(f.url.ends_with("/AshenVigil.exe"));
+    let songs = f.songs.expect("the build with songs");
+    assert_eq!(songs.size, 6195712);
+    assert!(songs.url.ends_with("/AshenVigil.exe"));
+    // An older release has no synthesized-only build.
+    assert!(f.synth.is_none());
+    let both = r#"{"tag_name":"v0.5.0","assets":[{"name":"AshenVigil.exe","size":9,"browser_download_url":"https://x/AshenVigil.exe"},
+        {"name":"AshenVigil-Synth.exe","size":5,"browser_download_url":"https://x/AshenVigil-Synth.exe"}]}"#;
+    let f = crate::update::parse_latest(both).expect("parsed");
+    assert_eq!(f.synth.expect("the synthesized build").size, 5);
     assert!(crate::update::parse_latest(r#"{"tag_name":"v1","assets":[]}"#).is_err());
     assert!(crate::update::parse_latest("not json").is_err());
 }
@@ -1653,7 +1595,15 @@ fn update_reads_githubs_answer() {
 fn update_check_report() {
     match crate::update::latest() {
         Ok(f) => {
-            println!("latest {} ({} bytes) at {}; newer than this {}: {}", f.version, f.size, f.url, crate::net::VERSION, crate::update::newer(&f.version, crate::net::VERSION))
+            let size = |a: &Option<crate::update::Asset>| a.as_ref().map(|a| a.size);
+            println!(
+                "latest {} (songs {:?} bytes, synth {:?} bytes); newer than this {}: {}",
+                f.version,
+                size(&f.songs),
+                size(&f.synth),
+                crate::net::VERSION,
+                crate::update::newer(&f.version, crate::net::VERSION)
+            )
         }
         Err(e) => println!("check failed: {}", e),
     }

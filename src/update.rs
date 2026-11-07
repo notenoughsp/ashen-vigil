@@ -10,8 +10,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 const LATEST: &str = "https://api.github.com/repos/notenoughsp/ashen-vigil/releases/latest";
-/// The release asset that is the game.
-const ASSET: &str = "AshenVigil.exe";
+/// The release assets that are the game: with the recorded songs, and with synthesized music only.
+const ASSET_SONGS: &str = "AshenVigil.exe";
+const ASSET_SYNTH: &str = "AshenVigil-Synth.exe";
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum State {
@@ -31,27 +32,39 @@ pub enum State {
     Failed(String),
 }
 
-pub struct Found {
-    pub version: String,
+/// One downloadable build of a release.
+#[derive(Clone)]
+pub struct Asset {
     pub url: String,
     pub size: u64,
+}
+
+pub struct Found {
+    pub version: String,
+    /// The build with the recorded songs, and the one with synthesized music only.
+    pub songs: Option<Asset>,
+    pub synth: Option<Asset>,
 }
 
 pub struct Updater {
     state: Arc<Mutex<State>>,
     found: Arc<Mutex<Option<Found>>>,
+    /// The build last asked for (true: with songs), for a retry.
+    chose_songs: Arc<Mutex<bool>>,
 }
 
 impl Updater {
     /// A stand-in that never checks.
     pub fn off() -> Updater {
-        Updater { state: Arc::new(Mutex::new(State::Idle)), found: Arc::new(Mutex::new(None)) }
+        Updater { state: Arc::new(Mutex::new(State::Idle)), found: Arc::new(Mutex::new(None)), chose_songs: Arc::new(Mutex::new(cfg!(feature = "songs"))) }
     }
 
     /// Shows a newer version without asking anyone, for the self-test's screenshots.
     pub fn pretend(version: &str) -> Updater {
         let up = Updater::off();
         *up.state.lock().unwrap() = State::Available { version: version.to_string() };
+        let fake = |size| Some(Asset { url: String::new(), size });
+        *up.found.lock().unwrap() = Some(Found { version: version.to_string(), songs: fake(57_135_616), synth: fake(4_936_704) });
         up
     }
 
@@ -78,13 +91,31 @@ impl Updater {
         self.state.lock().unwrap().clone()
     }
 
-    /// Downloads the newer version and puts it in place, on a thread.
-    pub fn install(&self) {
+    /// The sizes in bytes of the two builds on offer: with songs, and synthesized only.
+    pub fn choices(&self) -> (Option<u64>, Option<u64>) {
+        self.found.lock().unwrap().as_ref().map_or((None, None), |f| (f.songs.as_ref().map(|a| a.size), f.synth.as_ref().map(|a| a.size)))
+    }
+
+    /// Tries the build asked for last again.
+    pub fn retry(&self) {
+        let songs = *self.chose_songs.lock().unwrap();
+        self.install(songs);
+    }
+
+    /// Downloads the newer version, with the recorded songs or without, and puts it in place,
+    /// on a thread. If that build is missing from the release, the other one is taken.
+    pub fn install(&self, songs: bool) {
         let Some(exe) = own_exe() else { return };
-        let Some((version, url, size)) = self.found.lock().unwrap().as_ref().map(|f| (f.version.clone(), f.url.clone(), f.size)) else { return };
+        let picked = self.found.lock().unwrap().as_ref().and_then(|f| {
+            let (want, other) = if songs { (&f.songs, &f.synth) } else { (&f.synth, &f.songs) };
+            want.clone().or_else(|| other.clone()).map(|a| (f.version.clone(), a.url, a.size))
+        });
+        let Some((version, url, size)) = picked else { return };
         if !matches!(self.state(), State::Available { .. } | State::Failed(_)) {
             return;
         }
+        *self.chose_songs.lock().unwrap() = songs;
+        crate::log!("update: downloading {} {}", version, if songs { "with songs" } else { "with synthesized music" });
         *self.state.lock().unwrap() = State::Downloading { version: version.clone() };
         let state = self.state.clone();
         std::thread::spawn(move || {
@@ -158,10 +189,15 @@ pub(crate) fn latest() -> Result<Found, String> {
 pub fn parse_latest(json: &str) -> Result<Found, String> {
     let v: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("bad answer: {}", e))?;
     let tag = v["tag_name"].as_str().ok_or("no tag in the answer")?;
-    let asset = v["assets"].as_array().and_then(|a| a.iter().find(|x| x["name"] == ASSET)).ok_or("the release has no AshenVigil.exe")?;
-    let url = asset["browser_download_url"].as_str().ok_or("no download link")?.to_string();
-    let size = asset["size"].as_u64().ok_or("no size")?;
-    Ok(Found { version: tag.trim_start_matches('v').to_string(), url, size })
+    let asset = |name: &str| {
+        let a = v["assets"].as_array()?.iter().find(|x| x["name"] == name)?;
+        Some(Asset { url: a["browser_download_url"].as_str()?.to_string(), size: a["size"].as_u64()? })
+    };
+    let (songs, synth) = (asset(ASSET_SONGS), asset(ASSET_SYNTH));
+    if songs.is_none() && synth.is_none() {
+        return Err("the release has no AshenVigil.exe".into());
+    }
+    Ok(Found { version: tag.trim_start_matches('v').to_string(), songs, synth })
 }
 
 /// Whether version `a` ("0.2.3") is newer than `b`.

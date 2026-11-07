@@ -14,11 +14,11 @@ mod log;
 mod net;
 mod save;
 mod snapshot;
+mod songs;
 #[cfg(test)]
 mod tests;
 mod ui;
 mod update;
-mod voice;
 mod world;
 
 use app::{App, AutoTest};
@@ -136,6 +136,7 @@ async fn main() {
     audio.sfx_vol = save.settings.sfx;
     audio.kind_vol = save.settings.vols;
     audio.music_vol = save.settings.music;
+    audio.boss_vol = save.settings.boss_music;
     let font_bytes = std::fs::read("assets/font.ttf").unwrap_or_else(|_| embedded::FONT.to_vec());
     let font = load_ttf_font_from_bytes(&font_bytes).ok();
     {

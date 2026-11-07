@@ -32,6 +32,9 @@ pub const VICTORY_TIME: f32 = 30.0 * 60.0;
 /// Most foes alive at once. Hordes and swarms grow with time, so without a ceiling an
 /// endless night would pile up thousands.
 pub const MAX_ENEMIES: usize = 1600;
+/// How far past `MAX_ENEMIES` the lords' summoned adds may go; single elites, couriers and
+/// champions still find room above that.
+pub const LORD_ADDS_OVER: usize = 80;
 /// Boss health grows by this factor every minute past 5:00.
 pub const BOSS_GROWTH: f32 = 1.17;
 /// How much tougher ordinary foes get every minute after the fifth, on top of the old ramp.
@@ -70,6 +73,8 @@ pub const SHRINE_INTERVAL: f32 = 2.5 * 60.0;
 pub const BOSS_HIT_CAP: f32 = 0.025;
 /// Seconds of warning before a lord arrives (not in the boss rush).
 pub const BOSS_WARNING: f32 = 5.0;
+/// Seconds before a lord comes that its song begins.
+pub const MUSIC_LEAD: f32 = 10.0;
 /// Lords to defeat in a boss rush, and the breather between two of them.
 pub const RUSH_LORDS: u32 = 12;
 pub const RUSH_BREATHER: f32 = 3.0;
@@ -207,6 +212,22 @@ pub const ALL_LORDS: [BossKind; 10] = [
 ];
 
 impl BossKind {
+    /// The lord's name in folder names, e.g. "bride" for `assets/music/boss/bride`.
+    pub fn key(self) -> &'static str {
+        match self {
+            BossKind::Gravewarden => "gravewarden",
+            BossKind::Matriarch => "matriarch",
+            BossKind::Hermit => "hermit",
+            BossKind::Sovereign => "sovereign",
+            BossKind::Bride => "bride",
+            BossKind::BogMother => "bogmother",
+            BossKind::Penitent => "penitent",
+            BossKind::Choir => "choir",
+            BossKind::Seraph => "seraph",
+            BossKind::Hound => "hound",
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             BossKind::Gravewarden => "The Gravewarden",
@@ -932,6 +953,8 @@ pub struct World {
     pub next_boss: f32,
     /// Seconds until the next lord arrives while the warning shows, else 0. Sent to clients.
     pub boss_warning: f32,
+    /// The lord coming within `MUSIC_LEAD` seconds, so its song can begin; synced.
+    pub lord_soon: Option<BossKind>,
     /// A Stormcaller's crit is leaping right now: it does not leap again from there.
     pub leaping: bool,
     /// Weapon sounds grow quieter the faster a hero attacks; 1 outside the weapons' turn.
@@ -958,8 +981,6 @@ pub struct World {
     pub banner: Option<(String, String, Color, f32)>,
     /// A lord's words: what is said, in its colour, and how long it stays.
     pub quote: Option<(String, Color, f32)>,
-    /// Whether lords speak at all (a setting; clients hide what the host sends).
-    pub boss_lines: bool,
     pub biome: Biome,
     pub toasts: Vec<(String, f32)>,
     pub(crate) grid: Grid,
@@ -1095,6 +1116,7 @@ impl World {
             arena: None,
             next_boss: BOSS_INTERVAL,
             boss_warning: 0.0,
+            lord_soon: None,
             leaping: false,
             fire_vol: 1.0,
             long_warning: false,
@@ -1114,7 +1136,6 @@ impl World {
             sounds: Vec::new(),
             banner: None,
             quote: None,
-            boss_lines: true,
             biome: Biome::Graveyard,
             toasts: Vec::new(),
             grid: Grid::new(),
@@ -1281,7 +1302,7 @@ impl World {
 
     /// A lord speaks; empty lines say nothing.
     pub fn say(&mut self, line: &str, color: Color) {
-        if !line.is_empty() && self.boss_lines {
+        if !line.is_empty() {
             self.quote = Some((line.to_string(), color, 4.5));
         }
     }

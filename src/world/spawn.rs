@@ -244,6 +244,8 @@ impl World {
             self.sfx("bell", 0.9);
         }
         self.boss_warning = if warn <= window { warn } else { 0.0 };
+        let soon = self.next_boss - self.time;
+        self.lord_soon = if !self.boss_rush && soon > 0.0 && soon <= MUSIC_LEAD { Some(self.lord_at(self.bosses_spawned, self.next_boss.max(self.time))) } else { None };
         // Each lord comes a frame or so late, so by 30:00 the next one is a little past dawn;
         // the Sovereign must not miss its hour.
         if !self.boss_rush && !self.endless && !self.finale_came && self.time >= VICTORY_TIME {
@@ -282,20 +284,30 @@ impl World {
         self.pickups.push(p);
     }
 
-    fn spawn_boss(&mut self) {
-        let n = self.bosses_spawned;
+    /// Whether the lord coming at `time` is the Sovereign of the last hour.
+    fn is_finale(&self, time: f32) -> bool {
+        time >= VICTORY_TIME - 1.0 && !self.endless && !self.boss_rush && !self.finale_came
+    }
+
+    /// The `n`th lord of the vigil, coming at `time`.
+    fn lord_at(&self, n: u32, time: f32) -> BossKind {
         // The last hour always belongs to the Sovereign; past dawn the lords take turns again.
         // A boss rush has no last hour: its lords simply follow each other.
-        let finale = self.time >= VICTORY_TIME - 1.0 && !self.endless && !self.boss_rush && !self.finale_came;
-        self.finale_came |= finale;
         // A rush meets every lord in turn; a vigil the five of its field, then the Sovereign.
-        let kind = if finale {
+        if self.is_finale(time) {
             BossKind::Sovereign
         } else if self.boss_rush {
             ALL_LORDS[n as usize % ALL_LORDS.len()]
         } else {
             self.biome.lords()[n as usize % 5]
-        };
+        }
+    }
+
+    fn spawn_boss(&mut self) {
+        let n = self.bosses_spawned;
+        let finale = self.is_finale(self.time);
+        let kind = self.lord_at(n, self.time);
+        self.finale_came |= finale;
         let lap = if finale { 1.5 } else { (n / 5) as f32 };
         self.bosses_spawned += 1;
         let (speed, dmg) = match kind {

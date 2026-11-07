@@ -783,7 +783,7 @@ impl<'a> Ui<'a> {
                 self.text_c(small, sw * 0.5, cy + 34.0, 20.0, a(PALE, al * 0.9));
             }
         }
-        if let Some((line, c, life)) = w.quote.as_ref().filter(|_| w.boss_lines) {
+        if let Some((line, c, life)) = w.quote.as_ref() {
             // A lord's words, under the banner line, fading in and out.
             let al = (life / 0.6).min(1.0).min((4.5 - life) / 0.3).clamp(0.0, 1.0);
             let text = format!("\u{201c}{}\u{201d}", line);

@@ -177,6 +177,8 @@ pub struct Settings {
     /// One key per `Action`, in `ACTIONS` order.
     pub binds: [KeyCode; ACTIONS.len()],
     pub music: f32,
+    /// The lords' music, as a share of `music`.
+    pub boss_music: f32,
     pub sfx: f32,
     /// Volume of each kind of sound, see `audio::SOUND_KINDS`.
     pub vols: [f32; crate::audio::SOUND_KINDS.len()],
@@ -224,8 +226,8 @@ pub struct Settings {
     pub hero_stamina_bar: bool,
     /// How bright the night is, in percent.
     pub brightness: u8,
-    /// Lords speak their lines.
-    pub boss_lines: bool,
+    /// Once the lords have fallen, their song plays to its end instead of fading.
+    pub boss_song_out: bool,
     /// Friends on Discord see what you are doing.
     pub discord: bool,
     /// Ask GitHub at start whether a newer version is out.
@@ -251,6 +253,7 @@ impl Default for Settings {
             binds: ACTIONS.map(Action::default_key),
             name: "Ashen One".into(),
             music: 0.4,
+            boss_music: 1.0,
             sfx: 0.55,
             vols: [1.0; crate::audio::SOUND_KINDS.len()],
             effect_alpha: 100,
@@ -283,7 +286,7 @@ impl Default for Settings {
             hero_hp_bar: true,
             hero_stamina_bar: true,
             brightness: 100,
-            boss_lines: true,
+            boss_song_out: false,
             discord: true,
             check_updates: true,
             cute: false,
@@ -309,6 +312,8 @@ pub struct Save {
     pub blue_embers: bool,
     /// "cute" was typed in the main menu once; the option shows from then on.
     pub cute_found: bool,
+    /// The last version started, to show what is new once after an update.
+    pub seen_version: String,
     pub achievements: u128,
     /// Hero skins bought, one bit per entry of `SKINS`.
     pub skins: u32,
@@ -347,6 +352,7 @@ impl Default for Save {
             cats: 0,
             blue_embers: false,
             cute_found: false,
+            seen_version: String::new(),
             achievements: 0,
             skins: 0,
             shrine_levels: 0,
@@ -488,7 +494,7 @@ impl Save {
                 "hero_hp_bar" => st.hero_hp_bar = flag(v),
                 "hero_stamina_bar" => st.hero_stamina_bar = flag(v),
                 "brightness" => st.brightness = v.parse::<u8>().unwrap_or(100).clamp(MIN_BRIGHTNESS, MAX_BRIGHTNESS),
-                "boss_lines" => st.boss_lines = flag(v),
+                "boss_song_out" => st.boss_song_out = flag(v),
                 "discord" => st.discord = flag(v),
                 "check_updates" => st.check_updates = flag(v),
                 "marker_inset" => st.marker_inset = v.parse::<u8>().unwrap_or(12).min(MAX_MARKER_INSET),
@@ -527,6 +533,7 @@ impl Save {
                 }
                 "cute" => st.cute = flag(v),
                 "cute_found" => s.cute_found = flag(v),
+                "seen_version" => s.seen_version = v.to_string(),
                 "remnant" => {
                     let p: Vec<&str> = v.split(',').collect();
                     if let [x, y, n] = p[..] {
@@ -538,6 +545,7 @@ impl Save {
                 "name" if !v.is_empty() => st.name = v.chars().take(16).collect(),
                 "last_ip" => st.last_ip = v.to_string(),
                 "music" => st.music = f(0.4),
+                "boss_music" => st.boss_music = f(1.0).clamp(0.0, 1.0),
                 "sfx" => st.sfx = f(0.55),
                 k if k.starts_with("vol_") => {
                     if let Some(i) = crate::audio::SOUND_KINDS.iter().position(|(key, _)| k == format!("vol_{}", key)) {
@@ -635,17 +643,17 @@ impl Save {
         }
         out += &format!("name={}\nlast_ip={}\nui_scale={}\n", st.name, st.last_ip, st.ui_scale);
         out += &format!("cute={}\ncute_found={}\nboss_rush={}\nfield={}\ncurses={}\n", b(st.cute), b(self.cute_found), b(st.boss_rush), st.biome, self.curses);
+        out += &format!("seen_version={}\n", self.seen_version);
         out += &format!(
-            "pause_unfocused={}\nmute_unfocused={}\nhurt_flash={}\nbrightness={}\nboss_lines={}\ndiscord={}\ncheck_updates={}\n",
+            "pause_unfocused={}\nmute_unfocused={}\nhurt_flash={}\nbrightness={}\ndiscord={}\ncheck_updates={}\n",
             b(st.pause_unfocused),
             b(st.mute_unfocused),
             b(st.hurt_flash),
             st.brightness,
-            b(st.boss_lines),
             b(st.discord),
             b(st.check_updates)
         );
-        out += &format!("hero_hp_bar={}\nhero_stamina_bar={}\n", b(st.hero_hp_bar), b(st.hero_stamina_bar));
+        out += &format!("hero_hp_bar={}\nhero_stamina_bar={}\nboss_song_out={}\n", b(st.hero_hp_bar), b(st.hero_stamina_bar), b(st.boss_song_out));
         out += &format!(
             "skins={}\nskin={}\nshrine_levels={}\nwon_classes={}\nmarker_inset={}\n",
             self.skins, self.profile.skin, self.shrine_levels, self.won_classes, st.marker_inset
@@ -654,7 +662,7 @@ impl Save {
         for (a, k) in ACTIONS.iter().zip(st.binds) {
             out += &format!("bind_{}={}\n", a.key(), key_name(k));
         }
-        out += &format!("music={:.2}\nsfx={:.2}\neffect_alpha={}\n", st.music, st.sfx, st.effect_alpha);
+        out += &format!("music={:.2}\nboss_music={:.2}\nsfx={:.2}\neffect_alpha={}\n", st.music, st.boss_music, st.sfx, st.effect_alpha);
         for ((key, _), v) in crate::audio::SOUND_KINDS.iter().zip(st.vols) {
             out += &format!("vol_{}={:.2}\n", key, v);
         }

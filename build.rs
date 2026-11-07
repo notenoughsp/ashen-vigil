@@ -51,9 +51,54 @@ fn resource(out: &mut Vec<u8>, kind: u16, id: u16, flags: u16, data: &[u8]) {
     }
 }
 
+/// Lists the recorded songs in the folders under assets/music for `songs::MUSIC_FILES`.
+fn music_files() {
+    println!("cargo:rerun-if-changed=assets/music");
+    fn scan(dir: &std::path::Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let path = e.path();
+            let lower = name.to_ascii_lowercase();
+            if path.is_dir() {
+                scan(&path, &format!("{}{}/", prefix, name), out);
+            } else if !prefix.is_empty() && (lower.ends_with(".ogg") || lower.ends_with(".wav")) {
+                out.push((format!("{}{}", prefix, name), path));
+            }
+        }
+    }
+    let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir")).join("assets").join("music");
+    let mut files = Vec::new();
+    // Built without the "songs" feature, the game keeps to its synthesized music.
+    if std::env::var_os("CARGO_FEATURE_SONGS").is_some() {
+        scan(&root, "", &mut files);
+    }
+    files.sort();
+    let mut code = String::from(
+        "/// Songs embedded at build time: path below assets/music and bytes.
+pub static MUSIC_FILES: &[(&str, &[u8])] = &[
+",
+    );
+    for (rel, path) in &files {
+        code.push_str(&format!(
+            "    ({:?}, include_bytes!({:?})),
+",
+            rel,
+            path.to_string_lossy()
+        ));
+    }
+    code.push_str(
+        "];
+",
+    );
+    let dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    std::fs::write(dir.join("music_files.rs"), code).expect("write music list");
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=src/icon_art.rs");
     println!("cargo:rerun-if-changed=build.rs");
+    music_files();
     let target = std::env::var("TARGET").unwrap_or_default();
     if !target.contains("windows-msvc") {
         return;

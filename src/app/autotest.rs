@@ -179,6 +179,18 @@ impl App {
 
     fn script_single(&mut self, f: u32) -> Vec<&'static str> {
         let mut want = Vec::new();
+        // ASHEN_AUTOTEST_LORDS: one picture of each lord on its own field, then the end.
+        if std::env::var("ASHEN_AUTOTEST_LORDS").is_ok() {
+            let (i, step) = ((f / 10) as usize, f % 10);
+            let Some(kind) = ALL_LORDS.get(i).copied() else { std::process::exit(0) };
+            if step == 2 {
+                self.build_portrait(kind);
+            } else if step == 8 {
+                let slug: String = kind.name().to_lowercase().chars().filter(|c| c.is_alphanumeric() || *c == ' ').collect::<String>().replace(' ', "_");
+                want.push(&*Box::leak(format!("lord_{}", slug).into_boxed_str()));
+            }
+            return want;
+        }
         match f {
             4 => self.build_gallery(),
             14 => want.push("gallery"),
@@ -192,10 +204,14 @@ impl App {
             19 => self.screen = Screen::Menu,
             20 => want.push("menu"),
             // The notice about a newer version, pretended: the self-test never asks GitHub.
-            21 => self.updater = crate::update::Updater::pretend("9.9.9"),
+            21 => {
+                self.updater = crate::update::Updater::pretend("9.9.9");
+                self.whats_new = Some(true);
+            }
             23 => want.push("menu_update"),
             24 => {
                 self.updater = crate::update::Updater::off();
+                self.whats_new = None;
                 self.screen = Screen::Reliquary;
             }
             30 => want.push("reliquary"),
@@ -545,6 +561,29 @@ impl App {
         // Heroes face right; the enemies below them look up at the nearest one.
         w.cam = vec2(0.0, 40.0);
         // A finished world draws but no longer simulates.
+        w.won = true;
+        w.time = 12.3;
+        self.save.settings.lighting = false;
+        self.world = Some(w);
+        self.screen = Screen::Playing;
+    }
+
+    /// One lord alone on the first field it belongs to, frozen and unlit, left of the hero.
+    fn build_portrait(&mut self, kind: BossKind) {
+        let biome = ALL_BIOMES.iter().copied().find(|b| b.lords().contains(&kind)).unwrap_or_default();
+        let mut w = World::new(Difficulty::default(), None);
+        w.biome = biome;
+        w.screen = crate::draw::view_size();
+        w.cat = None;
+        let idx = w.add_hero(0, "Tester", ALL_CLASSES[0], Profile::default(), false);
+        w.heroes[idx].p.pos = vec2(0.0, 0.0);
+        w.heroes[idx].p.facing = vec2(0.0, -1.0);
+        w.local = idx;
+        let mut e = w.make_enemy(EnemyKind::Boss(kind), vec2(-520.0, 0.0));
+        e.boss = true;
+        e.r = EnemyKind::Boss(kind).radius(false);
+        w.enemies.push(e);
+        w.cam = vec2(0.0, 0.0);
         w.won = true;
         w.time = 12.3;
         self.save.settings.lighting = false;
