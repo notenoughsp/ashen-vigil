@@ -50,7 +50,7 @@ impl World {
         let area = s.area * hero.stats.area;
         let p = hero.p.pos;
         let face = hero.aim;
-        let src = Src { hero: h, weapon: kind };
+        let src = Src { hero: h, weapon: part.own };
 
         let (mut timer, mut spin) = {
             let w = &self.heroes[h].weapons[wi];
@@ -583,6 +583,8 @@ impl World {
                 self.sfx_gap_at("hit", 0.25, 0.1, p);
             }
             WeaponKind::Lanterns | WeaponKind::Chime | WeaponKind::Halo | WeaponKind::Censer | WeaponKind::Heart | WeaponKind::Eyes => {}
+            // A newer field's weapon always fights as its twin, which has been handled above.
+            _ => {}
         }
     }
 

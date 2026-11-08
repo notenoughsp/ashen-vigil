@@ -17,6 +17,9 @@ pub const LAST_MULT: f32 = 3.0;
 pub const LAST_FLAME: &str = "The Last Flame";
 pub const LAST_HYMN: &str = "The Final Hymn";
 pub const LAST_GOD: &str = "The Hungry God";
+pub const LAST_GROVE: &str = "The Burning Grove";
+pub const LAST_WINTER: &str = "The Endless Winter";
+pub const LAST_BLOOM: &str = "The Black Bloom";
 
 // ---------------------------------------------------------------- weapons
 
@@ -61,6 +64,45 @@ pub enum WeaponKind {
     Steps,
     Spine,
     Tendrils,
+    // The Ashwood's, the Frozen Abbey's and the Starless Garden's arsenals, in the same order.
+    // Each of their weapons works like an older weapon in its place (`twin`), with a look,
+    // a name and an element of its own.
+    AshHatchet,
+    AshShards,
+    AshSling,
+    AshBell,
+    AshShield,
+    AshRoots,
+    AshBrand,
+    AshFlies,
+    AshSickle,
+    AshTrail,
+    AshPike,
+    AshBurst,
+    IceScourge,
+    IceNeedles,
+    IceFlask,
+    IceHalo,
+    IceRosary,
+    IceFall,
+    IceOwl,
+    IceRunes,
+    IceCrook,
+    IceBreath,
+    IceLance,
+    IcePanes,
+    ThornWhip,
+    ThornVolley,
+    ThornBloom,
+    ThornMirror,
+    ThornMoths,
+    ThornSnare,
+    ThornShears,
+    ThornSpores,
+    ThornHook,
+    ThornTrail,
+    ThornLash,
+    ThornRoots,
 }
 
 /// Weapons of one field's arsenal.
@@ -111,7 +153,50 @@ pub const FLESH_WEAPONS: [WeaponKind; ARSENAL] = [
     WeaponKind::Tendrils,
 ];
 
-pub const ALL_WEAPONS: [WeaponKind; 36] = [
+pub const ASH_WEAPONS: [WeaponKind; ARSENAL] = [
+    WeaponKind::AshHatchet,
+    WeaponKind::AshShards,
+    WeaponKind::AshSling,
+    WeaponKind::AshBell,
+    WeaponKind::AshShield,
+    WeaponKind::AshRoots,
+    WeaponKind::AshBrand,
+    WeaponKind::AshFlies,
+    WeaponKind::AshSickle,
+    WeaponKind::AshTrail,
+    WeaponKind::AshPike,
+    WeaponKind::AshBurst,
+];
+pub const ABBEY_WEAPONS: [WeaponKind; ARSENAL] = [
+    WeaponKind::IceScourge,
+    WeaponKind::IceNeedles,
+    WeaponKind::IceFlask,
+    WeaponKind::IceHalo,
+    WeaponKind::IceRosary,
+    WeaponKind::IceFall,
+    WeaponKind::IceOwl,
+    WeaponKind::IceRunes,
+    WeaponKind::IceCrook,
+    WeaponKind::IceBreath,
+    WeaponKind::IceLance,
+    WeaponKind::IcePanes,
+];
+pub const GARDEN_WEAPONS: [WeaponKind; ARSENAL] = [
+    WeaponKind::ThornWhip,
+    WeaponKind::ThornVolley,
+    WeaponKind::ThornBloom,
+    WeaponKind::ThornMirror,
+    WeaponKind::ThornMoths,
+    WeaponKind::ThornSnare,
+    WeaponKind::ThornShears,
+    WeaponKind::ThornSpores,
+    WeaponKind::ThornHook,
+    WeaponKind::ThornTrail,
+    WeaponKind::ThornLash,
+    WeaponKind::ThornRoots,
+];
+
+pub const ALL_WEAPONS: [WeaponKind; 72] = [
     WeaponKind::Blade,
     WeaponKind::Daggers,
     WeaponKind::Orb,
@@ -148,6 +233,42 @@ pub const ALL_WEAPONS: [WeaponKind; 36] = [
     WeaponKind::Steps,
     WeaponKind::Spine,
     WeaponKind::Tendrils,
+    WeaponKind::AshHatchet,
+    WeaponKind::AshShards,
+    WeaponKind::AshSling,
+    WeaponKind::AshBell,
+    WeaponKind::AshShield,
+    WeaponKind::AshRoots,
+    WeaponKind::AshBrand,
+    WeaponKind::AshFlies,
+    WeaponKind::AshSickle,
+    WeaponKind::AshTrail,
+    WeaponKind::AshPike,
+    WeaponKind::AshBurst,
+    WeaponKind::IceScourge,
+    WeaponKind::IceNeedles,
+    WeaponKind::IceFlask,
+    WeaponKind::IceHalo,
+    WeaponKind::IceRosary,
+    WeaponKind::IceFall,
+    WeaponKind::IceOwl,
+    WeaponKind::IceRunes,
+    WeaponKind::IceCrook,
+    WeaponKind::IceBreath,
+    WeaponKind::IceLance,
+    WeaponKind::IcePanes,
+    WeaponKind::ThornWhip,
+    WeaponKind::ThornVolley,
+    WeaponKind::ThornBloom,
+    WeaponKind::ThornMirror,
+    WeaponKind::ThornMoths,
+    WeaponKind::ThornSnare,
+    WeaponKind::ThornShears,
+    WeaponKind::ThornSpores,
+    WeaponKind::ThornHook,
+    WeaponKind::ThornTrail,
+    WeaponKind::ThornLash,
+    WeaponKind::ThornRoots,
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -167,6 +288,60 @@ impl WeaponKind {
 
     pub fn from_idx(i: u8) -> WeaponKind {
         ALL_WEAPONS[(i as usize).min(ALL_WEAPONS.len() - 1)]
+    }
+
+    /// The older weapon whose way of fighting this one shares; an older weapon is its own.
+    pub fn twin(self) -> WeaponKind {
+        use WeaponKind::*;
+        match self {
+            AshHatchet => Blade,
+            AshShards => Daggers,
+            AshSling => Orb,
+            AshBell => Chime,
+            AshShield => Lanterns,
+            AshRoots => Spikes,
+            AshBrand => Axe,
+            AshFlies => Bolt,
+            AshSickle => Scythe,
+            AshTrail => Steps,
+            AshPike => Lance,
+            AshBurst => Crossbow,
+            IceScourge => Rosary,
+            IceNeedles => Nails,
+            IceFlask => HolyWater,
+            IceHalo => Halo,
+            IceRosary => Lanterns,
+            IceFall => Judgement,
+            IceOwl => Gargoyle,
+            IceRunes => Runes,
+            IceCrook => Crozier,
+            IceBreath => Hex,
+            IceLance => Lance,
+            IcePanes => Glass,
+            ThornWhip => Rosary,
+            ThornVolley => Teeth,
+            ThornBloom => HolyWater,
+            ThornMirror => Halo,
+            ThornMoths => Eyes,
+            ThornSnare => Spikes,
+            ThornShears => Jaw,
+            ThornSpores => Motes,
+            ThornHook => Crozier,
+            ThornTrail => Steps,
+            ThornLash => Spine,
+            ThornRoots => Tendrils,
+            k => k,
+        }
+    }
+
+    /// The element of a newer field's weapon, laid on whatever it strikes: 3 fire, 4 frost,
+    /// 5 poison; none for the older fields.
+    pub fn element(self) -> usize {
+        if self.field() >= 3 {
+            self.field()
+        } else {
+            0
+        }
     }
 
     /// Whose arsenal this is: 0 the graveyard's, 1 the cathedral's, 2 the flesh pits'.
@@ -264,6 +439,78 @@ impl WeaponKind {
             (Spine, true) => "The Long Spine",
             (Tendrils, false) => "Writhing Tendrils",
             (Tendrils, true) => "Grasping Mass",
+            (AshHatchet, false) => "Charred Hatchet",
+            (AshHatchet, true) => "Ember Cleft",
+            (AshShards, false) => "Cinder Shards",
+            (AshShards, true) => "Ember Storm",
+            (AshSling, false) => "Spark Sling",
+            (AshSling, true) => "Firefall",
+            (AshBell, false) => "Ember Bell",
+            (AshBell, true) => "Kindling Toll",
+            (AshShield, false) => "Bark Shield",
+            (AshShield, true) => "Oaken Ward",
+            (AshRoots, false) => "Burning Roots",
+            (AshRoots, true) => "Wildfire Roots",
+            (AshBrand, false) => "Hurled Brand",
+            (AshBrand, true) => "Wheel of Cinders",
+            (AshFlies, false) => "Fireflies",
+            (AshFlies, true) => "Swarm of Sparks",
+            (AshSickle, false) => "Ash Sickle",
+            (AshSickle, true) => "Burnt Harvest",
+            (AshTrail, false) => "Smoulder Trail",
+            (AshTrail, true) => "Path of Cinders",
+            (AshPike, false) => "Burning Pike",
+            (AshPike, true) => "Spear of the Pyre",
+            (AshBurst, false) => "Ember Burst",
+            (AshBurst, true) => "Ring of Fire",
+            (IceScourge, false) => "Icicle Scourge",
+            (IceScourge, true) => "Winter's Lash",
+            (IceNeedles, false) => "Ice Needles",
+            (IceNeedles, true) => "Hail of Needles",
+            (IceFlask, false) => "Meltwater Flask",
+            (IceFlask, true) => "Black Ice",
+            (IceHalo, false) => "Rime Halo",
+            (IceHalo, true) => "Crown of Frost",
+            (IceRosary, false) => "Frost Rosary",
+            (IceRosary, true) => "Winter Chain",
+            (IceFall, false) => "Falling Icicles",
+            (IceFall, true) => "Avalanche",
+            (IceOwl, false) => "Snow Owl",
+            (IceOwl, true) => "White Owl of the Abbey",
+            (IceRunes, false) => "Frost Runes",
+            (IceRunes, true) => "Glyphs of Winter",
+            (IceCrook, false) => "Abbess's Crook",
+            (IceCrook, true) => "Shepherd of Snow",
+            (IceBreath, false) => "Snowburn",
+            (IceBreath, true) => "White Silence",
+            (IceLance, false) => "Ice Lance",
+            (IceLance, true) => "Glacier Spear",
+            (IcePanes, false) => "Frost Panes",
+            (IcePanes, true) => "Shattered Winter",
+            (ThornWhip, false) => "Thorn Whip",
+            (ThornWhip, true) => "Rose Hedge",
+            (ThornVolley, false) => "Rose Thorns",
+            (ThornVolley, true) => "Bramble Volley",
+            (ThornBloom, false) => "Bloom Cannon",
+            (ThornBloom, true) => "Black Bloom",
+            (ThornMirror, false) => "Mirror Pond",
+            (ThornMirror, true) => "Starlit Mirror",
+            (ThornMoths, false) => "Watching Moths",
+            (ThornMoths, true) => "Moths of Night",
+            (ThornSnare, false) => "Bramble Snare",
+            (ThornSnare, true) => "Strangling Briar",
+            (ThornShears, false) => "Garden Shears",
+            (ThornShears, true) => "Snipping Shears",
+            (ThornSpores, false) => "Pollen Wisps",
+            (ThornSpores, true) => "Poison Spores",
+            (ThornHook, false) => "Hedge Hook",
+            (ThornHook, true) => "Pruning Hook",
+            (ThornTrail, false) => "Nightshade Trail",
+            (ThornTrail, true) => "Path of Nightshade",
+            (ThornLash, false) => "Vine Lash",
+            (ThornLash, true) => "Strangler Vine",
+            (ThornRoots, false) => "Creeping Roots",
+            (ThornRoots, true) => "Root Web",
         }
     }
 
@@ -306,6 +553,42 @@ impl WeaponKind {
             Steps => "Your steps leave a trail of blood that eats at foes.",
             Spine => "A long spine lashes straight ahead through everything.",
             Tendrils => "Tendrils shoot out all around, then snap back.",
+            AshHatchet => "A burning hatchet swung ahead; what it cuts catches fire.",
+            AshShards => "Hot shards of charcoal flung at foes.",
+            AshSling => "A glowing ember slung at the nearest foe; it bursts into flame.",
+            AshBell => "A bell of hot iron rings around you and scorches all near.",
+            AshShield => "Plates of burning bark circle you and batter foes.",
+            AshRoots => "Roots of fire burst up under foes and hold them.",
+            AshBrand => "Flaming brands thrown in wide arcs.",
+            AshFlies => "Seeking sparks that drift after foes.",
+            AshSickle => "A wide sweep of a blackened sickle that sets its path alight.",
+            AshTrail => "Your steps leave smouldering ground that burns foes.",
+            AshPike => "A burning pike thrust straight through everything.",
+            AshBurst => "Embers flung out in every direction.",
+            IceScourge => "A lash of icicles that chills what it strikes.",
+            IceNeedles => "Needles of ice hurled fast and far.",
+            IceFlask => "A flask of meltwater that freezes into a pool of frost.",
+            IceHalo => "A ring of rime breathes out around you.",
+            IceRosary => "Beads of ice circle you and chill all they touch.",
+            IceFall => "Great icicles fall on the foes.",
+            IceOwl => "A snow owl swoops at the strongest foe and back.",
+            IceRunes => "Runes of frost written in the air, seeking foes.",
+            IceCrook => "A crook of ice sweeps around you.",
+            IceBreath => "A breath of cold that slows and gnaws at foes around you.",
+            IceLance => "A lance of ice that pierces a whole row.",
+            IcePanes => "Panes of frost that burst into shards.",
+            ThornWhip => "A thorned whip lashes in an arc; thorns stay and bleed.",
+            ThornVolley => "Thorns shot fast at foes.",
+            ThornBloom => "Seeds that burst into poison flowers.",
+            ThornMirror => "A pond of dark water ripples out around you.",
+            ThornMoths => "Moths circle you and sting the foes they see.",
+            ThornSnare => "Brambles burst up under foes and hold them.",
+            ThornShears => "Shears flung out and back, snipping all they pass.",
+            ThornSpores => "Seeking pollen; each that strikes mends you a little.",
+            ThornHook => "A pruning hook sweeps around you.",
+            ThornTrail => "Your steps leave nightshade that poisons foes.",
+            ThornLash => "A long vine lashes straight ahead through everything.",
+            ThornRoots => "Roots shoot out all around, then snap back.",
         }
     }
 
@@ -377,12 +660,51 @@ impl WeaponKind {
             Steps => Color::from_rgba(150, 10, 20, 255),
             Spine => Color::from_rgba(196, 170, 150, 255),
             Tendrils => Color::from_rgba(200, 90, 120, 255),
+            AshHatchet => Color::from_rgba(210, 120, 60, 255),
+            AshShards => Color::from_rgba(230, 140, 70, 255),
+            AshSling => Color::from_rgba(255, 120, 40, 255),
+            AshBell => Color::from_rgba(220, 150, 80, 255),
+            AshShield => Color::from_rgba(160, 100, 60, 255),
+            AshRoots => Color::from_rgba(240, 90, 40, 255),
+            AshBrand => Color::from_rgba(250, 150, 60, 255),
+            AshFlies => Color::from_rgba(255, 200, 90, 255),
+            AshSickle => Color::from_rgba(190, 110, 70, 255),
+            AshTrail => Color::from_rgba(200, 80, 30, 255),
+            AshPike => Color::from_rgba(255, 110, 50, 255),
+            AshBurst => Color::from_rgba(255, 170, 80, 255),
+            IceScourge => Color::from_rgba(170, 210, 240, 255),
+            IceNeedles => Color::from_rgba(200, 230, 255, 255),
+            IceFlask => Color::from_rgba(140, 190, 235, 255),
+            IceHalo => Color::from_rgba(210, 235, 255, 255),
+            IceRosary => Color::from_rgba(150, 210, 250, 255),
+            IceFall => Color::from_rgba(180, 220, 245, 255),
+            IceOwl => Color::from_rgba(235, 240, 250, 255),
+            IceRunes => Color::from_rgba(120, 180, 230, 255),
+            IceCrook => Color::from_rgba(190, 215, 235, 255),
+            IceBreath => Color::from_rgba(225, 240, 255, 255),
+            IceLance => Color::from_rgba(130, 200, 245, 255),
+            IcePanes => Color::from_rgba(180, 225, 250, 255),
+            ThornWhip => Color::from_rgba(110, 160, 70, 255),
+            ThornVolley => Color::from_rgba(150, 190, 90, 255),
+            ThornBloom => Color::from_rgba(170, 110, 200, 255),
+            ThornMirror => Color::from_rgba(90, 120, 200, 255),
+            ThornMoths => Color::from_rgba(200, 190, 150, 255),
+            ThornSnare => Color::from_rgba(90, 140, 60, 255),
+            ThornShears => Color::from_rgba(190, 190, 200, 255),
+            ThornSpores => Color::from_rgba(220, 210, 120, 255),
+            ThornHook => Color::from_rgba(120, 150, 90, 255),
+            ThornTrail => Color::from_rgba(130, 70, 160, 255),
+            ThornLash => Color::from_rgba(80, 150, 70, 255),
+            ThornRoots => Color::from_rgba(110, 90, 60, 255),
         }
     }
 
     /// Numbers for a weapon at a given level, before player stats are applied.
     pub fn stats(self, level: u32, evolved: bool) -> WStat {
         use WeaponKind::*;
+        if self.field() >= 3 {
+            return self.twin().stats(level, evolved);
+        }
         if self.field() > 0 {
             // Built on the graveyard weapon in its place, with a pace of its own.
             let mut s = self.base().stats(level, evolved);
@@ -549,6 +871,42 @@ pub fn fusion_name(a: WeaponKind, b: WeaponKind) -> &'static str {
         (Heart, Steps) => "Bleeding Heart",
         (Eyes, Spine) => "The Seeing Spine",
         (Jaw, Tendrils) => "Hungry Grasp",
+        (AshHatchet, AshBrand) => "Woodsman's Pyre",
+        (AshShards, AshBurst) => "Cinder Gale",
+        (AshSling, AshTrail) => "Wildfire",
+        (AshBell, AshShield) => "Ember Chorus",
+        (AshRoots, AshFlies) => "Burning Swarm",
+        (AshSickle, AshPike) => "Harvest of Ash",
+        (AshHatchet, AshSickle) => "Charred Waltz",
+        (AshShards, AshFlies) => "Firefly Storm",
+        (AshSling, AshRoots) => "Rooted Inferno",
+        (AshBell, AshTrail) => "Smouldering Toll",
+        (AshShield, AshPike) => "Pyre Pike",
+        (AshBrand, AshBurst) => "Ring of Brands",
+        (IceScourge, IceOwl) => "Scourge of Owls",
+        (IceNeedles, IcePanes) => "Needle Glass",
+        (IceFlask, IceBreath) => "Black Ice Font",
+        (IceHalo, IceRosary) => "Crown of Beads",
+        (IceFall, IceRunes) => "Icefall Runes",
+        (IceCrook, IceLance) => "Glacier Crook",
+        (IceScourge, IceCrook) => "Penance of Ice",
+        (IceNeedles, IceRunes) => "Rune Hail",
+        (IceFlask, IceFall) => "Avalanche Font",
+        (IceHalo, IceBreath) => "Silent Halo",
+        (IceRosary, IceLance) => "Winter Pike",
+        (IceOwl, IcePanes) => "Shards of the Owl",
+        (ThornWhip, ThornShears) => "Shears of the Rose",
+        (ThornVolley, ThornRoots) => "Briar Web",
+        (ThornBloom, ThornTrail) => "Bloom of Thorns",
+        (ThornMirror, ThornMoths) => "Mirror of Moths",
+        (ThornSnare, ThornSpores) => "Spore Briar",
+        (ThornHook, ThornLash) => "Strangling Hook",
+        (ThornWhip, ThornHook) => "Pruned Rose",
+        (ThornVolley, ThornSpores) => "Pollen Volley",
+        (ThornBloom, ThornSnare) => "Briar Bloom",
+        (ThornMirror, ThornTrail) => "Nightshade Mirror",
+        (ThornMoths, ThornLash) => "Vine of Eyes",
+        (ThornShears, ThornRoots) => "Root Shears",
         _ => odd_name(a, b),
     }
 }
@@ -564,9 +922,19 @@ fn odd_name(a: WeaponKind, b: WeaponKind) -> &'static str {
     const FLESH_SECOND: [&str; ARSENAL] = ["Cleaver", "Teeth", "Sac", "Heart", "Eyes", "Spikes", "Jaw", "Motes", "Ribs", "Trail", "Spine", "Tendrils"];
     let (lo, hi) = if a.idx() < b.idx() { (a, b) } else { (b, a) };
     let (i, j) = (lo.idx() % ARSENAL, hi.idx() % ARSENAL);
+    const ASH_FIRST: [&str; ARSENAL] = ["Charred", "Smoking", "Sparking", "Tolling", "Barked", "Rooted", "Hurled", "Drifting", "Blackened", "Smouldering", "Burning", "Scattered"];
+    const ASH_SECOND: [&str; ARSENAL] = ["Hatchet", "Shards", "Sparks", "Bell", "Bark", "Roots", "Brand", "Flies", "Sickle", "Trail", "Pike", "Embers"];
+    const ICE_FIRST: [&str; ARSENAL] = ["Frozen", "Needled", "Melted", "Rimed", "Beaded", "Falling", "Snowy", "Written", "Crooked", "Silent", "Glacial", "Frosted"];
+    const ICE_SECOND: [&str; ARSENAL] = ["Scourge", "Needles", "Flask", "Halo", "Rosary", "Icicles", "Owl", "Runes", "Crook", "Breath", "Lance", "Panes"];
+    const THORN_FIRST: [&str; ARSENAL] =
+        ["Thorned", "Bramble", "Blooming", "Mirrored", "Watching", "Strangling", "Snipping", "Drifting", "Pruned", "Poisoned", "Lashing", "Creeping"];
+    const THORN_SECOND: [&str; ARSENAL] = ["Whip", "Thorns", "Bloom", "Pond", "Moths", "Briar", "Shears", "Pollen", "Hook", "Nightshade", "Vine", "Roots"];
     let (first, second) = match lo.field() {
         1 => (&HOLY_FIRST, &HOLY_SECOND),
         2 => (&FLESH_FIRST, &FLESH_SECOND),
+        3 => (&ASH_FIRST, &ASH_SECOND),
+        4 => (&ICE_FIRST, &ICE_SECOND),
+        5 => (&THORN_FIRST, &THORN_SECOND),
         _ => (&FIRST, &SECOND),
     };
     // Leaked once per pair and kept: at most 132 short names for the whole game.
@@ -632,11 +1000,62 @@ const MEGA_FLESH: [&str; ARSENAL] = [
     "The Writhing Host",
 ];
 const ULTRA_FLESH: [&str; 4] = ["The Great Maw", "Flesh Ascendant", "The Red Communion", "Mother of Wounds"];
+const MEGA_ASH: [&str; ARSENAL] = [
+    "The Forest Pyre",
+    "Storm of Cinders",
+    "The Red Canopy",
+    "Bells of the Burning",
+    "The Oaken Wall",
+    "Roots of Hell",
+    "Wheel of Brands",
+    "The Ember Host",
+    "Harvest of the Fire",
+    "The Smoking Road",
+    "Pikes of the Pyre",
+    "Crown of Sparks",
+];
+const ULTRA_ASH: [&str; 4] = ["The Great Burning", "Ash Over the World", "The Last Forest", "Heart of the Wildfire"];
+const MEGA_ICE: [&str; ARSENAL] = [
+    "The White Penance",
+    "Storm of Needles",
+    "The Frozen Font",
+    "Halo of Winter",
+    "The Endless Rosary",
+    "The Great Thaw",
+    "The Owl's Vigil",
+    "The Frozen Psalm",
+    "Crook of the Abbess",
+    "The Long Silence",
+    "The Glacier",
+    "Cathedral of Ice",
+];
+const ULTRA_ICE: [&str; 4] = ["The Eternal Winter", "Frost Ascendant", "The Silent Abbey", "Heart of the Glacier"];
+const MEGA_THORN: [&str; ARSENAL] = [
+    "The Rose Labyrinth",
+    "Storm of Thorns",
+    "The Poison Garden",
+    "The Black Pond",
+    "Moths of the Starless",
+    "The Briar Crown",
+    "The Gardener's Hand",
+    "The Pollen Host",
+    "The Pruning",
+    "The Nightshade Road",
+    "The Strangling Wood",
+    "Root of All",
+];
+const ULTRA_THORN: [&str; 4] = ["The Starless Bloom", "Garden Ascendant", "The Endless Hedge", "Heart of the Thorn"];
 
 /// Named after the first of its weapons: the mega fusions one hero can hold at once share no
 /// weapon, so they never share a name.
 pub fn mega_name(kinds: &[WeaponKind]) -> &'static str {
     let first = kinds.iter().map(|k| k.idx() % ARSENAL).min().unwrap_or(0);
+    match kinds.first().map(|k| k.field()) {
+        Some(3) => return MEGA_ASH[first],
+        Some(4) => return MEGA_ICE[first],
+        Some(5) => return MEGA_THORN[first],
+        _ => {}
+    }
     if kinds.first().is_some_and(|k| k.field() == 2) {
         MEGA_FLESH[first]
     } else if kinds.first().is_some_and(|k| k.is_cathedral()) {
@@ -650,6 +1069,9 @@ pub fn ultra_name(kinds: &[WeaponKind]) -> &'static str {
     let list = match kinds.first().map(|k| k.field()) {
         Some(1) => &ULTRA_HOLY,
         Some(2) => &ULTRA_FLESH,
+        Some(3) => &ULTRA_ASH,
+        Some(4) => &ULTRA_ICE,
+        Some(5) => &ULTRA_THORN,
         _ => &ULTRA_NAMES,
     };
     names_for(kinds, list)

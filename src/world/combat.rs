@@ -33,8 +33,30 @@ impl World {
         if self.weather.is_some_and(|(w, _)| w == Weather::AshRain) && src.weapon.is_fire() {
             dmg *= 1.4;
         }
+        if self.weather.is_some_and(|(w, _)| w == Weather::Blizzard) {
+            e.slow = e.slow.max(0.8);
+        }
         if e.affix == Affix::Warded {
             dmg *= 0.6;
+        }
+        if !self.dot_tick {
+            match src.weapon.element() {
+                // Fire: burns for a while after.
+                3 => {
+                    e.burn = e.burn.max(2.0);
+                    e.burn_dps = e.burn_dps.max(base * 0.2);
+                    e.burn_src = src;
+                }
+                // Frost: chilled, slower for a moment.
+                4 => e.slow = e.slow.max(0.9),
+                // Poison: a slower burn that lasts longer.
+                5 => {
+                    e.burn = e.burn.max(4.0);
+                    e.burn_dps = e.burn_dps.max(base * 0.12);
+                    e.burn_src = src;
+                }
+                _ => {}
+            }
         }
         if self.twins.is_some_and(|(a, b)| e.id == a || e.id == b) {
             dmg *= TWIN_GUARD;
@@ -68,7 +90,7 @@ impl World {
         e.flash = 0.1;
         let resist = if e.boss || matches!(e.kind, EnemyKind::Prop(_)) {
             0.0
-        } else if e.elite || matches!(e.kind, EnemyKind::Knight | EnemyKind::Shieldbearer) {
+        } else if e.elite || matches!(e.kind, EnemyKind::Knight | EnemyKind::Shieldbearer | EnemyKind::BarkHusk | EnemyKind::FrozenKnight | EnemyKind::Statue) {
             0.3
         } else {
             1.0
@@ -128,6 +150,24 @@ impl World {
             let e = &self.enemies[i];
             (e.pos, e.kind, e.xp, e.elite, e.boss, e.r, e.affix)
         };
+        match kind {
+            EnemyKind::SmokeWraith => {
+                let dmg = 6.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
+                let off = gen_range(0.0, TAU);
+                for k in 0..5 {
+                    self.enemy_bullet(pos, Vec2::from_angle(off + k as f32 * TAU / 5.0) * 110.0, 5.0, dmg, 0.0, 2.5);
+                }
+            }
+            EnemyKind::FrozenKnight => {
+                let dmg = 8.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
+                let off = gen_range(0.0, TAU);
+                for k in 0..8 {
+                    self.enemy_bullet(pos, Vec2::from_angle(off + k as f32 * TAU / 8.0) * 170.0, 5.0, dmg, 0.0, 2.5);
+                }
+                self.sfx_gap_at("chime", 0.4, 0.1, pos);
+            }
+            _ => {}
+        }
         if affix == Affix::Volatile {
             let dmg = 10.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
             let off = gen_range(0.0, TAU);
@@ -747,6 +787,19 @@ impl World {
         let mut volleys: Vec<(Vec2, Vec2)> = Vec::new();
         let mut lunges: Vec<(Vec2, Vec2, f32)> = Vec::new();
         let mut woke: Vec<Vec2> = Vec::new();
+        // The newer fields' foes: shards and thorns thrown, moths called.
+        let mut shards: Vec<(Vec2, Vec2)> = Vec::new();
+        let mut thorns: Vec<(Vec2, Vec2)> = Vec::new();
+        let mut calls: Vec<Vec2> = Vec::new();
+        // Where every living hero stands and looks, for the statues.
+        let eyes: Vec<(Vec2, Vec2)> = self.heroes.iter().filter(|h| h.alive()).map(|h| (h.p.pos, h.p.facing)).collect();
+        let seen = |p: Vec2| {
+            eyes.iter().any(|(at, facing)| {
+                let to = p - *at;
+                let d = to.length();
+                d < 1100.0 && (d < 40.0 || to.dot(*facing) / d > 0.35)
+            })
+        };
         let mut mends: Vec<Vec2> = Vec::new();
         let mut blinks: Vec<(Vec2, Vec2)> = Vec::new();
         let (anchor, anchor_facing, anchor_moving) = self.random_hero_pos();
@@ -754,7 +807,7 @@ impl World {
         // Where each hero stands, for a foe that hunts one of them.
         let hero_at: Vec<Option<Vec2>> = self.heroes.iter().map(|h| h.alive().then_some(h.p.pos)).collect();
         // In the grave mist everything wades.
-        let wade = if self.weather.is_some_and(|(w, _)| w == Weather::GraveMist) { 0.8 } else { 1.0 };
+        let wade = if self.weather.is_some_and(|(w, _)| matches!(w, Weather::GraveMist | Weather::Blizzard)) { 0.8 } else { 1.0 };
         for (i, e) in self.enemies.iter_mut().enumerate() {
             if e.dead {
                 continue;
@@ -837,6 +890,84 @@ impl World {
                     }
                 }
                 EnemyKind::Moth => Vec2::from_angle(dir.to_angle() + (t * 5.0 + e.phase).sin() * 0.9),
+                EnemyKind::FrostCrow => Vec2::from_angle(dir.to_angle() + (t * 4.0 + e.phase).sin() * 0.7),
+                EnemyKind::EmberWolf => {
+                    // Runs with the pack and leaps the last stretch.
+                    e.timer -= dt;
+                    if e.fuse > 0.0 {
+                        e.fuse -= dt;
+                        dir * 2.6
+                    } else if e.timer <= 0.0 && d < 260.0 {
+                        e.timer = gen_range(2.0, 3.2);
+                        e.fuse = 0.35;
+                        dir * 2.6
+                    } else {
+                        dir
+                    }
+                }
+                EnemyKind::SmokeWraith => {
+                    e.alpha = 0.45 + 0.4 * (t * 2.2 + e.phase).sin().abs();
+                    Vec2::from_angle(dir.to_angle() + (t * 1.7 + e.phase).sin() * 0.6)
+                }
+                EnemyKind::IceMonk => {
+                    e.timer -= dt;
+                    if e.timer <= 0.0 && d < 560.0 {
+                        e.timer = 2.8;
+                        shards.push((e.pos, dir));
+                    }
+                    if d > 330.0 {
+                        dir
+                    } else if d < 220.0 {
+                        -dir
+                    } else {
+                        vec2(-dir.y, dir.x) * 0.5
+                    }
+                }
+                EnemyKind::ThornVine => {
+                    e.timer -= dt;
+                    if e.timer <= 0.0 && d < 480.0 {
+                        e.timer = 3.0;
+                        thorns.push((e.pos, dir));
+                    }
+                    dir * 0.7
+                }
+                EnemyKind::Puppet => {
+                    // Snips along, then charges with its shears.
+                    e.timer -= dt;
+                    if e.fuse > 0.0 {
+                        e.fuse -= dt;
+                        dir * 3.0
+                    } else if e.timer <= 0.0 && d < 420.0 {
+                        e.timer = gen_range(3.5, 4.5);
+                        e.fuse = 0.5;
+                        dir * 3.0
+                    } else {
+                        dir
+                    }
+                }
+                EnemyKind::MothQueen => {
+                    e.timer -= dt;
+                    if e.timer <= 0.0 && d < 650.0 {
+                        e.timer = 6.0;
+                        calls.push(e.pos);
+                    }
+                    if d > 380.0 {
+                        dir
+                    } else if d < 280.0 {
+                        -dir
+                    } else {
+                        vec2(-dir.y, dir.x) * 0.6
+                    }
+                }
+                // A statue moves only while nobody looks at it; `step` says which, for drawing.
+                EnemyKind::Statue if seen(e.pos) => {
+                    e.step = 0;
+                    Vec2::ZERO
+                }
+                EnemyKind::Statue => {
+                    e.step = 1;
+                    dir
+                }
                 EnemyKind::Leech => Vec2::from_angle(dir.to_angle() + (t * 9.0 + e.phase).sin() * 0.5),
                 EnemyKind::Gargoyle => {
                     // Creeps closer, then springs: `fuse` counts down the lunge.
@@ -1021,6 +1152,28 @@ impl World {
             self.fx.push(Fx { pos: from, life: 0.3, max_life: 0.3, kind: FxKind::Ghost });
             self.fx.push(Fx { pos: to, life: 0.4, max_life: 0.4, kind: FxKind::Ring { r: 40.0, color: Affix::Blinker.color() } });
         }
+        for (pos, dir) in shards {
+            let dmg = 7.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
+            for k in -1..=1 {
+                let v = Vec2::from_angle(dir.to_angle() + k as f32 * 0.22) * 230.0;
+                self.enemy_bullet(pos, v, 5.0, dmg, 0.0, 3.0);
+            }
+            self.sfx_gap_at("chime", 0.25, 0.15, pos);
+        }
+        for (pos, dir) in thorns {
+            let dmg = 6.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
+            for k in -1..=1 {
+                let v = Vec2::from_angle(dir.to_angle() + k as f32 * 0.35) * 200.0;
+                self.enemy_bullet(pos, v, 5.0, dmg, 0.0, 2.6);
+            }
+        }
+        for pos in calls {
+            let room = self.enemy_room().min(4);
+            for k in 0..room {
+                let e = self.make_enemy(EnemyKind::Moth, pos + Vec2::from_angle(k as f32 * TAU / 4.0) * 30.0);
+                self.enemies.push(e);
+            }
+        }
         for pos in woke {
             self.log_event("a mimic wakes");
             self.banner("A MIMIC!", "The coffer has teeth", Color::from_rgba(240, 190, 90, 255), 2.5);
@@ -1032,9 +1185,11 @@ impl World {
             self.enemy_bullet(pos, dir * 260.0, 5.0, dmg, 0.0, 3.0);
             self.sfx_gap_at("arrow", 0.25, 0.1, pos);
         }
+        self.dot_tick = true;
         for (i, d, src) in burns {
             self.hit(i, d, Vec2::ZERO, src, false);
         }
+        self.dot_tick = false;
         for at in slams {
             // The champion's maul: a ring of bullets and a shockwave.
             let dmg = 10.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;

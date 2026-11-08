@@ -232,18 +232,14 @@ fn update_notice() -> Rect {
 }
 
 /// What is new in this version, in a few words each, shown once after an update.
-const WHATS_NEW: [&str; 11] = [
-    "Elites carry a coloured mark: swift, volatile, mender, warded or blinker.",
-    "Twin lords: now and then two come at once, bound by a chain.",
-    "Mimics, rifts into a hidden chamber, a portal to another field.",
-    "The ash gate: leave the night early and keep your souls.",
-    "Breakable props on every field, and teleport runes to escape.",
-    "Endless night: a new mutator every 2.5 minutes, and they stack.",
-    "Online: pings, duo strikes, and late joiners watch until next vigil.",
-    "Fallen heroes become a ghost on a chain to their body.",
-    "A minimap, and the damage meter with DPS moved above your souls.",
-    "The bestiary under Records.",
-    "Options: a new Accessibility page.",
+const WHATS_NEW: [&str; 7] = [
+    "Three new fields: the Ashwood, the Frozen Abbey and the Starless Garden.",
+    "Embers that burn, ice you slide on, statues that move only unseen.",
+    "Ten new foes and three new lords, and a new weather: the blizzard.",
+    "Each new field has twelve weapons of its own, fire, frost or poison.",
+    "Their arsenals fuse all the way to a last weapon of their own.",
+    "Announcements and timed events now sit small at the right edge.",
+    "The bestiary has grown to two pages.",
 ];
 
 /// The button on the left of the main menu that folds out what is new.

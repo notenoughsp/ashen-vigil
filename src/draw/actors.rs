@@ -923,6 +923,10 @@ impl World {
         let lit = |c: Color| if e.flash > 0.0 { Color::new((c.r + 0.4).min(1.0), (c.g + 0.4).min(1.0), (c.b + 0.4).min(1.0), c.a) } else { c };
         let crack = (1.0 - e.hp / e.max_hp.max(1.0)).clamp(0.0, 1.0);
         draw_ellipse(p.x, p.y + 12.0, 16.0, 5.0, 0.0, rgba(0, 0, 0, 110));
+        if matches!(self.biome, Biome::Ashwood | Biome::Abbey | Biome::Garden) {
+            self.draw_new_prop(p, v, &lit);
+            return;
+        }
         match (self.biome, v % 3) {
             (Biome::Graveyard, 0) => {
                 // A leaning tombstone with a cross cut in it.
@@ -1006,6 +1010,7 @@ impl World {
                     draw_line(p.x, p.y - 2.0, p.x + a.cos() * 11.0, p.y - 2.0 + a.sin() * 11.0, 1.2, rgba(90, 20, 30, 255));
                 }
             }
+            _ => {}
         }
         // Cracks as it weakens.
         if crack > 0.25 {
@@ -1485,6 +1490,16 @@ impl World {
             }
             // Props are drawn before this, by `draw_prop`.
             EnemyKind::Prop(_) => {}
+            EnemyKind::EmberWolf
+            | EnemyKind::BarkHusk
+            | EnemyKind::SmokeWraith
+            | EnemyKind::IceMonk
+            | EnemyKind::FrostCrow
+            | EnemyKind::FrozenKnight
+            | EnemyKind::ThornVine
+            | EnemyKind::Puppet
+            | EnemyKind::MothQueen
+            | EnemyKind::Statue => self.draw_new_foe(e, fx),
             EnemyKind::Mimic(_) => {
                 // A coffer that hops on stubby legs, its lid gaping on rows of teeth and a long
                 // tongue, its eyes burning inside.
@@ -1600,6 +1615,11 @@ impl World {
             EnemyKind::Courier => rgba(110, 86, 50, 255),
             EnemyKind::Mimic(_) => rgba(110, 72, 42, 255),
             EnemyKind::Prop(_) => rgba(100, 96, 90, 255),
+            EnemyKind::EmberWolf | EnemyKind::BarkHusk | EnemyKind::SmokeWraith => rgba(50, 40, 34, 255),
+            EnemyKind::IceMonk | EnemyKind::FrostCrow | EnemyKind::FrozenKnight => rgba(150, 175, 205, 255),
+            EnemyKind::ThornVine | EnemyKind::Puppet => rgba(50, 80, 44, 255),
+            EnemyKind::MothQueen => rgba(180, 170, 140, 255),
+            EnemyKind::Statue => rgba(130, 128, 122, 255),
             EnemyKind::Champion => rgba(84, 88, 98, 255),
             EnemyKind::Rival => rgba(36, 32, 40, 255),
             _ => rgba(66, 70, 82, 255),
@@ -1623,6 +1643,7 @@ impl World {
         let fx = if dir.x >= 0.0 { 1.0 } else { -1.0 };
         draw_ellipse(p.x, p.y + r * 0.95, r * 1.1, r * 0.35, 0.0, rgba(0, 0, 0, (130.0 * a) as u8));
         match k {
+            BossKind::BurntOak | BossKind::SnowAbbess | BossKind::Gardener => self.draw_new_lord(e, k),
             BossKind::Gravewarden => {
                 let plate = rgba(70, 66, 62, 255);
                 let s = (t * 3.0).sin() * r * 0.12;
@@ -2067,5 +2088,245 @@ impl World {
         draw_circle(head.x - 1.8 + f, head.y - 0.5, 1.2, eye);
         draw_circle(head.x + 1.8 + f, head.y - 0.5, 1.2, eye);
         draw_circle(head.x + f, head.y - 0.5, 6.0, Color::new(1.0, 0.8, 0.2, 0.05 * (1.0 - blink)));
+    }
+}
+
+impl World {
+    /// The newer fields' foes.
+    fn draw_new_foe(&self, e: &Enemy, fx: f32) {
+        let (p, r, a, fl) = (e.pos, e.r, e.alpha, e.flash);
+        let t = self.time + e.phase;
+        let c = |col: Color| with_alpha(flashed(col, fl), a);
+        match e.kind {
+            EnemyKind::EmberWolf => {
+                // A lean wolf of charcoal, cracks of fire along its back.
+                let run = (t * 14.0).sin() * r * 0.3;
+                for (side, s) in [(-1.0, run), (1.0, -run)] {
+                    limb(p + vec2(side * r * 0.6, r * 0.2), p + vec2(side * r * 0.7 + s * fx, r * 0.9), r * 0.18, c(rgba(30, 24, 22, 255)), true);
+                }
+                blob(p, r * 1.1, r * 0.6, 0.0, c(rgba(40, 32, 28, 255)), true);
+                for k in 0..3 {
+                    let q = p + vec2(-fx * r * 0.4 + fx * k as f32 * r * 0.35, -r * 0.4);
+                    draw_circle(q.x, q.y, r * 0.14, with_alpha(rgba(255, 120, 30, 255), a * (0.6 + 0.4 * (t * 6.0 + k as f32).sin())));
+                }
+                let head = p + vec2(fx * r * 0.95, -r * 0.35);
+                ball(head, r * 0.42, c(rgba(46, 36, 30, 255)), true);
+                draw_triangle(head + vec2(fx * r * 0.3, 0.0), head + vec2(fx * r * 0.75, r * 0.12), head + vec2(fx * r * 0.3, r * 0.22), c(rgba(36, 28, 24, 255)));
+                eyes(head + vec2(fx * r * 0.15, -r * 0.05), r * 0.1, r * 0.08, with_alpha(rgba(255, 150, 40, 255), a));
+                let tail = p + vec2(-fx * r * 1.0, -r * 0.2);
+                draw_line(tail.x, tail.y, tail.x - fx * r * 0.6, tail.y - r * 0.5 + (t * 8.0).sin() * r * 0.2, r * 0.18, with_alpha(rgba(255, 110, 30, 255), a * 0.8));
+            }
+            EnemyKind::BarkHusk => {
+                // A walking stump of burnt bark, glowing at the seams.
+                let s = (t * 4.0).sin() * r * 0.15;
+                for (side, sw) in [(-1.0, s), (1.0, -s)] {
+                    limb(p + vec2(side * r * 0.35, r * 0.4), p + vec2(side * r * 0.45 + sw, r * 0.95), r * 0.3, c(rgba(36, 28, 22, 255)), true);
+                }
+                draw_rectangle(p.x - r * 0.7, p.y - r * 1.1, r * 1.4, r * 1.5, c(rgba(46, 36, 28, 255)));
+                for k in 0..3 {
+                    let x = p.x - r * 0.45 + k as f32 * r * 0.45;
+                    draw_line(x, p.y - r * 1.05, x + r * 0.05, p.y + r * 0.35, 2.0, c(rgba(26, 20, 16, 255)));
+                }
+                let seam = with_alpha(rgba(255, 110, 30, 255), a * (0.5 + 0.3 * (t * 3.0).sin()));
+                draw_line(p.x - r * 0.2, p.y - r * 0.6, p.x + r * 0.1, p.y - r * 0.1, 2.5, seam);
+                for side in [-1.0, 1.0] {
+                    limb(p + vec2(side * r * 0.65, -r * 0.6), p + vec2(side * r * 1.15, -r * 0.1 + s), r * 0.2, c(rgba(40, 30, 24, 255)), true);
+                }
+                eyes(p + vec2(fx * r * 0.15, -r * 0.8), r * 0.22, r * 0.09, with_alpha(rgba(255, 140, 40, 255), a));
+            }
+            EnemyKind::SmokeWraith => {
+                // A column of grey smoke with ember eyes.
+                for k in 0..5 {
+                    let q = p + vec2((t * 2.0 + k as f32).sin() * r * 0.3, r * 0.5 - k as f32 * r * 0.35);
+                    draw_circle(q.x, q.y, r * (0.75 - k as f32 * 0.08), Color::new(0.4, 0.38, 0.36, 0.45 * a));
+                }
+                let head = p + vec2(fx * r * 0.1, -r * 0.95);
+                draw_circle(head.x, head.y, r * 0.45, Color::new(0.3, 0.29, 0.28, 0.6 * a));
+                eyes(head, r * 0.16, r * 0.09, with_alpha(rgba(255, 130, 40, 255), a));
+            }
+            EnemyKind::IceMonk => {
+                // A hooded monk in grey, frost on his shoulders, a shard in his hand.
+                draw_triangle(p + vec2(-r * 0.8, r * 0.9), p + vec2(r * 0.8, r * 0.9), p + vec2(0.0, -r * 1.0), c(rgba(110, 116, 128, 255)));
+                draw_triangle(p + vec2(-r * 0.8, r * 0.9), p + vec2(-r * 0.2, r * 0.9), p + vec2(0.0, -r * 0.95), c(rgba(150, 160, 175, 255)));
+                let head = p + vec2(fx * r * 0.05, -r * 0.95);
+                ball(head, r * 0.4, c(rgba(120, 126, 138, 255)), true);
+                draw_circle(head.x + fx * r * 0.1, head.y + r * 0.05, r * 0.25, c(rgba(30, 34, 44, 255)));
+                eyes(head + vec2(fx * r * 0.12, r * 0.02), r * 0.1, r * 0.06, with_alpha(rgba(170, 225, 255, 255), a));
+                let hand = p + vec2(fx * r * 0.7, -r * 0.2);
+                draw_triangle(hand + vec2(0.0, -r * 0.6), hand + vec2(-r * 0.15, 0.0), hand + vec2(r * 0.15, 0.0), c(rgba(190, 230, 255, 255)));
+            }
+            EnemyKind::FrostCrow => {
+                // A white-blue crow, wings beating.
+                let flap = (t * 16.0).sin() * r * 0.8;
+                for side in [-1.0, 1.0] {
+                    draw_triangle(p, p + vec2(side * r * 1.8, -flap), p + vec2(side * r * 1.2, r * 0.3), c(rgba(170, 200, 230, 255)));
+                }
+                ball(p, r * 0.7, c(rgba(200, 220, 240, 255)), false);
+                draw_triangle(p + vec2(fx * r * 0.6, -r * 0.1), p + vec2(fx * r * 1.2, 0.0), p + vec2(fx * r * 0.6, r * 0.15), c(rgba(90, 90, 100, 255)));
+                draw_circle(p.x + fx * r * 0.3, p.y - r * 0.2, r * 0.15, with_alpha(rgba(60, 120, 200, 255), a));
+            }
+            EnemyKind::FrozenKnight => {
+                // A knight sealed in ice, his blade frozen to his hand.
+                let s = (t * 3.5).sin() * r * 0.12;
+                for (side, sw) in [(-1.0, s), (1.0, -s)] {
+                    limb(p + vec2(side * r * 0.3, r * 0.4), p + vec2(side * r * 0.35 + sw, r * 0.95), r * 0.22, c(rgba(80, 90, 110, 255)), true);
+                }
+                blob(p, r * 0.75, r * 0.8, 0.0, c(rgba(96, 110, 130, 255)), true);
+                draw_rectangle(p.x - r * 0.85, p.y - r * 1.2, r * 1.7, r * 1.8, Color::new(0.65, 0.82, 0.95, 0.35 * a));
+                let head = p + vec2(0.0, -r * 0.9);
+                ball(head, r * 0.4, c(rgba(110, 124, 146, 255)), true);
+                draw_line(head.x - r * 0.25, head.y, head.x + r * 0.25, head.y, 2.0, c(rgba(20, 24, 30, 255)));
+                let hand = p + vec2(fx * r * 0.7, -r * 0.1);
+                draw_line(hand.x, hand.y, hand.x + fx * r * 0.2, hand.y - r * 1.3, r * 0.15, c(rgba(200, 230, 250, 255)));
+            }
+            EnemyKind::ThornVine => {
+                // A knot of thorny vines dragging itself along, a red bloom at its heart.
+                for k in 0..6 {
+                    let a2 = k as f32 / 6.0 * TAU + (t * 1.2).sin() * 0.3;
+                    let tip = p + Vec2::from_angle(a2) * r * (1.1 + 0.2 * (t * 2.0 + k as f32).sin());
+                    draw_line(p.x, p.y, tip.x, tip.y, r * 0.22, c(rgba(40, 80, 36, 255)));
+                    draw_triangle(tip, tip + Vec2::from_angle(a2 + 1.0) * r * 0.25, tip + Vec2::from_angle(a2 - 1.0) * r * 0.25, c(rgba(70, 110, 50, 255)));
+                }
+                ball(p, r * 0.55, c(rgba(36, 70, 32, 255)), true);
+                for k in 0..5 {
+                    let q = p + Vec2::from_angle(k as f32 / 5.0 * TAU + t) * r * 0.2;
+                    draw_circle(q.x, q.y, r * 0.18, c(rgba(160, 20, 40, 255)));
+                }
+            }
+            EnemyKind::Puppet => {
+                // A wooden gardener's puppet on strings, big shears snapping.
+                let s = (t * 9.0).sin() * r * 0.3;
+                for (side, sw) in [(-1.0, s), (1.0, -s)] {
+                    limb(p + vec2(side * r * 0.25, r * 0.3), p + vec2(side * r * 0.35 + sw * fx, r * 0.95), r * 0.14, c(rgba(140, 110, 80, 255)), true);
+                }
+                draw_rectangle(p.x - r * 0.45, p.y - r * 0.6, r * 0.9, r * 0.95, c(rgba(60, 80, 50, 255)));
+                let head = p + vec2(0.0, -r * 0.9);
+                ball(head, r * 0.36, c(rgba(170, 140, 100, 255)), true);
+                draw_rectangle(head.x - r * 0.42, head.y - r * 0.5, r * 0.84, r * 0.12, c(rgba(80, 60, 40, 255)));
+                eyes(head, r * 0.13, r * 0.06, with_alpha(rgba(30, 20, 10, 255), a));
+                for k in [-0.4, 0.4] {
+                    draw_line(p.x + k * r, p.y - r * 3.0, p.x + k * r, p.y - r * 0.6, 1.0, Color::new(0.8, 0.8, 0.8, 0.25 * a));
+                }
+                let open = 0.3 + 0.3 * (t * 10.0).sin().abs();
+                let hand = p + vec2(fx * r * 0.7, -r * 0.2);
+                for s2 in [-1.0, 1.0] {
+                    let b = hand + Vec2::from_angle(if fx > 0.0 { 0.0 } else { std::f32::consts::PI } + s2 * open) * r * 1.1;
+                    draw_line(hand.x, hand.y, b.x, b.y, 2.5, c(rgba(180, 180, 190, 255)));
+                }
+            }
+            EnemyKind::MothQueen => {
+                // A great pale moth, wings patterned with eyes.
+                let flap = 0.75 + 0.25 * (t * 6.0).sin();
+                for side in [-1.0, 1.0] {
+                    for (dy, sz) in [(-0.3, 1.2), (0.4, 0.8)] {
+                        let w = p + vec2(side * r * 1.2 * flap, r * dy);
+                        draw_ellipse(w.x, w.y, r * sz * flap, r * sz * 0.6, 0.0, c(rgba(190, 180, 150, 255)));
+                        draw_circle(w.x, w.y, r * 0.22 * sz, c(rgba(60, 40, 30, 255)));
+                        draw_circle(w.x, w.y, r * 0.1 * sz, with_alpha(rgba(255, 220, 120, 255), a));
+                    }
+                }
+                blob(p, r * 0.3, r * 0.9, 0.0, c(rgba(110, 96, 70, 255)), true);
+                eyes(p + vec2(0.0, -r * 0.7), r * 0.12, r * 0.08, with_alpha(rgba(255, 220, 120, 255), a));
+            }
+            EnemyKind::Statue => {
+                // A weeping stone figure; its eyes open only while it moves.
+                // The host knows; a client sees whether it moved between snapshots.
+                let watched = if self.is_client { e.net_vel.length() < 5.0 } else { e.step == 0 };
+                draw_rectangle(p.x - r * 0.6, p.y + r * 0.6, r * 1.2, r * 0.4, c(rgba(90, 88, 84, 255)));
+                draw_triangle(p + vec2(-r * 0.7, r * 0.6), p + vec2(r * 0.7, r * 0.6), p + vec2(0.0, -r * 0.9), c(rgba(130, 128, 122, 255)));
+                let head = p + vec2(0.0, -r * 1.0);
+                ball(head, r * 0.4, c(rgba(150, 148, 142, 255)), true);
+                if watched {
+                    // Hands over its face.
+                    for s in [-1.0, 1.0] {
+                        draw_circle(head.x + s * r * 0.15, head.y + r * 0.05, r * 0.18, c(rgba(140, 138, 132, 255)));
+                    }
+                } else {
+                    eyes(head, r * 0.14, r * 0.09, with_alpha(rgba(220, 40, 40, 255), a));
+                    for s in [-1.0, 1.0] {
+                        limb(p + vec2(s * r * 0.4, -r * 0.4), p + vec2(s * r * 0.9, -r * 0.6), r * 0.15, c(rgba(140, 138, 132, 255)), true);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The newer fields' lords.
+    fn draw_new_lord(&self, e: &Enemy, k: BossKind) {
+        let (p, r, a, fl) = (e.pos, e.r, e.alpha, e.flash);
+        let t = self.time;
+        let c = |col: Color| with_alpha(flashed(col, fl), a);
+        match k {
+            BossKind::BurntOak => {
+                // A great burnt oak walking on its roots, fire in the hollow of its trunk.
+                for k in 0..6 {
+                    let a2 = std::f32::consts::PI * 0.1 + k as f32 / 5.0 * std::f32::consts::PI * 0.8;
+                    let tip = p + vec2(a2.cos() * r * 1.2, r * 0.9 + a2.sin() * r * 0.15 + (t * 2.0 + k as f32).sin() * 3.0);
+                    limb(p + vec2(0.0, r * 0.4), tip, r * 0.16, c(rgba(36, 28, 22, 255)), true);
+                }
+                draw_rectangle(p.x - r * 0.45, p.y - r * 1.4, r * 0.9, r * 1.9, c(rgba(42, 32, 26, 255)));
+                draw_rectangle(p.x - r * 0.45, p.y - r * 1.4, r * 0.18, r * 1.9, c(rgba(60, 46, 36, 255)));
+                let glow = 0.6 + 0.4 * (t * 4.0).sin();
+                draw_ellipse(p.x, p.y - r * 0.5, r * 0.22, r * 0.38, 0.0, with_alpha(rgba(255, 110, 30, 255), a * glow));
+                draw_ellipse(p.x, p.y - r * 0.45, r * 0.1, r * 0.2, 0.0, with_alpha(rgba(255, 220, 120, 255), a * glow));
+                for (ang, len) in [(-2.4, 1.3), (-1.9, 1.5), (-1.2, 1.4), (-0.7, 1.2)] {
+                    let base = p + vec2(0.0, -r * 1.3);
+                    let tip = base + Vec2::from_angle(ang) * r * len;
+                    limb(base, tip, r * 0.12, c(rgba(34, 26, 22, 255)), true);
+                    draw_circle(tip.x, tip.y, r * 0.08, with_alpha(rgba(255, 130, 40, 255), a * (0.5 + 0.5 * (t * 3.0 + ang).sin())));
+                }
+                eyes(p + vec2(0.0, -r * 0.95), r * 0.2, r * 0.08, with_alpha(rgba(255, 150, 40, 255), a));
+            }
+            BossKind::SnowAbbess => {
+                // A tall abbess in white and silver, a crown of icicles, her veil blowing.
+                let sway = (t * 1.5).sin() * r * 0.1;
+                draw_triangle(p + vec2(-r * 0.9, r * 1.0), p + vec2(r * 0.9, r * 1.0), p + vec2(sway, -r * 1.0), c(rgba(220, 228, 240, 255)));
+                draw_triangle(p + vec2(-r * 0.9, r * 1.0), p + vec2(-r * 0.3, r * 1.0), p + vec2(sway, -r * 0.9), c(rgba(180, 192, 210, 255)));
+                rag(p + vec2(-r * 0.5, -r * 0.9), p + vec2(r * 0.5, -r * 0.9), r * 1.5, (t * 2.0).sin() * r * 0.4, c(rgba(200, 215, 235, 255)), 1.0, true);
+                let head = p + vec2(sway, -r * 1.05);
+                ball(head, r * 0.32, c(rgba(235, 240, 248, 255)), true);
+                eyes(head, r * 0.1, r * 0.06, with_alpha(rgba(120, 200, 255, 255), a));
+                for k in 0..5 {
+                    let x = head.x - r * 0.3 + k as f32 * r * 0.15;
+                    draw_triangle(
+                        vec2(x - r * 0.05, head.y - r * 0.25),
+                        vec2(x + r * 0.05, head.y - r * 0.25),
+                        vec2(x, head.y - r * 0.6 - (k % 2) as f32 * r * 0.15),
+                        c(rgba(190, 230, 255, 255)),
+                    );
+                }
+                let staff = p + vec2(r * 0.75, -r * 0.2);
+                draw_line(staff.x, staff.y + r * 1.1, staff.x, staff.y - r * 1.2, 3.0, c(rgba(200, 210, 225, 255)));
+                draw_circle(staff.x, staff.y - r * 1.3, r * 0.18, with_alpha(rgba(170, 220, 255, 255), a * (0.7 + 0.3 * (t * 3.0).sin())));
+            }
+            BossKind::Gardener => {
+                // A stooped gardener in a hat of thorns, apron of moss, great shears in hand.
+                let s = (t * 4.0).sin() * r * 0.12;
+                for (side, sw) in [(-1.0, s), (1.0, -s)] {
+                    limb(p + vec2(side * r * 0.3, r * 0.4), p + vec2(side * r * 0.35 + sw, r * 0.95), r * 0.2, c(rgba(60, 46, 34, 255)), true);
+                }
+                blob(p, r * 0.7, r * 0.85, 0.0, c(rgba(52, 76, 44, 255)), true);
+                draw_rectangle(p.x - r * 0.45, p.y - r * 0.3, r * 0.9, r * 0.9, c(rgba(70, 100, 56, 255)));
+                let head = p + vec2(0.0, -r * 1.0);
+                ball(head, r * 0.34, c(rgba(160, 130, 100, 255)), true);
+                draw_ellipse(head.x, head.y - r * 0.25, r * 0.7, r * 0.15, 0.0, c(rgba(40, 60, 34, 255)));
+                for k in 0..7 {
+                    let x = head.x - r * 0.6 + k as f32 * r * 0.2;
+                    draw_triangle(vec2(x - r * 0.04, head.y - r * 0.3), vec2(x + r * 0.04, head.y - r * 0.3), vec2(x, head.y - r * 0.48), c(rgba(30, 50, 26, 255)));
+                }
+                eyes(head + vec2(0.0, r * 0.05), r * 0.12, r * 0.06, with_alpha(rgba(180, 255, 140, 255), a));
+                let dir = self.heading(p);
+                let hand = p + vec2(if dir.x >= 0.0 { r * 0.75 } else { -r * 0.75 }, -r * 0.1);
+                let open = 0.25 + 0.25 * (t * 5.0).sin().abs();
+                let base = dir.to_angle();
+                for s2 in [-1.0, 1.0] {
+                    let b = hand + Vec2::from_angle(base + s2 * open) * r * 1.3;
+                    draw_line(hand.x, hand.y, b.x, b.y, 4.0, c(rgba(190, 190, 200, 255)));
+                }
+                draw_circle(hand.x, hand.y, r * 0.1, c(rgba(120, 90, 60, 255)));
+            }
+            _ => {}
+        }
     }
 }

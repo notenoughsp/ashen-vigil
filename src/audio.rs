@@ -837,15 +837,17 @@ impl Audio {
         }
         use crate::songs::{boss_songs, first_folder, FIELD_DIRS};
         let dir = |f: u8| FIELD_DIRS[(f as usize).min(FIELD_DIRS.len() - 1)];
+        let akin = |f: u8| crate::world::Biome::from_u8(f).akin() as u8;
         // Recorded songs first. A lord's song plays over the field's playlist, which goes on
         // quietly underneath and comes back once the lords have fallen.
         let playlist = match which {
             Music::Silence => None,
             Music::Menu => first_folder(&["menu", "graveyard"]),
-            Music::Vigil(f, _) => first_folder(&[dir(f)]),
+            // A newer field without songs of its own borrows those of the field it is akin to.
+            Music::Vigil(f, _) => first_folder(&[dir(f), dir(akin(f))]),
             Music::Lullaby => first_folder(&["lullaby"]),
             Music::Rush => first_folder(&["rush"]),
-            Music::Endless(f, _) => first_folder(&["endless", dir(f)]),
+            Music::Endless(f, _) => first_folder(&["endless", dir(f), dir(akin(f))]),
             // The playlist stays as it was.
             Music::Boss(..) => Some(String::new()),
         };

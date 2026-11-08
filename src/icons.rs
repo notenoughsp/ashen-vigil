@@ -39,6 +39,29 @@ fn darker(c: Color, k: f32) -> Color {
 }
 
 pub fn weapon_icon(kind: WeaponKind, c: Vec2, s: f32, col: Color) {
+    // A newer field's weapon: the shape of the weapon it fights like, in its own colour,
+    // with the mark of its element in the corner.
+    if kind.field() >= 3 {
+        weapon_icon(kind.twin(), c, s, col);
+        let m = c + vec2(0.3, -0.3) * s;
+        match kind.element() {
+            3 => {
+                draw_circle(m.x, m.y, 0.13 * s, Color::new(0.2, 0.05, 0.0, 0.9));
+                tri(m, s, vec2(-0.07, 0.07), vec2(0.07, 0.07), vec2(0.0, -0.11), Color::new(1.0, 0.55, 0.15, 1.0));
+            }
+            4 => {
+                for k in 0..3 {
+                    let d = Vec2::from_angle(k as f32 * PI / 3.0) * 0.11;
+                    line(m, s, -d, d, 0.035, Color::new(0.75, 0.9, 1.0, 1.0));
+                }
+            }
+            _ => {
+                circle(m, s, Vec2::ZERO, 0.08, Color::new(0.55, 0.25, 0.7, 1.0));
+                tri(m, s, vec2(-0.05, -0.06), vec2(0.05, -0.06), vec2(0.0, -0.15), Color::new(0.35, 0.6, 0.25, 1.0));
+            }
+        }
+        return;
+    }
     let dark = darker(col, 0.55);
     match kind {
         WeaponKind::Blade => {
@@ -266,6 +289,8 @@ pub fn weapon_icon(kind: WeaponKind, c: Vec2, s: f32, col: Color) {
             }
             circle(c, s, Vec2::ZERO, 0.1, dark);
         }
+        // Drawn above, as their twins.
+        _ => {}
     }
 }
 

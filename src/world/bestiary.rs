@@ -7,7 +7,7 @@
 use super::*;
 
 /// Everything the bestiary lists, in its order: the foes, the strangers, then the lords.
-pub const BEASTS: [EnemyKind; 27] = [
+pub const BEASTS: [EnemyKind; 40] = [
     EnemyKind::Hollow,
     EnemyKind::Ghoul,
     EnemyKind::Moth,
@@ -25,6 +25,16 @@ pub const BEASTS: [EnemyKind; 27] = [
     EnemyKind::Champion,
     EnemyKind::Rival,
     EnemyKind::Mimic(true),
+    EnemyKind::EmberWolf,
+    EnemyKind::BarkHusk,
+    EnemyKind::SmokeWraith,
+    EnemyKind::IceMonk,
+    EnemyKind::FrostCrow,
+    EnemyKind::FrozenKnight,
+    EnemyKind::ThornVine,
+    EnemyKind::Puppet,
+    EnemyKind::MothQueen,
+    EnemyKind::Statue,
     EnemyKind::Boss(BossKind::Gravewarden),
     EnemyKind::Boss(BossKind::Hound),
     EnemyKind::Boss(BossKind::Matriarch),
@@ -34,6 +44,9 @@ pub const BEASTS: [EnemyKind; 27] = [
     EnemyKind::Boss(BossKind::Seraph),
     EnemyKind::Boss(BossKind::Choir),
     EnemyKind::Boss(BossKind::Penitent),
+    EnemyKind::Boss(BossKind::BurntOak),
+    EnemyKind::Boss(BossKind::SnowAbbess),
+    EnemyKind::Boss(BossKind::Gardener),
     EnemyKind::Boss(BossKind::Sovereign),
 ];
 
@@ -64,6 +77,16 @@ pub fn beast_name(kind: EnemyKind) -> &'static str {
         EnemyKind::Rival => "Sven",
         EnemyKind::Mimic(_) => "Mimic",
         EnemyKind::Prop(_) => "Prop",
+        EnemyKind::EmberWolf => "Ember Wolf",
+        EnemyKind::BarkHusk => "Bark Husk",
+        EnemyKind::SmokeWraith => "Smoke Wraith",
+        EnemyKind::IceMonk => "Ice Monk",
+        EnemyKind::FrostCrow => "Frost Crow",
+        EnemyKind::FrozenKnight => "Frozen Knight",
+        EnemyKind::ThornVine => "Thorn Vine",
+        EnemyKind::Puppet => "Gardener's Puppet",
+        EnemyKind::MothQueen => "Moth Queen",
+        EnemyKind::Statue => "Watching Statue",
         EnemyKind::Boss(k) => k.name(),
     }
 }
@@ -97,6 +120,16 @@ pub fn beast_lore(kind: EnemyKind) -> &'static str {
         EnemyKind::Rival => "Another keeper of the vigil, gone wrong. He hates the unwounded.",
         EnemyKind::Mimic(_) => "Not every coffer wants to be opened.",
         EnemyKind::Prop(_) => "",
+        EnemyKind::EmberWolf => "The fire that took the forest still runs in packs.",
+        EnemyKind::BarkHusk => "A tree that walked out of the fire, and never stopped burning inside.",
+        EnemyKind::SmokeWraith => "Breathe it in and it learns your name.",
+        EnemyKind::IceMonk => "His vow of silence froze with him.",
+        EnemyKind::FrostCrow => "They peck at the windows of the abbey, asking to be let in.",
+        EnemyKind::FrozenKnight => "Strike it and the winter inside comes out.",
+        EnemyKind::ThornVine => "The roses grew teeth when the stars went out.",
+        EnemyKind::Puppet => "It still trims the hedges. And anything else that grows.",
+        EnemyKind::MothQueen => "Every moth in the garden answers her.",
+        EnemyKind::Statue => "It never moves. Not while you are looking.",
         EnemyKind::Boss(k) => k.title(),
     }
 }

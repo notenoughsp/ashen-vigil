@@ -28,7 +28,7 @@ const ALTAR_STAY: f32 = 60.0;
 /// The courier gets away after this long.
 const COURIER_ESCAPE: f32 = 35.0;
 /// How long the mist lasts if its champion is not felled.
-const MIST_LENGTH: f32 = 90.0;
+pub const MIST_LENGTH: f32 = 90.0;
 /// Seconds without a wound before a rival comes for that hero.
 pub const RIVAL_AFTER: f32 = 100.0;
 const RIVAL_STAY: f32 = 90.0;
@@ -89,7 +89,7 @@ pub const HOURGLASS_SKIP: (f32, f32) = (60.0, 300.0);
 /// When the sand runs past a lord, it comes this long after, with a warning all the while.
 pub const LORD_AFTER_SKIP: f32 = 15.0;
 pub const HOURGLASS_KINDLE: f32 = 1.5;
-const HOURGLASS_STAY: f32 = 45.0;
+pub const HOURGLASS_STAY: f32 = 45.0;
 
 /// An hourglass shrine: stand on it and the night moves on.
 pub struct Hourglass {
@@ -120,6 +120,8 @@ pub enum Weather {
     AshRain,
     /// Foes are slower, souls richer, the light shorter.
     GraveMist,
+    /// The Frozen Abbey's: foes wade slower, and what is struck is chilled.
+    Blizzard,
 }
 
 impl Weather {
@@ -127,6 +129,7 @@ impl Weather {
         match self {
             Weather::AshRain => "Ash rain",
             Weather::GraveMist => "Grave mist",
+            Weather::Blizzard => "Blizzard",
         }
     }
 
@@ -134,6 +137,7 @@ impl Weather {
         match self {
             Weather::AshRain => "fire burns 40% hotter",
             Weather::GraveMist => "foes wade slower, souls are richer, the light is short",
+            Weather::Blizzard => "foes wade slower and are chilled when struck",
         }
     }
 
@@ -141,6 +145,7 @@ impl Weather {
         match v {
             1 => Some(Weather::AshRain),
             2 => Some(Weather::GraveMist),
+            3 => Some(Weather::Blizzard),
             _ => None,
         }
     }
@@ -150,6 +155,7 @@ impl Weather {
             None => 0,
             Some(Weather::AshRain) => 1,
             Some(Weather::GraveMist) => 2,
+            Some(Weather::Blizzard) => 3,
         }
     }
 }
@@ -157,7 +163,7 @@ impl Weather {
 impl WeaponKind {
     /// Weapons that burn, for the ash rain.
     pub fn is_fire(self) -> bool {
-        matches!(self, WeaponKind::Orb | WeaponKind::Hex | WeaponKind::Candles | WeaponKind::Censer)
+        self.element() == 3 || matches!(self, WeaponKind::Orb | WeaponKind::Hex | WeaponKind::Candles | WeaponKind::Censer)
     }
 }
 
@@ -309,7 +315,14 @@ impl World {
                 self.toast(&format!("The {} passes.", name.to_lowercase()));
             }
         } else if t >= self.next_weather {
-            let w = if chance(0.5) { Weather::AshRain } else { Weather::GraveMist };
+            // Each field has the weather that suits it.
+            let w = match self.biome {
+                Biome::Ashwood => Weather::AshRain,
+                Biome::Abbey => Weather::Blizzard,
+                Biome::Garden => Weather::GraveMist,
+                _ if chance(0.5) => Weather::AshRain,
+                _ => Weather::GraveMist,
+            };
             let left = gen_range(120.0, 180.0);
             self.weather = Some((w, left));
             self.next_weather = t + left + gen_range(240.0, 360.0);

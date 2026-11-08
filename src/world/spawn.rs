@@ -40,6 +40,16 @@ impl World {
             EnemyKind::Rival => (500.0, 165.0, 22.0, 30.0),
             EnemyKind::Mimic(_) => (300.0, 150.0, 20.0, 25.0),
             EnemyKind::Prop(_) => (30.0, 0.0, 0.0, 0.0),
+            EnemyKind::EmberWolf => (14.0, 150.0, 7.0, 1.5),
+            EnemyKind::BarkHusk => (150.0, 38.0, 16.0, 8.0),
+            EnemyKind::SmokeWraith => (22.0, 115.0, 9.0, 3.0),
+            EnemyKind::IceMonk => (30.0, 60.0, 7.0, 3.0),
+            EnemyKind::FrostCrow => (6.0, 150.0, 4.0, 0.6),
+            EnemyKind::FrozenKnight => (130.0, 42.0, 18.0, 8.0),
+            EnemyKind::ThornVine => (40.0, 28.0, 8.0, 3.0),
+            EnemyKind::Puppet => (60.0, 70.0, 14.0, 5.0),
+            EnemyKind::MothQueen => (70.0, 50.0, 8.0, 6.0),
+            EnemyKind::Statue => (260.0, 175.0, 24.0, 10.0),
             EnemyKind::Boss(_) => (1000.0, 80.0, 25.0, 0.0),
         };
         let r = kind.radius(false);
@@ -109,7 +119,21 @@ impl World {
             (EnemyKind::Leech, 3.0, 3.0),
             (EnemyKind::Banshee, 7.0, 1.6),
             (EnemyKind::Gargoyle, 9.0, 2.0),
+            (EnemyKind::EmberWolf, 1.0, 5.0),
+            (EnemyKind::BarkHusk, 6.0, 2.5),
+            (EnemyKind::SmokeWraith, 4.0, 3.0),
+            (EnemyKind::IceMonk, 2.0, 3.0),
+            (EnemyKind::FrostCrow, 1.0, 4.0),
+            (EnemyKind::FrozenKnight, 7.0, 2.5),
+            (EnemyKind::ThornVine, 1.0, 3.0),
+            (EnemyKind::Puppet, 4.0, 3.0),
+            (EnemyKind::MothQueen, 8.0, 1.0),
+            (EnemyKind::Statue, 3.0, 0.6),
         ] {
+            // Statues are few: a handful at a time, so each one matters.
+            if kind == EnemyKind::Statue && self.enemies.iter().filter(|e| e.kind == EnemyKind::Statue && !e.dead).count() >= 6 {
+                continue;
+            }
             // Some foes feel at home on some fields and arrive earlier there.
             let w = self.biome.weight(kind);
             let from = if w > 1.0 { from * 0.5 } else { from };
@@ -209,7 +233,8 @@ impl World {
                 clamp_world(at + rand_dir() * self.spawn_ring_dist(), 120.0)
             });
             for _ in 0..(((14.0 + m) * self.diff.at(self.time).count) as usize).min(self.enemy_room()) {
-                let e = self.make_enemy(EnemyKind::Moth, base + rand_dir() * gen_range(0.0, 60.0));
+                let kind = if self.biome == Biome::Abbey { EnemyKind::FrostCrow } else { EnemyKind::Moth };
+                let e = self.make_enemy(kind, base + rand_dir() * gen_range(0.0, 60.0));
                 self.enemies.push(e);
             }
         }
@@ -343,6 +368,9 @@ impl World {
             BossKind::BogMother => (60.0, 26.0),
             BossKind::Penitent => (75.0, 28.0),
             BossKind::Choir => (0.0, 20.0),
+            BossKind::BurntOak => (32.0, 30.0),
+            BossKind::SnowAbbess => (80.0, 22.0),
+            BossKind::Gardener => (95.0, 24.0),
             BossKind::Seraph => (120.0, 24.0),
             BossKind::Hound => (190.0, 22.0),
         };
@@ -421,5 +449,8 @@ pub fn boss_voice(kind: BossKind) -> Color {
         BossKind::Choir => Color::from_rgba(230, 200, 255, 255),
         BossKind::Seraph => Color::from_rgba(200, 205, 215, 255),
         BossKind::Hound => Color::from_rgba(230, 220, 220, 255),
+        BossKind::BurntOak => Color::from_rgba(255, 150, 80, 255),
+        BossKind::SnowAbbess => Color::from_rgba(190, 225, 255, 255),
+        BossKind::Gardener => Color::from_rgba(170, 220, 140, 255),
     }
 }

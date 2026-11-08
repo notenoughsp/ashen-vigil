@@ -2,6 +2,7 @@
 
 mod actors;
 mod events;
+mod fields;
 mod ground;
 mod light;
 
@@ -799,7 +800,7 @@ impl World {
             draw_ellipse(p.x, p.y + 6.0, 20.0, 6.0, 0.0, rgba(0, 0, 0, 120));
             let iron = rgba(46, 42, 40, 255);
             let top = match self.biome {
-                Biome::Graveyard => {
+                Biome::Graveyard | Biome::Ashwood | Biome::Garden => {
                     // A bowl on three legs.
                     for dx in [-10.0, 0.0, 10.0] {
                         draw_line(p.x + dx, p.y + 4.0, p.x + dx * 0.4, p.y - 14.0, 2.5, iron);
@@ -818,7 +819,7 @@ impl World {
                     draw_ellipse(p.x, p.y - 21.0, 11.0, 4.0, 0.0, rgba(60, 4, 8, 255));
                     p + vec2(0.0, -22.0)
                 }
-                Biome::Cathedral => {
+                Biome::Cathedral | Biome::Abbey => {
                     // A tall golden candelabrum with three candles.
                     draw_line(p.x, p.y + 4.0, p.x, p.y - 40.0, 3.0, rgba(196, 160, 80, 255));
                     draw_line(p.x - 12.0, p.y - 34.0, p.x + 12.0, p.y - 34.0, 2.5, rgba(196, 160, 80, 255));
@@ -985,6 +986,9 @@ impl World {
             EnemyKind::Shieldbearer => (p + vec2(-dir.x * r * 0.15, -r * 0.85) + dir * r * 0.12, r * 0.12, rgba(255, 90, 40, 255)),
             EnemyKind::Necromancer => (p + vec2(fx * r * 0.1, -r * 0.85 + (t * 2.0).sin() * r * 0.15), r * 0.12, rgba(120, 255, 140, 255)),
             EnemyKind::Leech | EnemyKind::Mimic(_) | EnemyKind::Prop(_) => return None,
+            EnemyKind::EmberWolf | EnemyKind::BarkHusk | EnemyKind::SmokeWraith | EnemyKind::Statue => (p - vec2(0.0, r * 0.9), r * 0.12, rgba(255, 130, 40, 255)),
+            EnemyKind::IceMonk | EnemyKind::FrostCrow | EnemyKind::FrozenKnight => (p - vec2(0.0, r * 0.9), r * 0.1, rgba(170, 225, 255, 255)),
+            EnemyKind::ThornVine | EnemyKind::Puppet | EnemyKind::MothQueen => (p - vec2(0.0, r * 0.7), r * 0.1, rgba(200, 255, 140, 255)),
             EnemyKind::Courier => (p + vec2(fx * r * 0.2, -r * 0.85), r * 0.1, rgba(255, 220, 120, 255)),
             EnemyKind::Champion => (p + vec2(fx * r * 0.18, -r * 1.0), r * 0.1, rgba(210, 230, 255, 255)),
             EnemyKind::Rival => (p + vec2(fx * r * 0.15, -r * 0.95), r * 0.12, rgba(255, 50, 40, 255)),
@@ -1223,7 +1227,7 @@ impl World {
         }
         self.faded(&cam, |w| {
             for hero in w.heroes.iter().filter(|h| !h.downed) {
-                let evo = hero.weapons.iter().any(|w| w.has(WeaponKind::Lanterns) && (w.evolved || w.is_fused()));
+                let evo = hero.weapons.iter().any(|w| w.has_like(WeaponKind::Lanterns) && (w.evolved || w.is_fused()));
                 let c = if evo { rgba(140, 255, 230, 255) } else { rgba(120, 200, 255, 255) };
                 for (p, r) in hero.lantern_positions() {
                     glow(p, r * 0.55, c, 1.2);

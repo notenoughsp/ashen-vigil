@@ -93,7 +93,9 @@ impl World {
         let c = match self.biome {
             Biome::Graveyard => Color::from_rgba(120, 116, 110, 255),
             Biome::Cathedral => Color::from_rgba(150, 110, 70, 255),
-            Biome::Flesh => Color::from_rgba(140, 40, 50, 255),
+            Biome::Flesh | Biome::Garden => Color::from_rgba(140, 40, 50, 255),
+            Biome::Ashwood => Color::from_rgba(60, 50, 44, 255),
+            Biome::Abbey => Color::from_rgba(200, 225, 240, 255),
         };
         self.blood_spray(pos, Vec2::ZERO, c, 14.0, 10);
         let sound = if self.biome == Biome::Flesh || v == 1 { "hit" } else { "clang" };

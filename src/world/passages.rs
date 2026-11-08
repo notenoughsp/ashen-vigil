@@ -15,12 +15,12 @@ use super::*;
 
 /// When the ash gate opens (seconds into a vigil) and how long it stays.
 const GATE_AT: [f32; 2] = [750.0, 1350.0];
-const GATE_STAY: f32 = 60.0;
+pub const GATE_STAY: f32 = 60.0;
 pub const GATE_RADIUS: f32 = 60.0;
 pub const GATE_KINDLE: f32 = 3.0;
 
 /// The rift: how long it waits to be entered, the chamber's size and how long it holds.
-const RIFT_STAY: f32 = 40.0;
+pub const RIFT_STAY: f32 = 40.0;
 pub const RIFT_KINDLE: f32 = 1.5;
 pub const CHAMBER_RADIUS: f32 = 300.0;
 pub const CHAMBER_TIME: f32 = 30.0;
@@ -28,7 +28,7 @@ pub const CHAMBER_TIME: f32 = 30.0;
 const CHAMBER_WAVE: f32 = 5.0;
 
 /// The portal opens once a vigil (between 11:00 and 18:00) and waits this long.
-const PORTAL_STAY: f32 = 45.0;
+pub const PORTAL_STAY: f32 = 45.0;
 pub const PORTAL_RADIUS: f32 = 60.0;
 pub const PORTAL_KINDLE: f32 = 2.0;
 

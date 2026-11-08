@@ -308,6 +308,12 @@ impl World {
             Biome::Cathedral => Color::new(0.62, 0.58, 0.52, 1.0),
             // A red, close dark.
             Biome::Flesh => Color::new(0.5, 0.27, 0.27, 1.0),
+            // Embers glow through a smoky dark.
+            Biome::Ashwood => Color::new(0.4, 0.3, 0.26, 1.0),
+            // Snow throws the little light back: a cold, pale night.
+            Biome::Abbey => Color::new(0.5, 0.56, 0.66, 1.0),
+            // No stars at all.
+            Biome::Garden => Color::new(0.32, 0.3, 0.42, 1.0),
         };
         let (base, moon) = if self.cute { (AMBIENT_CUTE, Color::new(0.85, 0.5, 0.7, 1.0)) } else { (field, Color::new(0.34, 0.08, 0.08, 1.0)) };
         // The mist and the grave mist darken the night.

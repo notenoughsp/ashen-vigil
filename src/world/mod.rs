@@ -15,6 +15,8 @@ mod events;
 mod fx;
 mod hero;
 pub use bestiary::*;
+mod fields;
+pub use fields::*;
 mod passages;
 mod pings;
 mod usurper;
@@ -159,6 +161,9 @@ pub enum BossKind {
     Choir,
     Seraph,
     Hound,
+    BurntOak,
+    SnowAbbess,
+    Gardener,
 }
 
 /// The field a vigil is kept on: its floor, its props, its foes and its lords.
@@ -168,9 +173,12 @@ pub enum Biome {
     Graveyard,
     Cathedral,
     Flesh,
+    Ashwood,
+    Abbey,
+    Garden,
 }
 
-pub const ALL_BIOMES: [Biome; 3] = [Biome::Graveyard, Biome::Cathedral, Biome::Flesh];
+pub const ALL_BIOMES: [Biome; 6] = [Biome::Graveyard, Biome::Cathedral, Biome::Flesh, Biome::Ashwood, Biome::Abbey, Biome::Garden];
 
 impl Biome {
     pub fn name(self) -> &'static str {
@@ -178,6 +186,23 @@ impl Biome {
             Biome::Graveyard => "The Graveyard",
             Biome::Cathedral => "The Hallowed Cathedral",
             Biome::Flesh => "The Flesh Pits",
+            Biome::Ashwood => "The Ashwood",
+            Biome::Abbey => "The Frozen Abbey",
+            Biome::Garden => "The Starless Garden",
+        }
+    }
+
+    /// The arsenal this field's level-ups draw from (see `data::ALL_WEAPONS`).
+    pub fn arsenal(self) -> usize {
+        self as usize
+    }
+
+    /// The older field a newer one is akin to, whose songs it borrows while it has none.
+    pub fn akin(self) -> usize {
+        match self {
+            Biome::Graveyard | Biome::Ashwood => 0,
+            Biome::Cathedral | Biome::Abbey => 1,
+            Biome::Flesh | Biome::Garden => 2,
         }
     }
 
@@ -186,6 +211,9 @@ impl Biome {
             Biome::Graveyard => "Old stones, older dead. Archers and the restless.",
             Biome::Cathedral => "Light through coloured glass. Zealots, knights and gargoyles.",
             Biome::Flesh => "Living ground and rivers of blood. Leeches, ghouls and bloated things.",
+            Biome::Ashwood => "A burnt forest on smouldering ground. Embers burn all who stand in them. Ember wolves, bark husks, smoke wraiths.",
+            Biome::Abbey => "A cloister in endless winter. Heroes slide on its ice, and blizzards freeze what they strike. Ice monks, frost crows, frozen knights.",
+            Biome::Garden => "Hedges under a sky without stars. Its statues move only while no one looks. Thorn vines, gardener puppets, moth queens.",
         }
     }
 
@@ -200,6 +228,9 @@ impl Biome {
             Biome::Graveyard => [Gravewarden, Hound, Matriarch, BogMother, Hermit],
             Biome::Cathedral => [Seraph, Choir, Hermit, Penitent, Bride],
             Biome::Flesh => [Matriarch, Hound, Bride, BogMother, Penitent],
+            Biome::Ashwood => [Hound, Gravewarden, BurntOak, Penitent, Matriarch],
+            Biome::Abbey => [Seraph, Hermit, SnowAbbess, Choir, Bride],
+            Biome::Garden => [Matriarch, Bride, Gardener, Hound, BogMother],
         }
     }
 
@@ -213,20 +244,31 @@ impl Biome {
             (Biome::Cathedral, Ghoul | Leech) => 0.5,
             (Biome::Flesh, Ghoul | Bloat | Leech) => 1.8,
             (Biome::Flesh, Archer | Banshee | Gargoyle) => 0.5,
+            // Each newer field's own foes live there and nowhere else.
+            (Biome::Ashwood, EmberWolf | BarkHusk | SmokeWraith) => 1.8,
+            (Biome::Abbey, IceMonk | FrostCrow | FrozenKnight) => 1.8,
+            (Biome::Garden, ThornVine | Puppet | MothQueen | Statue) => 1.8,
+            (_, EmberWolf | BarkHusk | SmokeWraith | IceMonk | FrostCrow | FrozenKnight | ThornVine | Puppet | MothQueen | Statue) => 0.0,
+            (Biome::Ashwood, Wraith | Moth | Leech) => 0.4,
+            (Biome::Abbey, Ghoul | Leech | Bloat) => 0.4,
+            (Biome::Garden, Archer | Knight | Leech) => 0.4,
             _ => 1.0,
         }
     }
 }
 
 /// Every lord; a boss rush meets them in this order, the Sovereign last.
-pub const ALL_LORDS: [BossKind; 10] = [
+pub const ALL_LORDS: [BossKind; 13] = [
     BossKind::Gravewarden,
     BossKind::Hound,
     BossKind::Matriarch,
+    BossKind::BurntOak,
     BossKind::BogMother,
     BossKind::Bride,
+    BossKind::SnowAbbess,
     BossKind::Hermit,
     BossKind::Seraph,
+    BossKind::Gardener,
     BossKind::Choir,
     BossKind::Penitent,
     BossKind::Sovereign,
@@ -246,6 +288,9 @@ impl BossKind {
             BossKind::Choir => "choir",
             BossKind::Seraph => "seraph",
             BossKind::Hound => "hound",
+            BossKind::BurntOak => "burntoak",
+            BossKind::SnowAbbess => "snowabbess",
+            BossKind::Gardener => "gardener",
         }
     }
 
@@ -261,6 +306,9 @@ impl BossKind {
             BossKind::Choir => "The Hollow Choir",
             BossKind::Seraph => "The Stone Seraph",
             BossKind::Hound => "The Pale Hound",
+            BossKind::BurntOak => "The Burnt Oak",
+            BossKind::SnowAbbess => "The Snow Abbess",
+            BossKind::Gardener => "The Gardener",
         }
     }
 
@@ -276,6 +324,9 @@ impl BossKind {
             BossKind::Choir => "Three Voices, No Throat",
             BossKind::Seraph => "Fallen Guardian of the Bell Tower",
             BossKind::Hound => "The Hunger That Follows Footsteps",
+            BossKind::BurntOak => "Root of the Forest That Burned",
+            BossKind::SnowAbbess => "Mother of the Long Winter",
+            BossKind::Gardener => "Keeper of the Hedges Without Stars",
         }
     }
 
@@ -296,6 +347,9 @@ impl BossKind {
             BossKind::Choir => ["We sing for the dead. Now we sing for you.", "Louder! LOUDER!", "Our last hymn is your name.", "...and the silence... is beautiful..."],
             BossKind::Seraph => ["The tower fell... I did not.", "Stone does not tire, little flame.", "", "...crumbling... like the rest..."],
             BossKind::Hound => ["*sniffing* ...fresh...", "*a howl that shakes the stones*", "", "*a last whimper*"],
+            BossKind::BurntOak => ["Every ring of me remembers the fire.", "Then burn with me!", "", "...ash... returns to the soil..."],
+            BossKind::SnowAbbess => ["Kneel, child. The winter hears confession.", "Your breath is a sin. I will still it.", "", "...spring... at last..."],
+            BossKind::Gardener => ["Mind the hedges. They mind you.", "You trampled my roses!", "", "...who will tend... the garden..."],
         }
     }
 
@@ -342,6 +396,26 @@ pub enum EnemyKind {
     /// A breakable thing on the field (see `props`), variant 0 to 2; what it looks like
     /// depends on the field.
     Prop(u8),
+    /// The Ashwood: a wolf of embers that hunts in packs and leaps.
+    EmberWolf,
+    /// The Ashwood: a husk of burnt bark, slow and hard to fell.
+    BarkHusk,
+    /// The Ashwood: smoke in a shape, fading in and out; it bursts into embers.
+    SmokeWraith,
+    /// The Frozen Abbey: a monk who keeps away and throws shards of ice.
+    IceMonk,
+    /// The Frozen Abbey: a crow of frost, in flocks.
+    FrostCrow,
+    /// The Frozen Abbey: a knight frozen in its armour; it shatters into shards.
+    FrozenKnight,
+    /// The Starless Garden: a creeping vine that spits thorns.
+    ThornVine,
+    /// The Starless Garden: a gardener's puppet that charges with its shears.
+    Puppet,
+    /// The Starless Garden: a great moth that keeps away and calls moths.
+    MothQueen,
+    /// The Starless Garden: a statue that moves only while no hero looks at it.
+    Statue,
     Boss(BossKind),
 }
 
@@ -366,9 +440,20 @@ impl EnemyKind {
             EnemyKind::Rival => 25,
             EnemyKind::Mimic(awake) => 26 + awake as u8,
             EnemyKind::Prop(v) => 28 + v.min(2),
+            EnemyKind::EmberWolf => 31,
+            EnemyKind::BarkHusk => 32,
+            EnemyKind::SmokeWraith => 33,
+            EnemyKind::IceMonk => 34,
+            EnemyKind::FrostCrow => 35,
+            EnemyKind::FrozenKnight => 36,
+            EnemyKind::ThornVine => 37,
+            EnemyKind::Puppet => 38,
+            EnemyKind::MothQueen => 39,
+            EnemyKind::Statue => 40,
             // The first four lords keep their old numbers.
             EnemyKind::Boss(b) if (b as u8) < 4 => 7 + b as u8,
-            EnemyKind::Boss(b) => 10 + b as u8,
+            EnemyKind::Boss(b) if (b as u8) < 10 => 10 + b as u8,
+            EnemyKind::Boss(b) => 100 + b as u8,
         }
     }
 
@@ -393,6 +478,17 @@ impl EnemyKind {
             26 => EnemyKind::Mimic(false),
             27 => EnemyKind::Mimic(true),
             28..=30 => EnemyKind::Prop(v - 28),
+            31 => EnemyKind::EmberWolf,
+            32 => EnemyKind::BarkHusk,
+            33 => EnemyKind::SmokeWraith,
+            34 => EnemyKind::IceMonk,
+            35 => EnemyKind::FrostCrow,
+            36 => EnemyKind::FrozenKnight,
+            37 => EnemyKind::ThornVine,
+            38 => EnemyKind::Puppet,
+            39 => EnemyKind::MothQueen,
+            40 => EnemyKind::Statue,
+            100..=120 => EnemyKind::Boss(BossKind::from_u8(v - 100)),
             7..=10 => EnemyKind::Boss(BossKind::from_u8(v - 7)),
             14..=19 => EnemyKind::Boss(BossKind::from_u8(v - 10)),
             _ => EnemyKind::Hollow,
@@ -420,6 +516,19 @@ impl EnemyKind {
             EnemyKind::Rival => 13.0,
             EnemyKind::Mimic(_) => 15.0,
             EnemyKind::Prop(_) => 14.0,
+            EnemyKind::EmberWolf => 11.0,
+            EnemyKind::BarkHusk => 18.0,
+            EnemyKind::SmokeWraith => 12.0,
+            EnemyKind::IceMonk => 12.0,
+            EnemyKind::FrostCrow => 7.0,
+            EnemyKind::FrozenKnight => 16.0,
+            EnemyKind::ThornVine => 13.0,
+            EnemyKind::Puppet => 13.0,
+            EnemyKind::MothQueen => 16.0,
+            EnemyKind::Statue => 15.0,
+            EnemyKind::Boss(BossKind::BurntOak) => 54.0,
+            EnemyKind::Boss(BossKind::SnowAbbess) => 40.0,
+            EnemyKind::Boss(BossKind::Gardener) => 42.0,
             EnemyKind::Boss(BossKind::Gravewarden) => 44.0,
             EnemyKind::Boss(BossKind::Matriarch) => 38.0,
             EnemyKind::Boss(BossKind::Hermit) => 34.0,
@@ -440,7 +549,10 @@ impl EnemyKind {
 
     /// Only these fade in and out, so only they send an alpha.
     pub fn has_alpha(self) -> bool {
-        matches!(self, EnemyKind::Wraith | EnemyKind::Banshee | EnemyKind::Boss(BossKind::Hermit | BossKind::Choir | BossKind::Seraph | BossKind::BogMother))
+        matches!(
+            self,
+            EnemyKind::Wraith | EnemyKind::Banshee | EnemyKind::SmokeWraith | EnemyKind::Boss(BossKind::Hermit | BossKind::Choir | BossKind::Seraph | BossKind::BogMother)
+        )
     }
 
     /// What comes out when it is cut.
@@ -453,6 +565,13 @@ impl EnemyKind {
             EnemyKind::Gargoyle => Color::from_rgba(110, 108, 104, 255),
             EnemyKind::Banshee => Color::from_rgba(150, 170, 200, 255),
             EnemyKind::Leech => Color::from_rgba(90, 10, 20, 255),
+            EnemyKind::EmberWolf | EnemyKind::SmokeWraith => Color::from_rgba(80, 70, 66, 255),
+            EnemyKind::BarkHusk => Color::from_rgba(70, 50, 34, 255),
+            EnemyKind::IceMonk | EnemyKind::FrostCrow | EnemyKind::FrozenKnight => Color::from_rgba(150, 200, 235, 255),
+            EnemyKind::ThornVine => Color::from_rgba(60, 100, 40, 255),
+            EnemyKind::Puppet => Color::from_rgba(120, 100, 80, 255),
+            EnemyKind::MothQueen => Color::from_rgba(150, 140, 110, 255),
+            EnemyKind::Statue => Color::from_rgba(110, 108, 104, 255),
             _ => Color::from_rgba(120, 8, 10, 255),
         }
     }
@@ -1133,6 +1252,9 @@ pub struct World {
     pub mutators: [u8; ALL_MUTATORS.len()],
     pub(crate) next_mutator: f32,
     pub(crate) prop_timer: f32,
+    pub(crate) ember_tick: f32,
+    /// Damage over time is being dealt: it lays no element of its own.
+    pub(crate) dot_tick: bool,
     pub runes: Vec<TeleRune>,
     pub props_broken: u32,
     pub runes_used: u32,
@@ -1315,6 +1437,8 @@ impl World {
             mutators: [0; ALL_MUTATORS.len()],
             next_mutator: 0.0,
             prop_timer: 0.0,
+            ember_tick: 0.0,
+            dot_tick: false,
             runes: Vec::new(),
             props_broken: 0,
             runes_used: 0,
@@ -1343,7 +1467,7 @@ impl World {
         let mut h = Hero::new(slot, name, class, profile);
         h.remote = remote;
         // The cathedral has an arsenal of its own.
-        h.arm_for(self.biome as usize);
+        h.arm_for(self.biome.arsenal());
         self.heroes.push(h);
         self.heroes.sort_by_key(|h| h.slot);
         self.heroes.iter().position(|h| h.slot == slot).unwrap()
@@ -1388,6 +1512,7 @@ impl World {
     pub fn fit_field(&mut self) {
         let half = self.half();
         FIELD_HALF.with(|h| h.set(half));
+        set_field_biome(self.biome);
         let spots = brazier_spots();
         if self.braziers.len() == spots.len() && self.braziers.iter().zip(&spots).all(|(b, s)| b.pos == *s) {
             return;
@@ -1693,6 +1818,7 @@ impl World {
         self.update_duos(dt);
         self.update_mutators();
         self.update_props(dt);
+        self.update_field_hazards(dt);
         self.update_pings(dt);
         self.update_burden();
         self.boss_hp = match &self.boss {

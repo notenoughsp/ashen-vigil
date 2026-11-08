@@ -9,6 +9,7 @@ impl World {
             Biome::Graveyard => self.draw_lost_grave(t),
             Biome::Cathedral => self.draw_fallen_bell(t),
             Biome::Flesh => self.draw_beating_heart(t),
+            Biome::Ashwood | Biome::Abbey | Biome::Garden => {}
         }
         self.draw_altars(t);
         self.draw_hourglass(t);
@@ -268,6 +269,9 @@ impl World {
             Biome::Graveyard => Color::new(0.55, 0.75, 0.6, 1.0),
             Biome::Cathedral => Color::new(0.95, 0.8, 0.45, 1.0),
             Biome::Flesh => Color::new(0.9, 0.3, 0.35, 1.0),
+            Biome::Ashwood => Color::new(1.0, 0.5, 0.2, 1.0),
+            Biome::Abbey => Color::new(0.7, 0.88, 1.0, 1.0),
+            Biome::Garden => Color::new(0.6, 0.45, 0.9, 1.0),
         };
         draw_circle(p.x, p.y, PORTAL_RADIUS + 24.0, with_alpha(tint, 0.08));
         draw_ellipse(p.x, p.y + 30.0, 46.0, 10.0, 0.0, rgba(0, 0, 0, 130));

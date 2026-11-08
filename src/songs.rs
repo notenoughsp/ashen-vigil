@@ -16,7 +16,7 @@ use std::thread::JoinHandle;
 
 include!(concat!(env!("OUT_DIR"), "/music_files.rs"));
 
-pub const FIELD_DIRS: [&str; 3] = ["graveyard", "cathedral", "flesh"];
+pub const FIELD_DIRS: [&str; 6] = ["graveyard", "cathedral", "flesh", "ashwood", "abbey", "garden"];
 
 /// One recorded song: where it was found and its bytes.
 pub struct SongFile {
@@ -458,7 +458,11 @@ impl Player {
 /// The songs for one lord, e.g. "bride": its own folder "boss/bride", else the field's
 /// "<field>/boss", else the shared "boss".
 pub fn boss_songs(field: usize, lord: &str) -> Vec<usize> {
-    [format!("boss/{}", lord), format!("{}/boss", FIELD_DIRS[field.min(2)]), "boss".to_string()].iter().map(|d| folder(d)).find(|s| !s.is_empty()).unwrap_or_default()
+    [format!("boss/{}", lord), format!("{}/boss", FIELD_DIRS[field.min(FIELD_DIRS.len() - 1)]), "boss".to_string()]
+        .iter()
+        .map(|d| folder(d))
+        .find(|s| !s.is_empty())
+        .unwrap_or_default()
 }
 
 /// The first of these folders with songs in it.

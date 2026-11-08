@@ -28,7 +28,7 @@ const MAX_SNAPSHOT: usize = 1 << 20;
 #[derive(Default)]
 struct Baseline {
     /// Enemy id -> (kind and rank bits, x, y) as sent.
-    enemies: HashMap<u16, (u8, i16, i16)>,
+    enemies: HashMap<u16, (u16, i16, i16)>,
     /// Hero slot -> the hero's slow and fast parts as sent.
     heroes: HashMap<u8, (Vec<u8>, Vec<u8>)>,
     /// Pickup id -> (kind, value or life, x, y) as sent.
@@ -547,8 +547,8 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         let id = en.id as u16;
         e.w.varint(id.wrapping_sub(last_id) as u32);
         last_id = id;
-        // Five bits of kind (there are more than sixteen), then elite and boss.
-        let code = en.kind.to_u8() | (en.elite as u8) << 5 | (en.boss as u8) << 6;
+        // A byte of kind, then elite and boss.
+        let code = en.kind.to_u8() as u16 | (en.elite as u16) << 8 | (en.boss as u16) << 9;
         // A lit cultist bomb blinks through the flash bit.
         let blink = en.fuse > 0.0 && (en.fuse * 12.0) as i32 % 2 == 0;
         let live = (en.burn > 0.0) as u8 | ((en.flash > 0.0 || blink) as u8) << 1;
@@ -561,7 +561,7 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
             }
             _ => {
                 e.w.u8(live | 0x80);
-                e.w.u8(code);
+                e.w.u16(code);
                 e.w.i16(x);
                 e.w.i16(y);
             }
@@ -1101,7 +1101,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         id = id.wrapping_add(d.r.varint() as u16);
         let live = d.r.u8();
         let (code, x, y) = if live & 0x80 != 0 {
-            (d.r.u8(), d.r.i16(), d.r.i16())
+            (d.r.u16(), d.r.i16(), d.r.i16())
         } else {
             let &(code, bx, by) = base.enemies.get(&id)?;
             let x = bx as i32 + unzigzag(d.r.varint());
@@ -1109,8 +1109,8 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             (code, x.clamp(-32000, 32000) as i16, y.clamp(-32000, 32000) as i16)
         };
         next.enemies.insert(id, (code, x, y));
-        let kind = EnemyKind::from_u8(code & 31);
-        let elite = code & 32 != 0;
+        let kind = EnemyKind::from_u8((code & 0xff) as u8);
+        let elite = code & 0x100 != 0;
         let pos = vec2(x as f32, y as f32);
         let alpha = if kind.has_alpha() { d.r.u8() as f32 / 255.0 } else { 1.0 };
         let affix = if elite { Affix::from_u8(d.r.u8()) } else { Affix::None };
@@ -1137,7 +1137,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             burn_src: Src { hero: 0, weapon: WeaponKind::Blade },
             timer: 0.0,
             elite,
-            boss: code & 64 != 0,
+            boss: code & 0x200 != 0,
             dead: false,
             phase: (id % 628) as f32 / 100.0,
             alpha,

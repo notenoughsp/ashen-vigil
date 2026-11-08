@@ -345,7 +345,7 @@ fn map_events_come_and_go() {
     let mut saw_moon = false;
     let mut saw_curse = false;
     let mut saw_merchant = false;
-    let mut kinds = [false; 32];
+    let mut kinds = [false; 256];
     let peaks = simulate(&mut w, 1200.0, true, |w, _| {
         saw_moon |= w.blood_moon > 0.0;
         saw_curse |= w.cursed.is_some();
@@ -991,7 +991,7 @@ fn cute_mode_softens_the_red() {
 #[test]
 fn every_weapon_ends_as_the_last_flame() {
     // Each field's arsenal ends in its own last weapon.
-    for (field, name) in [(0, LAST_FLAME), (1, LAST_HYMN), (2, LAST_GOD)] {
+    for (field, name) in [(0, LAST_FLAME), (1, LAST_HYMN), (2, LAST_GOD), (3, LAST_GROVE), (4, LAST_WINTER), (5, LAST_BLOOM)] {
         let mut w = world_with(1, PRESETS[1].1);
         w.heroes[0].arm_for(field);
         w.heroes[0].weapons = w.heroes[0]
@@ -2331,7 +2331,8 @@ fn the_portal_takes_the_party_to_another_field() {
 fn two_heroes_side_by_side_charge_a_duo_strike() {
     let mut w = world_with(2, PRESETS[1].1);
     w.next_boss = 9999.0;
-    simulate(&mut w, DUO_CHARGE + 1.5, true, |w, _| {
+    // Level-up pauses stop the charge, so give it some room.
+    simulate(&mut w, DUO_CHARGE * 2.5, true, |w, _| {
         let p = w.heroes[0].p.pos;
         w.heroes[1].p.pos = p + vec2(40.0, 0.0);
     });
@@ -2468,10 +2469,12 @@ fn props_break_into_souls_and_runes_throw_heroes_clear() {
     let near = w.nearest_enemies(at, 30.0, 5);
     assert!(near.iter().all(|&k| !matches!(w.enemies[k].kind, EnemyKind::Prop(_))));
     // A rune throws.
-    let (rp, to) = (w.runes[0].pos, w.runes[0].to);
+    let rp = w.runes[0].pos;
     w.heroes[0].p.pos = rp;
     w.update(1.0 / 30.0);
-    assert!(w.heroes[0].p.pos.distance(to) < 20.0, "the rune did not throw");
+    // A crowded landing may move just before the throw; the hero lands where it is now.
+    let to = w.runes[0].to;
+    assert!(w.heroes[0].p.pos.distance(to) < 20.0 && w.heroes[0].p.pos.distance(rp) > 500.0, "the rune did not throw");
     assert!(!w.runes[0].ready());
 }
 
@@ -2578,4 +2581,145 @@ fn the_crowned_player_steers_the_lord_and_returns_when_it_falls() {
     w.time += 1.0;
     w.hit(i, 10.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Blade }, false);
     assert!(w.possessed.is_none() && !w.heroes[1].possessing, "the wearer did not return");
+}
+
+#[test]
+fn every_foe_and_lord_kind_survives_its_code() {
+    let mut kinds: Vec<EnemyKind> = BEASTS.to_vec();
+    kinds.extend([EnemyKind::Mimic(false), EnemyKind::Prop(0), EnemyKind::Prop(1), EnemyKind::Prop(2)]);
+    for k in kinds {
+        assert_eq!(EnemyKind::from_u8(k.to_u8()), k, "{:?} came back as something else", k);
+    }
+    for b in ALL_LORDS {
+        assert!(ALL_BIOMES.iter().any(|f| f.lords().contains(&b)) || b == BossKind::Sovereign, "{:?} keeps no field", b);
+    }
+}
+
+#[test]
+fn the_newer_fields_hold_vigils_with_their_own_foes_and_lords() {
+    for (biome, foe, lord) in [
+        (Biome::Ashwood, EnemyKind::EmberWolf, BossKind::BurntOak),
+        (Biome::Abbey, EnemyKind::IceMonk, BossKind::SnowAbbess),
+        (Biome::Garden, EnemyKind::ThornVine, BossKind::Gardener),
+    ] {
+        let mut w = world_with(2, PRESETS[1].1);
+        w.biome = biome;
+        assert!(biome.lords().contains(&lord));
+        let mut met_foe = false;
+        let mut met_lord = false;
+        let peaks = simulate(&mut w, 20.0 * 60.0, true, |w, _| {
+            met_foe |= w.enemies.iter().any(|e| e.kind == foe);
+            met_lord |= w.enemies.iter().any(|e| e.kind == EnemyKind::Boss(lord));
+        });
+        assert!(met_foe, "no {:?} on {:?}", foe, biome);
+        assert!(met_lord, "{:?} never came to {:?} (time {:.0}, dead {}, bosses {})", lord, biome, w.time, w.dead, w.bosses_spawned);
+        assert_bounded(&peaks);
+        // Other fields' own foes stay home.
+        assert!(!w.enemies.iter().any(|e| matches!(e.kind, EnemyKind::Statue) && biome != Biome::Garden));
+    }
+}
+
+#[test]
+fn embers_burn_and_ice_slides() {
+    // Find an ember patch and stand in it.
+    let mut w = world_with(1, PRESETS[1].1);
+    w.biome = Biome::Ashwood;
+    w.next_boss = 9999.0;
+    w.fit_field();
+    let at = (-6..6).flat_map(|y| (-6..6).map(move |x| (x, y))).find_map(|(x, y)| hazard_patch(x, y, EMBER_SALT, EMBER_SHARE).map(|(c, _)| c)).expect("no embers anywhere");
+    assert!(ember_at(at));
+    w.enemies.clear();
+    w.heroes[0].p.pos = at;
+    let hp = w.heroes[0].p.hp;
+    for _ in 0..40 {
+        w.heroes[0].p.pos = at;
+        w.heroes[0].p.iframes = 0.0;
+        w.update(1.0 / 30.0);
+    }
+    assert!(w.heroes[0].p.hp < hp, "the embers did not burn");
+    // On ice a hero keeps going after letting go.
+    let mut w = world_with(1, PRESETS[1].1);
+    w.biome = Biome::Abbey;
+    w.fit_field();
+    let at = (-6..6).flat_map(|y| (-6..6).map(move |x| (x, y))).find_map(|(x, y)| hazard_patch(x, y, ICE_SALT, ICE_SHARE).map(|(c, _)| c)).expect("no ice anywhere");
+    let h = &mut w.heroes[0];
+    h.p.pos = at;
+    h.p.slide = vec2(200.0, 0.0);
+    h.input = Input { dir: Vec2::ZERO, roll: false, skill: false };
+    h.step_movement(0.1, None);
+    assert!(h.p.pos.x > at.x + 5.0, "no slide on ice");
+    // Off the ice a hero stops at once.
+    h.p.pos = vec2(0.0, 0.0);
+    h.p.slide = vec2(200.0, 0.0);
+    h.step_movement(0.1, None);
+    assert!(h.p.pos.x.abs() < 0.01, "a slide off the ice");
+}
+
+#[test]
+fn statues_stand_still_while_watched() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.biome = Biome::Garden;
+    w.next_boss = 9999.0;
+    w.enemies.clear();
+    let p = w.heroes[0].p.pos;
+    let e = w.make_enemy(EnemyKind::Statue, p + vec2(400.0, 0.0));
+    let id = e.id;
+    w.enemies.push(e);
+    let at = |w: &World| w.enemies.iter().find(|e| e.id == id).unwrap().pos;
+    let start = at(&w);
+    for _ in 0..30 {
+        w.heroes[0].p.facing = vec2(1.0, 0.0);
+        w.heroes[0].input = Input { dir: Vec2::ZERO, roll: false, skill: false };
+        w.update(1.0 / 30.0);
+    }
+    assert!(at(&w).distance(start) < 2.0, "a watched statue moved");
+    for _ in 0..30 {
+        w.heroes[0].p.facing = vec2(-1.0, 0.0);
+        w.heroes[0].input = Input { dir: Vec2::ZERO, roll: false, skill: false };
+        w.update(1.0 / 30.0);
+    }
+    assert!(at(&w).distance(start) > 50.0, "an unwatched statue stood still");
+}
+
+#[test]
+fn the_newer_arsenals_fight_like_their_twins_and_lay_their_elements() {
+    // Every newer weapon fights like an older one in the same place, so fusions line up.
+    for k in ASH_WEAPONS.iter().chain(ABBEY_WEAPONS.iter()).chain(GARDEN_WEAPONS.iter()) {
+        assert!(k.field() >= 3 && k.twin().field() < 3, "{:?}", k);
+        assert_eq!(k.twin().idx() % ARSENAL, k.idx() % ARSENAL, "{:?} sits elsewhere than its twin", k);
+        assert_ne!(k.name(false), k.twin().name(false));
+        assert_ne!(fusion_name(*k, k.fusion_partners()[0]), "");
+    }
+    // Each fires on its own field and deals damage under its own name.
+    for (biome, arsenal) in [(Biome::Ashwood, ASH_WEAPONS), (Biome::Abbey, ABBEY_WEAPONS), (Biome::Garden, GARDEN_WEAPONS)] {
+        for k in arsenal {
+            let mut w = world_with(1, PRESETS[1].1);
+            w.biome = biome;
+            w.next_boss = 9999.0;
+            w.heroes[0].arm_for(biome.arsenal());
+            w.heroes[0].weapons = vec![Weapon::new(k)];
+            w.heroes[0].recompute_stats();
+            for i in 0..12 {
+                let at = w.heroes[0].p.pos + Vec2::from_angle(i as f32 * 0.52) * (70.0 + (i % 3) as f32 * 40.0);
+                let mut e = w.make_enemy(EnemyKind::Knight, at);
+                e.hp = 1e6;
+                e.max_hp = 1e6;
+                e.speed = 0.0;
+                w.enemies.push(e);
+            }
+            let mut laid = false;
+            for _ in 0..240 {
+                w.heroes[0].input = Input { dir: vec2(0.3, 0.2), roll: false, skill: false };
+                w.update(1.0 / 60.0);
+                laid |= w.enemies.iter().any(|e| match k.element() {
+                    4 => e.slow > 0.0,
+                    _ => e.burn > 0.0,
+                });
+            }
+            assert!(w.heroes[0].dmg_weapon[k.idx()] > 0.0, "{:?} dealt no damage under its own name", k);
+            assert!(laid, "{:?} laid no {:?}", k, k.element());
+        }
+    }
+    // Ash rain loves the Ashwood's weapons.
+    assert!(ASH_WEAPONS.iter().all(|k| k.is_fire()));
 }

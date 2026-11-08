@@ -70,6 +70,25 @@ pub fn register_tab(r: Rect) {
 /// UI scale choices; 0 means automatic (grows with the window above 1080 lines).
 pub const UI_SCALES: [f32; 6] = [0.0, 1.0, 1.25, 1.5, 1.75, 2.0];
 
+/// One line on the event rail: what is going on, a word on it, its clock and how much is left.
+struct RailItem {
+    title: String,
+    sub: String,
+    color: Color,
+    clock: Option<String>,
+    frac: Option<f32>,
+}
+
+impl RailItem {
+    fn new(title: &str, color: Color) -> RailItem {
+        RailItem { title: title.to_string(), sub: String::new(), color, clock: None, frac: None }
+    }
+
+    fn timed(title: &str, sub: &str, color: Color, clock: String, frac: f32) -> RailItem {
+        RailItem { title: title.to_string(), sub: sub.to_string(), color, clock: Some(clock), frac: Some(frac) }
+    }
+}
+
 /// The minimap's top edge and size in UI units, and how far it sees from its middle.
 pub const MINIMAP_TOP: f32 = 80.0;
 pub const MINIMAP_SIZE: f32 = 180.0;
@@ -183,6 +202,23 @@ pub fn a(c: Color, alpha: f32) -> Color {
 }
 
 impl<'a> Ui<'a> {
+    /// Text that fits in `max` wide: a smaller size first (down to 10), then cut short.
+    pub fn fit(&self, text: &str, max: f32, size: f32) -> (String, f32) {
+        let w = self.width(text, size);
+        if w <= max {
+            return (text.to_string(), size);
+        }
+        let smaller = (size * max / w).max(10.0);
+        if self.width(text, smaller) <= max {
+            return (text.to_string(), smaller);
+        }
+        let mut s: String = text.to_string();
+        while !s.is_empty() && self.width(&format!("{}...", s), smaller) > max {
+            s.pop();
+        }
+        (format!("{}...", s.trim_end()), smaller)
+    }
+
     pub fn width(&self, s: &str, size: f32) -> f32 {
         let k = raster_k();
         measure_text(s, self.font, (size * k) as u16, 1.0 / k).width
@@ -596,6 +632,76 @@ impl<'a> Ui<'a> {
         draw_rectangle_lines(x0, y0, s, s, 1.5, Color::new(0.55, 0.5, 0.45, 0.8));
     }
 
+    /// The rail at the right edge, middle height: the last announcement (and a lord's words)
+    /// on a small card, then every event in progress with its clock.
+    fn event_rail(&self, w: &World, items: &[RailItem]) {
+        let (sw, sh) = (ui_w(), ui_h());
+        let (pw, x) = (270.0, sw - 290.0);
+        let inner = pw - 20.0;
+        // The announcement card.
+        let mut card: Vec<(String, f32, Color)> = Vec::new();
+        let mut al = 0.0f32;
+        if let Some((big, small, c, life)) = &w.banner {
+            al = (life / 0.6).min(1.0);
+            if !big.is_empty() {
+                for l in self.wrap(big, 19.0, inner) {
+                    card.push((l, 19.0, a(*c, al)));
+                }
+            }
+            if !small.is_empty() {
+                for l in self.wrap(small, 14.0, inner) {
+                    card.push((l, 14.0, a(PALE, al * 0.9)));
+                }
+            }
+        }
+        if let Some((line, c, life)) = w.quote.as_ref() {
+            let q = (life / 0.6).min(1.0).min((4.5 - life) / 0.3).clamp(0.0, 1.0);
+            al = al.max(q);
+            for l in self.wrap(&format!("\u{201c}{}\u{201d}", line), 15.0, inner) {
+                card.push((l, 15.0, a(*c, q)));
+            }
+        }
+        let card_h = if card.is_empty() { 0.0 } else { 14.0 + card.iter().map(|(_, s, _)| s + 5.0).sum::<f32>() };
+        // Middle of the right edge, but below the minimap and the mutators, and clear of the
+        // damage meter: when many things go on at once, the lines lose their second row.
+        let mutators = ALL_MUTATORS.iter().filter(|m| w.stacks(**m) > 0).count() as f32;
+        let floor = MINIMAP_TOP + MINIMAP_SIZE + 20.0 + mutators * 17.0;
+        let size = |it: &RailItem, compact: bool| if it.sub.is_empty() || compact { 26.0 } else { 40.0 } + if it.frac.is_some() { 6.0 } else { 0.0 };
+        let total_of = |compact: bool| card_h + if card_h > 0.0 && !items.is_empty() { 8.0 } else { 0.0 } + items.iter().map(|it| size(it, compact) + 4.0).sum::<f32>();
+        let compact = floor + total_of(false) > sh - 210.0;
+        let total = total_of(compact);
+        let item_h = |it: &RailItem| size(it, compact);
+        let mut y = (sh * 0.5 - total * 0.5).max(floor);
+        if card_h > 0.0 {
+            draw_rectangle(x, y, pw, card_h, Color::new(0.0, 0.0, 0.0, 0.55 * al));
+            draw_rectangle(x, y, 3.0, card_h, a(card.first().map(|c| c.2).unwrap_or(PALE), al));
+            let mut ly = y + 6.0;
+            for (line, size, c) in &card {
+                ly += size;
+                self.text(line, x + 12.0, ly, *size, *c);
+                ly += 5.0;
+            }
+            y += card_h + 8.0;
+        }
+        for it in items {
+            let h = item_h(it);
+            draw_rectangle(x, y, pw, h, Color::new(0.0, 0.0, 0.0, 0.5));
+            draw_rectangle(x, y, 3.0, h, it.color);
+            self.text(&it.title, x + 12.0, y + 18.0, 16.0, it.color);
+            if let Some(c) = &it.clock {
+                self.text_r(c, x + pw - 10.0, y + 18.0, 16.0, PALE);
+            }
+            if !it.sub.is_empty() && !compact {
+                let (sub, size) = self.fit(&it.sub, pw - 24.0, 13.0);
+                self.text(&sub, x + 12.0, y + 34.0, size, Color::new(0.75, 0.72, 0.68, 1.0));
+            }
+            if let Some(f) = it.frac {
+                self.bar(Rect::new(x + 12.0, y + h - 7.0, pw - 24.0, 3.0), f.clamp(0.0, 1.0), 0.0, it.color);
+            }
+            y += h + 4.0;
+        }
+    }
+
     /// The endless night's mutators, one line each with its stacks.
     fn mutator_list(&self, w: &World, x: f32, mut y: f32) {
         for m in ALL_MUTATORS {
@@ -845,64 +951,74 @@ impl<'a> Ui<'a> {
         }
         self.edge_markers(w, marks);
 
-        // Events in progress, under the clock.
-        // Everything under the clock stacks, so nothing overlaps on small screens.
-        let mut ey = 58.0;
+        // Events in progress go to the rail at the right edge, each with its clock.
+        let mut rail: Vec<RailItem> = Vec::new();
+        let clock = |t: f32| {
+            let t = t.max(0.0).ceil() as u32;
+            format!("{}:{:02}", t / 60, t % 60)
+        };
         if w.boss_rush {
             let lord = if w.endless { format!("Lords slain {}", w.bosses_killed) } else { format!("Lord {} of {}", (w.bosses_killed + 1).min(RUSH_LORDS), RUSH_LORDS) };
-            self.text_c(&lord, sw * 0.5, ey, 17.0, EMBER);
-            ey += 20.0;
-        }
-        if let Some((weather, left)) = w.weather {
-            let left = left.max(0.0) as u32;
-            let line = format!("{}: {}   {}:{:02}", weather.name(), weather.desc(), left / 60, left % 60);
-            self.text_c(&line, sw * 0.5, ey, 17.0, Color::new(0.85, 0.8, 0.72, 1.0));
-            ey += 20.0;
-        }
-        if w.mist > 3.0 {
-            let left = w.mist as u32;
-            self.text_c(&format!("The mist: a champion hunts you   {}:{:02}", left / 60, left % 60), sw * 0.5, ey, 17.0, Color::new(0.8, 0.85, 0.92, 1.0));
-            ey += 20.0;
-        }
-        if w.vault.as_ref().is_some_and(|v| !v.open) {
-            let line = if w.vault_key {
-                "You hold the vault key: open the vault".to_string()
-            } else if w.enemies.iter().any(|e| e.kind == EnemyKind::Courier) {
-                "Catch the courier: it carries the vault key".to_string()
-            } else {
-                "The courier's key lies on the ground".to_string()
-            };
-            self.text_c(&line, sw * 0.5, ey, 17.0, GOLD);
-            ey += 20.0;
-        }
-        if let Some(q) = &w.quest {
-            self.quest_panel(q, sh);
+            rail.push(RailItem::new(&lord, EMBER));
         }
         if w.boss_warning > 0.0 {
-            // A lord is coming: a red pulse at the edges and a countdown under the clock.
+            // A lord is coming: a red pulse at the edges, and its countdown on the rail.
             let t = w.boss_warning;
             let pulse = 0.5 + 0.5 * (t * std::f32::consts::TAU).cos();
             let edge = if w.cute { Color::new(1.0, 0.4, 0.7, 0.35 * pulse) } else { Color::new(0.75, 0.05, 0.03, 0.35 * pulse) };
             for (x, y, ww, hh) in [(0.0, 0.0, sw, 10.0), (0.0, sh - 10.0, sw, 10.0), (0.0, 0.0, 10.0, sh), (sw - 10.0, 0.0, 10.0, sh)] {
                 draw_rectangle(x, y, ww, hh, edge);
             }
-            let red = a(Color::new(0.95, 0.35, 0.25, 1.0), 0.6 + 0.4 * pulse);
-            self.spaced_c(&format!("A LORD APPROACHES   {}", t.ceil() as u32), sw * 0.5, ey + 12.0, 26.0, 5.0, red);
-            ey += 40.0;
+            let mut it = RailItem::new("A lord approaches", a(Color::new(0.95, 0.35, 0.25, 1.0), 0.6 + 0.4 * pulse));
+            it.clock = Some(format!("{}", t.ceil() as u32));
+            rail.push(it);
         }
         if w.blood_moon > 0.0 {
-            let pulse = 0.7 + 0.3 * (w.time * 3.0).sin();
-            draw_circle(sw * 0.5 - 70.0, ey - 5.0, 7.0, Color::new(0.8, 0.08, 0.06, pulse));
-            self.text(&format!("Blood Moon {:.0}s", w.blood_moon), sw * 0.5 - 56.0, ey, 16.0, Color::new(0.95, 0.3, 0.25, 1.0));
-            ey += 20.0;
+            rail.push(RailItem::timed("Blood Moon", "double souls, hungrier dead", Color::new(0.95, 0.3, 0.25, 1.0), clock(w.blood_moon), w.blood_moon / MOON_LENGTH));
         }
         if let Some(c) = w.cursed.as_ref().filter(|c| c.curse > 0.0) {
-            self.text_c(&format!("Trial {:.0}s", c.curse), sw * 0.5, ey, 16.0, Color::new(0.8, 0.5, 1.0, 1.0));
-            ey += 20.0;
+            rail.push(RailItem::timed("Trial", "survive the curse", Color::new(0.8, 0.5, 1.0, 1.0), clock(c.curse), c.curse / CURSE_LENGTH));
+        }
+        if w.mist > 3.0 {
+            rail.push(RailItem::timed("The mist", "a champion hunts you", Color::new(0.8, 0.85, 0.92, 1.0), clock(w.mist), w.mist / MIST_LENGTH));
+        }
+        if let Some((weather, left)) = w.weather {
+            let mut it = RailItem::new(weather.name(), Color::new(0.85, 0.8, 0.72, 1.0));
+            it.sub = weather.desc().to_string();
+            it.clock = Some(clock(left));
+            rail.push(it);
+        }
+        if let Some(r) = &w.rift {
+            if r.sealed > 0.0 {
+                rail.push(RailItem::timed("The chamber", "outlast its guardians", Color::new(0.78, 0.62, 1.0, 1.0), clock(r.sealed), r.sealed / CHAMBER_TIME));
+            } else {
+                rail.push(RailItem::timed("A rift", "stand in it to enter", Color::new(0.78, 0.62, 1.0, 1.0), clock(r.life), r.life / RIFT_STAY));
+            }
+        }
+        if let Some(g) = &w.gate {
+            rail.push(RailItem::timed("Ash gate", "leave the night, keep your souls", Color::new(0.55, 0.95, 0.85, 1.0), clock(g.life), g.life / GATE_STAY));
+        }
+        if let Some(p) = &w.portal {
+            rail.push(RailItem::timed("Portal", p.to.name(), Color::new(1.0, 0.7, 0.5, 1.0), clock(p.life), p.life / PORTAL_STAY));
         }
         if let Some(m) = &w.merchant {
-            self.text_c(&format!("Merchant leaves in {:.0}s", m.life), sw * 0.5, ey, 15.0, Color::new(0.65, 0.8, 1.0, 0.9));
-            ey += 20.0;
+            rail.push(RailItem::timed("Merchant", "leaves soon", Color::new(0.65, 0.8, 1.0, 1.0), clock(m.life), m.life / MERCHANT_STAY));
+        }
+        if let Some(g) = &w.hourglass {
+            rail.push(RailItem::timed("Hourglass", "skip some of the night", Color::new(0.7, 0.85, 1.0, 1.0), clock(g.life), g.life / HOURGLASS_STAY));
+        }
+        if w.vault.as_ref().is_some_and(|v| !v.open) {
+            let line = if w.vault_key {
+                "You hold the vault key"
+            } else if w.enemies.iter().any(|e| e.kind == EnemyKind::Courier) {
+                "Catch the courier"
+            } else {
+                "The vault key lies on the ground"
+            };
+            rail.push(RailItem::new(line, GOLD));
+        }
+        if let Some(q) = &w.quest {
+            self.quest_panel(q, sh);
         }
 
         // Level-up cards need the middle of the screen to themselves.
@@ -911,30 +1027,11 @@ impl<'a> Ui<'a> {
         }
         self.tooltip(&tips);
         for (i, (t, life)) in w.toasts.iter().enumerate() {
-            // Toasts start below the event timers.
-            self.text_c(t, sw * 0.5, ey.max(78.0) + i as f32 * 22.0, 18.0, a(PALE, life.min(1.0)));
+            // Toasts sit under the clock; events have the right edge.
+            self.text_c(t, sw * 0.5, 66.0 + i as f32 * 22.0, 18.0, a(PALE, life.min(1.0)));
         }
 
-        if let Some((big, small, c, life)) = &w.banner {
-            let al = (life / 0.6).min(1.0);
-            let cy = sh * 0.38;
-            if !big.is_empty() {
-                draw_rectangle(0.0, cy - 46.0, sw, 70.0, Color::new(0.0, 0.0, 0.0, 0.5 * al));
-                self.spaced_c(big, sw * 0.5, cy, 44.0, 6.0, a(*c, al));
-            }
-            if !small.is_empty() {
-                self.text_c(small, sw * 0.5, cy + 34.0, 20.0, a(PALE, al * 0.9));
-            }
-        }
-        if let Some((line, c, life)) = w.quote.as_ref() {
-            // A lord's words, under the banner line, fading in and out.
-            let al = (life / 0.6).min(1.0).min((4.5 - life) / 0.3).clamp(0.0, 1.0);
-            let text = format!("\u{201c}{}\u{201d}", line);
-            let y = sh * 0.38 + 74.0;
-            let tw = self.width(&text, 24.0);
-            draw_rectangle(sw * 0.5 - tw * 0.5 - 18.0, y - 26.0, tw + 36.0, 36.0, Color::new(0.0, 0.0, 0.0, 0.45 * al));
-            self.text_c(&text, sw * 0.5, y, 24.0, a(*c, al));
-        }
+        self.event_rail(w, &rail);
         if me.downed && !w.dead {
             self.spaced_c("FALLEN", sw * 0.5, sh * 0.6, 34.0, 8.0, a(BLOOD, 0.9));
             self.text_c("A companion can raise you by standing at your side.", sw * 0.5, sh * 0.6 + 28.0, 18.0, PALE);

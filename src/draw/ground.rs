@@ -138,6 +138,7 @@ impl World {
             }
         });
         self.draw_earth();
+        self.draw_hazards();
     }
 
     /// Draws the stones of one chunk into a fresh texture.
@@ -191,9 +192,12 @@ impl World {
                     let f = 78.0 + v * 18.0 + region * 14.0;
                     Color::new(f / 255.0, (f * 0.32) / 255.0, (f * 0.36) / 255.0, 1.0)
                 }
+                // The newer fields draw their own tiles below.
+                _ => Color::new(0.1, 0.1, 0.1, 1.0),
             }
         };
         match self.biome {
+            Biome::Ashwood | Biome::Abbey | Biome::Garden if !self.cute => self.field_tile(tx, ty, px, py, TILE),
             Biome::Cathedral if !self.cute => self.marble_tile(tx, ty, px, py, c),
             Biome::Flesh if !self.cute => self.flesh_tile(tx, ty, px, py, c),
             _ => self.flagstones(tx, ty, px, py, c),
@@ -340,6 +344,7 @@ impl World {
                 Biome::Cathedral => (Color::new(0.85, 0.7, 0.4, 0.12), Color::new(0.0, 0.0, 0.0, 0.0)),
                 // Pools of blood, and red threads twitching out of the flesh.
                 Biome::Flesh => (Color::new(0.33, 0.0, 0.03, 0.75), Color::new(0.55, 0.08, 0.1, 0.9)),
+                _ => self.field_earth(),
             }
         };
         for cy in y0..y1 {
@@ -389,6 +394,10 @@ impl World {
                     continue;
                 }
                 // The cathedral has props of its own; candles stay everywhere.
+                if matches!(self.biome, Biome::Ashwood | Biome::Abbey | Biome::Garden) {
+                    self.new_field_prop(d, tx, ty, ox, oy);
+                    continue;
+                }
                 if self.biome != Biome::Graveyard && !(171..=176).contains(&d) {
                     self.field_prop(d, tx, ty, ox, oy);
                     continue;
@@ -686,6 +695,7 @@ impl World {
                             // A haze of incense, golden.
                             Biome::Cathedral => Color::new(1.0, 0.92, 0.7, 0.03),
                             Biome::Flesh => Color::new(0.55, 0.08, 0.1, 0.035),
+                            _ => self.field_fog(),
                         }
                     };
                     draw_circle(p.x + k as f32 * 18.0, p.y, rr, c);

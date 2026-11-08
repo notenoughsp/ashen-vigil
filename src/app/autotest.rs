@@ -592,7 +592,37 @@ impl App {
                 w.add_ping(0, p + vec2(250.0, 40.0));
             }
             2200 => want.push("fieldthings"),
-            2201 => std::process::exit(0),
+            2201 => self.field_showcase(Biome::Ashwood, BossKind::BurntOak),
+            2280 => {
+                // No level-up cards in the picture.
+                if let Some(w) = self.world.as_mut() {
+                    w.pending_levels = 0;
+                    w.pause = Pause::Running;
+                    w.xp = 0.0;
+                }
+            }
+            2290 => want.push("ashwood"),
+            2301 => self.field_showcase(Biome::Abbey, BossKind::SnowAbbess),
+            2380 => {
+                // No level-up cards in the picture.
+                if let Some(w) = self.world.as_mut() {
+                    w.pending_levels = 0;
+                    w.pause = Pause::Running;
+                    w.xp = 0.0;
+                }
+            }
+            2390 => want.push("abbey"),
+            2401 => self.field_showcase(Biome::Garden, BossKind::Gardener),
+            2480 => {
+                // No level-up cards in the picture.
+                if let Some(w) = self.world.as_mut() {
+                    w.pending_levels = 0;
+                    w.pause = Pause::Running;
+                    w.xp = 0.0;
+                }
+            }
+            2490 => want.push("garden"),
+            2501 => std::process::exit(0),
             _ => {}
         }
         want
@@ -705,6 +735,9 @@ impl App {
             Biome::Cathedral => &[EnemyKind::Gargoyle, EnemyKind::Banshee, EnemyKind::Cultist, EnemyKind::Knight, EnemyKind::Shieldbearer],
             Biome::Graveyard => &[EnemyKind::Hollow, EnemyKind::Archer, EnemyKind::Necromancer, EnemyKind::Moth, EnemyKind::Wraith],
             Biome::Flesh => &[EnemyKind::Leech, EnemyKind::Ghoul, EnemyKind::Bloat, EnemyKind::Leech, EnemyKind::Hollow],
+            Biome::Ashwood => &[EnemyKind::EmberWolf, EnemyKind::BarkHusk, EnemyKind::SmokeWraith, EnemyKind::EmberWolf, EnemyKind::Hollow],
+            Biome::Abbey => &[EnemyKind::IceMonk, EnemyKind::FrostCrow, EnemyKind::FrozenKnight, EnemyKind::FrostCrow, EnemyKind::Hollow],
+            Biome::Garden => &[EnemyKind::ThornVine, EnemyKind::Puppet, EnemyKind::MothQueen, EnemyKind::Statue, EnemyKind::Moth],
         };
         for i in 0..40 {
             let at = p + Vec2::from_angle(i as f32 * 0.43) * (220.0 + (i % 5) as f32 * 40.0);

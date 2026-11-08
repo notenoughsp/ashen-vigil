@@ -15,6 +15,8 @@ pub struct Player {
     pub souls: u64,
     pub revives: u32,
     pub walk: f32,
+    /// How the hero moves on ice, where they turn only slowly.
+    pub slide: Vec2,
 }
 
 /// A weapon slot. A fused weapon carries its other weapons in `fused`: one for a fusion,
@@ -55,7 +57,10 @@ pub const LEECH_RATE: f32 = 4.0;
 /// One firing part of a weapon slot; `slot` indexes its timer and spin.
 #[derive(Clone, Copy)]
 pub struct Part {
+    /// How it fights: the weapon itself, or for a newer field's weapon its twin.
     pub kind: WeaponKind,
+    /// Which weapon it is, for the damage meter and the element.
+    pub own: WeaponKind,
     pub evo: bool,
     pub mult: f32,
     pub slot: usize,
@@ -103,11 +108,16 @@ impl Weapon {
     pub fn parts(&self) -> Vec<Part> {
         let mult = [1.0, FUSION_MULT, MEGA_MULT, ULTRA_MULT, LAST_MULT][self.tier() as usize];
         let evo = self.evolved || self.is_fused();
-        self.kinds().into_iter().enumerate().map(|(slot, kind)| Part { kind, evo, mult, slot }).collect()
+        self.kinds().into_iter().enumerate().map(|(slot, own)| Part { kind: own.twin(), own, evo, mult, slot }).collect()
     }
 
     pub fn has(&self, k: WeaponKind) -> bool {
         self.kind == k || self.fused.contains(&k)
+    }
+
+    /// Holds a weapon that fights like `k`: `k` itself or a newer field's twin of it.
+    pub fn has_like(&self, k: WeaponKind) -> bool {
+        self.kind.twin() == k || self.fused.iter().any(|f| f.twin() == k)
     }
 
     pub fn display_name(&self) -> &'static str {
@@ -118,6 +128,9 @@ impl Weapon {
             3 => ultra_name(&self.kinds()),
             _ if self.kind.is_cathedral() => LAST_HYMN,
             _ if self.kind.field() == 2 => LAST_GOD,
+            _ if self.kind.field() == 3 => LAST_GROVE,
+            _ if self.kind.field() == 4 => LAST_WINTER,
+            _ if self.kind.field() == 5 => LAST_BLOOM,
             _ => LAST_FLAME,
         }
     }
@@ -273,6 +286,7 @@ impl Hero {
                 souls: 0,
                 revives: profile.meta[7] + profile.relics[5],
                 walk: 0.0,
+                slide: Vec2::ZERO,
             },
             stats: Stats::from_array([1.0; 17]),
             weapons: vec![Weapon { level: 1 + profile.m(M_KINDLING), ..Weapon::new(class.weapon()) }],
@@ -369,6 +383,9 @@ impl Hero {
         match self.field {
             1 => CATHEDRAL_WEAPONS,
             2 => FLESH_WEAPONS,
+            3 => ASH_WEAPONS,
+            4 => ABBEY_WEAPONS,
+            5 => GARDEN_WEAPONS,
             _ => GRAVE_WEAPONS,
         }
     }
@@ -511,7 +528,7 @@ impl Hero {
                 ItemKind::GraveCandle => elite_dmg += 0.15 * l,
             }
         }
-        if self.weapons.iter().any(|w| w.has(WeaponKind::Chime) && (w.evolved || w.is_fused())) {
+        if self.weapons.iter().any(|w| w.has_like(WeaponKind::Chime) && (w.evolved || w.is_fused())) {
             regen += 1.0;
         }
         if self.has_cat {
@@ -577,8 +594,11 @@ impl Hero {
         if pl.roll_t > 0.0 {
             pl.roll_t -= dt;
             pl.pos += pl.roll_dir * st.speed * 2.8 * dt;
-        } else if pl.moving {
-            pl.pos += pl.facing * st.speed * dt;
+            pl.slide = pl.roll_dir * st.speed;
+        } else {
+            let want = if pl.moving { pl.facing * st.speed } else { Vec2::ZERO };
+            pl.slide = if ice_at(pl.pos) { pl.slide.lerp(want, (ICE_GRIP * dt).min(1.0)) } else { want };
+            pl.pos += pl.slide * dt;
         }
         if pl.stamina_delay > 0.0 {
             pl.stamina_delay -= dt;

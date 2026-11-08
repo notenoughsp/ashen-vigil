@@ -269,6 +269,191 @@ impl World {
                 }
                 _ => ai.state = 0,
             },
+            BossKind::BurntOak => match ai.state {
+                // Walks slowly, breathing cones of embers.
+                0 => {
+                    pos += to * speed * fast * dt;
+                    ai.shot -= dt;
+                    if ai.shot <= 0.0 {
+                        ai.shot = 1.5 / fast;
+                        let base = to.to_angle();
+                        let n = if p2 { 9 } else { 7 };
+                        for k in 0..n {
+                            let a = base + (k as f32 - (n - 1) as f32 * 0.5) * 0.16;
+                            self.enemy_bullet(pos, Vec2::from_angle(a) * 175.0, 8.0, 14.0 * lap, 0.0, 4.0);
+                        }
+                        self.sfx_at("fire", 0.6, pos);
+                    }
+                    if ai.t <= 0.0 {
+                        ai.state = 1;
+                        ai.t = 0.4;
+                    }
+                }
+                // Roots of fire burst up round the hunted.
+                1 => {
+                    if ai.t <= 0.0 {
+                        let n = if p2 { 9 } else { 6 };
+                        self.pillar(pp, 60.0, 1.1, 26.0 * lap);
+                        for k in 1..n {
+                            let at = pp + Vec2::from_angle(k as f32 / n as f32 * TAU + gen_range(-0.3, 0.3)) * gen_range(90.0, 220.0);
+                            self.pillar(at, 55.0, gen_range(1.0, 1.4), 26.0 * lap);
+                        }
+                        ai.state = 2;
+                        ai.t = 1.6;
+                        self.tele_circle(pos, 200.0, 1.6 / fast);
+                    }
+                }
+                // It stamps: a shockwave and a ring of embers, and in its wrath wolves come.
+                2 => {
+                    if ai.t <= 0.0 {
+                        self.slam(pos, 200.0, 30.0 * lap);
+                        let off = gen_range(0.0, TAU);
+                        self.ring(pos, 20, 150.0, 14.0 * lap, off, None);
+                        if p2 {
+                            self.summon(EnemyKind::EmberWolf, pos, 5, 120.0);
+                        }
+                        ai.state = 0;
+                        ai.t = 3.5;
+                    }
+                }
+                _ => ai.state = 0,
+            },
+            BossKind::SnowAbbess => match ai.state {
+                // Glides round her prey, throwing shards that curve after it.
+                0 => {
+                    let side = vec2(-to.y, to.x);
+                    let d = pos.distance(pp);
+                    let close = if d > 320.0 {
+                        to
+                    } else if d < 220.0 {
+                        -to
+                    } else {
+                        Vec2::ZERO
+                    };
+                    pos += (close + side * 0.8).normalize_or_zero() * speed * fast * dt;
+                    ai.shot -= dt;
+                    if ai.shot <= 0.0 {
+                        ai.shot = 1.2 / fast;
+                        for k in -1..=1 {
+                            let a = to.to_angle() + k as f32 * 0.3;
+                            self.enemy_bullet(pos, Vec2::from_angle(a) * 160.0, 8.0, 13.0 * lap, 0.7, 4.5);
+                        }
+                        self.sfx_at("chime", 0.4, pos);
+                    }
+                    if ai.t <= 0.0 {
+                        ai.state = 1;
+                        ai.t = 0.3;
+                    }
+                }
+                // A circle of ice rises round the hunted, with one gap to slip out by.
+                1 => {
+                    if ai.t <= 0.0 {
+                        let n = 14;
+                        let gap = gen_range(0, n);
+                        for k in 0..n {
+                            if k == gap || (k + 1) % n == gap {
+                                continue;
+                            }
+                            let at = pp + Vec2::from_angle(k as f32 / n as f32 * TAU) * 190.0;
+                            self.pillar(at, 48.0, 1.3, 24.0 * lap);
+                        }
+                        self.pillar(pp, 55.0, 1.6, 24.0 * lap);
+                        ai.state = 2;
+                        ai.t = 1.8;
+                    }
+                }
+                // A wave of frost, twice when she is angry.
+                2 => {
+                    if ai.t <= 0.0 {
+                        let gap = to.to_angle() + gen_range(-1.0, 1.0);
+                        self.ring(pos, 28, 125.0, 13.0 * lap, gen_range(0.0, TAU), Some((gap, 0.7)));
+                        if p2 {
+                            self.ring(pos, 28, 95.0, 13.0 * lap, gen_range(0.0, TAU), Some((gap + 0.4, 0.7)));
+                        }
+                        self.fx.push(Fx { pos, life: 0.6, max_life: 0.6, kind: FxKind::Ring { r: 160.0, color: Color::from_rgba(190, 225, 255, 255) } });
+                        self.sfx_at("bell", 0.6, pos);
+                        ai.state = 3;
+                        ai.t = 1.0;
+                    }
+                }
+                // Her flock answers.
+                3 => {
+                    if ai.t <= 0.0 {
+                        self.summon(EnemyKind::FrostCrow, pos, if p2 { 8 } else { 5 }, 90.0);
+                        if p2 {
+                            self.summon(EnemyKind::FrozenKnight, pos, 1, 140.0);
+                        }
+                        ai.state = 0;
+                        ai.t = 3.0;
+                    }
+                }
+                _ => ai.state = 0,
+            },
+            BossKind::Gardener => match ai.state {
+                0 => {
+                    pos += to * speed * fast * dt;
+                    if ai.t <= 0.0 {
+                        ai.state = 1;
+                        ai.t = 0.75;
+                        ai.aim = to;
+                        self.tele_line(pos, pos + to * 520.0, r * 1.2, 0.75 / fast);
+                    }
+                }
+                // The shears: a lunge along the marked line.
+                1 => {
+                    if ai.t <= 0.0 {
+                        ai.state = 2;
+                        ai.t = 0.45;
+                        self.sfx_at("knife", 0.9, pos);
+                    }
+                }
+                2 => {
+                    pos += ai.aim * 1050.0 * dt;
+                    if ai.t <= 0.0 {
+                        let side = vec2(-ai.aim.y, ai.aim.x);
+                        for s in [-1.0, 1.0] {
+                            for k in 0..3 {
+                                let a = (side * s).to_angle() + (k as f32 - 1.0) * 0.25;
+                                self.enemy_bullet(pos, Vec2::from_angle(a) * 190.0, 6.0, 12.0 * lap, 0.0, 3.0);
+                            }
+                        }
+                        ai.state = 3;
+                        ai.t = 0.6;
+                    }
+                }
+                // Hedges of thorn grow in rows across the hunted's path.
+                3 => {
+                    if ai.t <= 0.0 {
+                        let across = vec2(-to.y, to.x);
+                        let rows = if p2 { 4 } else { 3 };
+                        for row in 0..rows {
+                            let mid = pp + to * ((row as f32 - (rows - 1) as f32 * 0.5) * 150.0);
+                            // Each row has a gap somewhere.
+                            let gap: i32 = gen_range(-3, 4);
+                            for k in -6..=6 {
+                                if (k - gap).abs() <= 1 {
+                                    continue;
+                                }
+                                self.pillar(mid + across * (k as f32 * 48.0), 30.0, 1.2 + row as f32 * 0.15, 20.0 * lap);
+                            }
+                        }
+                        ai.state = 4;
+                        ai.t = 1.6;
+                    }
+                }
+                // Her helpers come out of the hedges; in her anger, a statue too.
+                4 => {
+                    if ai.t <= 0.0 {
+                        self.summon(EnemyKind::Puppet, pos, if p2 { 3 } else { 2 }, 120.0);
+                        if p2 {
+                            self.summon(EnemyKind::Statue, pp, 1, 420.0);
+                        }
+                        ai.state = 0;
+                        ai.t = 2.6;
+                    }
+                }
+                _ => ai.state = 0,
+            },
             BossKind::Hermit => match ai.state {
                 0 => {
                     alpha = (ai.t / 0.5).clamp(0.0, 1.0);

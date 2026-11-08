@@ -13,7 +13,7 @@ A dark-fantasy survivors-like in Rust ([macroquad](https://macroquad.rs)). Hold 
 
 ## The game at a glance
 
-- **A vigil** lasts 30 minutes on one of three fields. Foes come in growing hordes; your weapons fire on their own, you move, roll and use one class skill.
+- **A vigil** lasts 30 minutes on one of six fields. Foes come in growing hordes; your weapons fire on their own, you move, roll and use one class skill.
 - **Level-ups** offer weapons and items; two weapons at level 10 fuse, fusions fuse again, up to The Last Flame.
 - **Lords** come every five minutes inside a fog ring, now and then two at once on a chain; the Sovereign ends the night at 30:00.
 - **Souls** are experience and money. Carry them for strength, bank them at shrines, or lose them where you fall.
@@ -26,7 +26,7 @@ A dark-fantasy survivors-like in Rust ([macroquad](https://macroquad.rs)). Hold 
 
 ## Gallery
 
-**Foes and lords.** Thirteen kinds of foe across the top, the ten lords below them, the classes in the middle.
+**Foes and lords.** The first fields' thirteen kinds of foe across the top, their ten lords below them, the classes in the middle.
 
 ![Every foe and every lord](docs/bestiary.jpg)
 
@@ -42,7 +42,13 @@ A dark-fantasy survivors-like in Rust ([macroquad](https://macroquad.rs)). Hold 
 
 ![The bestiary](docs/bestiary_book.jpg)
 
-**Three fields.** The Graveyard; the Hallowed Cathedral, bright marble under coloured light from its windows; and the Flesh Pits, living ground and blood everywhere. Braziers burn where someone lit them; the lords announce themselves.
+**Six fields.** The Graveyard; the Hallowed Cathedral, bright marble under coloured light from its windows; and the Flesh Pits, living ground and blood everywhere. Braziers burn where someone lit them; the lords announce themselves.
+
+**The newer fields.** The Ashwood (smouldering ground that burns whoever stands on it, ember wolves and the Burnt Oak), the Frozen Abbey (ice that heroes slide on, blizzards, frozen knights and the Snow Abbess) and the Starless Garden (hedges and gravel paths, moth queens, statues that move only while unwatched, and the Gardener).
+
+| | | |
+|---|---|---|
+| ![The Ashwood](docs/ashwood.jpg) | ![The Frozen Abbey](docs/abbey.jpg) | ![The Starless Garden](docs/garden.jpg) |
 
 | | |
 |---|---|
@@ -109,8 +115,8 @@ Six pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (na
 - **Souls** are both experience and currency. Carried souls are lost on death and left as a **remnant** where you fell; reach it in the next vigil to reclaim them. Die again first and they are gone.
 - **Ash Shrines** appear at 2:30, 7:30, 12:30 ... Stand in one for 1.5 s to heal, bank your carried souls and repel nearby foes.
 - **The Ash Shrine** (Start) is where you pick a class, the mode, the field, challenges and curses, and begin.
-- **Fields**: The Graveyard (archers and the restless), The Hallowed Cathedral (zealots, knights and gargoyles, in coloured window light) and The Flesh Pits (leeches, ghouls and bloated things on living ground). Each has its own floor, props, light, foes and its own five lords; the Sovereign always ends the night. Online the host chooses.
-- **Lords**: ten in all. The Gravewarden, Pale Matriarch, Tolling Hermit and Ashen Sovereign, joined by the Drowned Bride (walls of water with one gap, a spiral of pillars), the Bog Mother (leaps, mud and ghouls), the Iron Penitent (a whirling flail, a lashing chain, three crushing steps), the Hollow Choir (a sweeping beam of voices and notes that follow you), the Stone Seraph (dives from the dark, drops stones) and the Pale Hound (zig-zag lunges and a howl that calls the pack). Most lords have words for their arrival, for when they grow desperate and for their fall, shown under the banner; five of them rise once more at a quarter of their health with a new trick.
+- **Fields**: The Graveyard (archers and the restless), The Hallowed Cathedral (zealots, knights and gargoyles, in coloured window light), The Flesh Pits (leeches, ghouls and bloated things on living ground), **The Ashwood** (a burnt forest: patches of smouldering ground burn heroes and foes alike; ember wolves that leap, bark husks, smoke wraiths that burst into embers; ash rain is its weather), **The Frozen Abbey** (snow-covered stone: on its patches of ice a hero keeps sliding and turns only slowly; ice monks throw shards, frost crows come in flocks, frozen knights shatter into shards; its weather is the blizzard, which slows foes and chills whatever is struck) and **The Starless Garden** (hedges and gravel paths under a black sky: thorn vines spit thorns, gardener's puppets charge with their shears, moth queens call moths, and its watching statues move, fast, only while no hero looks their way). Each has its own floor, props, light, foes and its own five lords; the Sovereign always ends the night. Each of the newer fields has an arsenal of its own, twelve weapons that fuse, fuse again and end in one last weapon like the others: the **Ashwood's** burn what they strike (Spark Sling, Bark Shield, Ash Sickle, Burning Roots, Fireflies, Smoulder Trail and more; all count as fire in the ash rain; they end as *The Burning Grove*), the **Frozen Abbey's** chill it (Frost Rosary, Ice Lance, Snowburn, Snow Owl, Falling Icicles and more; *The Endless Winter*) and the **Starless Garden's** poison it (Thorn Whip, Bloom Cannon, Mirror Pond, Garden Shears, Pollen Wisps and more; *The Black Bloom*). Each fights like an older weapon in the same place of its arsenal, with its own name, colour, element and fusions. Online the host chooses.
+- **Lords**: thirteen in all. The newer fields bring the **Burnt Oak** (cones of embers, roots of fire round you, a stamp that calls ember wolves), the **Snow Abbess** (shards that curve after you, a ring of ice with one gap, waves of frost, her crows) and the **Gardener** (a lunge with her shears, rows of thorn hedges with a gap in each, puppets and in her anger a statue). The Gravewarden, Pale Matriarch, Tolling Hermit and Ashen Sovereign, joined by the Drowned Bride (walls of water with one gap, a spiral of pillars), the Bog Mother (leaps, mud and ghouls), the Iron Penitent (a whirling flail, a lashing chain, three crushing steps), the Hollow Choir (a sweeping beam of voices and notes that follow you), the Stone Seraph (dives from the dark, drops stones) and the Pale Hound (zig-zag lunges and a howl that calls the pack). Most lords have words for their arrival, for when they grow desperate and for their fall, shown under the banner; five of them rise once more at a quarter of their health with a new trick.
 - **Class skills** on E (X): Rally, Fan of Knives, Meteor, Sanctuary, Harvest, Hex Field, Blood Rite, Bolt Storm, CLANG, Beacon and Tempest, one per class, growing with your level. The HUD shows when it is ready.
 - **Curses** (at the Ash Shrine, or by the host for everyone): Frenzy, Famine, Volatile, Elite Tide, The Dark Hour, Brittle. Each adds 20% Ashen Marks.
 - **Braziers** stand all over every field. Stand by a cold one for a moment to light it: for two minutes it lights the dark, mends heroes near it and sets foes alight; it scatters a few souls when it catches. The nearest cold one is marked at the screen edge.
@@ -139,6 +145,7 @@ Six pages (Q / E or Tab to switch): **Controls** (key bindings), **General** (na
 - **Enemy projectiles** can be shot down, but they grow tougher along with the foes: a weak hit dents a late one, a strong one breaks it.
 - **Markers** for things off screen sit well inside the screen edge; Options > General sets how far.
 - **Damage meter** (bottom right, above your souls; Options > General): your DPS over the last minute, and damage this vigil and in the last minute per player; hold Tab for your weapons.
+- **Announcements** (a lord arriving, the Blood Moon, a mimic waking ...) show on a small card at the middle of the right edge, a lord's words with them; below it every event in progress has its own line with a clock and a bar: Blood Moon, trial, mist, weather, rift or chamber, ash gate, portal, merchant, hourglass, the lord's countdown.
 - **Minimap** (top right; Options > General): the field around you with friends, lords, elites in their marks' colours, shrines, the merchant, passages, runes, coffers and pings, and faint dots for the horde.
 - **Elite traits**: every elite has one, shown by a coloured mark over its head: **Swift** (yellow, 60% faster), **Volatile** (orange, bursts into a ring of bullets when it falls), **Mender** (green, mends the foes around it), **Warded** (blue, takes 40% less) or **Blinker** (violet, steps through the air toward you).
 - **Breakable props** fit their field: tombstones, burial urns and coffins in the Graveyard, candelabra, reliquary boxes and pews in the Cathedral, egg sacs, bone piles and flesh pods in the Flesh Pits. Every weapon breaks them, nothing aims at them; they spill souls and now and then a draught, a lodestone or a coffer.
