@@ -336,7 +336,9 @@ fn write_hero_fast(w: &mut Writer, h: &Hero, viewer: bool) {
     for wp in &h.weapons {
         for part in wp.parts() {
             match part.kind {
-                WeaponKind::Lanterns => w.u16((wp.spins[part.slot].rem_euclid(SPIN_PERIOD) / SPIN_PERIOD * 65535.0) as u16),
+                WeaponKind::Lanterns | WeaponKind::AshShield | WeaponKind::IceRosary | WeaponKind::AshFlies | WeaponKind::ThornMoths => {
+                    w.u16((wp.spins[part.slot].rem_euclid(SPIN_PERIOD) / SPIN_PERIOD * 65535.0) as u16)
+                }
                 WeaponKind::Chime => w.u16((wp.timers[part.slot] * 1000.0).clamp(0.0, 65535.0) as u16),
                 _ => {}
             }
@@ -392,7 +394,9 @@ fn read_hero_fast(r: &mut Reader, h: &mut Hero, predicted: bool) {
     for wp in h.weapons.iter_mut() {
         for part in wp.parts() {
             match part.kind {
-                WeaponKind::Lanterns => wp.spins[part.slot] = r.u16() as f32 / 65535.0 * SPIN_PERIOD,
+                WeaponKind::Lanterns | WeaponKind::AshShield | WeaponKind::IceRosary | WeaponKind::AshFlies | WeaponKind::ThornMoths => {
+                    wp.spins[part.slot] = r.u16() as f32 / 65535.0 * SPIN_PERIOD
+                }
                 WeaponKind::Chime => wp.timers[part.slot] = r.u16() as f32 / 1000.0,
                 _ => {}
             }
@@ -551,7 +555,7 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         let code = en.kind.to_u8() as u16 | (en.elite as u16) << 8 | (en.boss as u16) << 9;
         // A lit cultist bomb blinks through the flash bit.
         let blink = en.fuse > 0.0 && (en.fuse * 12.0) as i32 % 2 == 0;
-        let live = (en.burn > 0.0) as u8 | ((en.flash > 0.0 || blink) as u8) << 1;
+        let live = (en.burn > 0.0) as u8 | ((en.flash > 0.0 || blink) as u8) << 1 | ((en.freeze > 0.0) as u8) << 2 | ((en.bleed > 0.0) as u8) << 3 | ((en.held > 0.0) as u8) << 4;
         let (x, y) = (quant(en.pos.x), quant(en.pos.y));
         match base.enemies.get(&id) {
             Some(&(c, bx, by)) if c == code => {
@@ -653,6 +657,12 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
                 FxKind::Crook { radius, .. } | FxKind::Gash { radius, .. } | FxKind::Ribs { radius, .. } => view.sees(f.pos, radius),
                 FxKind::Gaze { to } | FxKind::Lash { to } => view.sees(f.pos, 40.0) || view.sees(to, 40.0),
                 FxKind::Spike { r } => view.sees(f.pos, r + 40.0),
+                FxKind::Sickle { radius, .. } | FxKind::Breath { radius, .. } | FxKind::Thorns { radius, .. } => view.sees(f.pos, radius),
+                FxKind::Frost { to } => view.sees(f.pos, 40.0) || view.sees(to, 40.0),
+                FxKind::IceSpikes { r } => view.sees(f.pos, r + 40.0),
+                FxKind::Zap { to, .. } | FxKind::Hook { to } => view.sees(f.pos, 40.0) || view.sees(to, 40.0),
+                FxKind::Haul { radius, .. } => view.sees(f.pos, radius),
+                FxKind::Strike { to, .. } => view.sees(f.pos, 40.0) || view.sees(to, 40.0),
             }
         })
         .take(255)
@@ -732,6 +742,53 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
             FxKind::Lash { to } => {
                 e.w.u8(14);
                 e.pos(to);
+            }
+            FxKind::Sickle { ang, radius, evo, owner } => {
+                e.w.u8(15);
+                e.w.f32(ang);
+                e.w.u16(radius as u16);
+                e.w.bool(evo);
+                e.w.u8(owner);
+            }
+            FxKind::Breath { ang, radius, owner } => {
+                e.w.u8(16);
+                e.w.f32(ang);
+                e.w.u16(radius as u16);
+                e.w.u8(owner);
+            }
+            FxKind::Thorns { ang, radius, owner } => {
+                e.w.u8(17);
+                e.w.f32(ang);
+                e.w.u16(radius as u16);
+                e.w.u8(owner);
+            }
+            FxKind::Frost { to } => {
+                e.w.u8(18);
+                e.pos(to);
+            }
+            FxKind::IceSpikes { r } => {
+                e.w.u8(19);
+                e.w.u16(r as u16);
+            }
+            FxKind::Zap { to, poison } => {
+                e.w.u8(20);
+                e.pos(to);
+                e.w.bool(poison);
+            }
+            FxKind::Hook { to } => {
+                e.w.u8(21);
+                e.pos(to);
+            }
+            FxKind::Haul { ang, radius, owner } => {
+                e.w.u8(22);
+                e.w.f32(ang);
+                e.w.u16(radius as u16);
+                e.w.u8(owner);
+            }
+            FxKind::Strike { to, style } => {
+                e.w.u8(23);
+                e.pos(to);
+                e.w.u8(style);
             }
         }
     }
@@ -1148,6 +1205,13 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             step: 0,
             lunge: Vec2::ZERO,
             affix,
+            freeze: if live & 4 != 0 { 0.1 } else { 0.0 },
+            bleed: if live & 8 != 0 { 0.1 } else { 0.0 },
+            bleed_dps: 0.0,
+            bleed_acc: 0.0,
+            bleed_src: Src { hero: 0, weapon: WeaponKind::Blade },
+            held: if live & 16 != 0 { 0.1 } else { 0.0 },
+            chill: 0.0,
         });
     }
     *prev = next_prev;
@@ -1218,6 +1282,15 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             12 => FxKind::Spike { r: d.r.u16() as f32 },
             13 => FxKind::Ribs { radius: d.r.u16() as f32, owner: d.r.u8() },
             14 => FxKind::Lash { to: d.pos() },
+            15 => FxKind::Sickle { ang: d.r.f32(), radius: d.r.u16() as f32, evo: d.r.bool(), owner: d.r.u8() },
+            16 => FxKind::Breath { ang: d.r.f32(), radius: d.r.u16() as f32, owner: d.r.u8() },
+            17 => FxKind::Thorns { ang: d.r.f32(), radius: d.r.u16() as f32, owner: d.r.u8() },
+            18 => FxKind::Frost { to: d.pos() },
+            19 => FxKind::IceSpikes { r: d.r.u16() as f32 },
+            20 => FxKind::Zap { to: d.pos(), poison: d.r.bool() },
+            21 => FxKind::Hook { to: d.pos() },
+            22 => FxKind::Haul { ang: d.r.f32(), radius: d.r.u16() as f32, owner: d.r.u8() },
+            23 => FxKind::Strike { to: d.pos(), style: d.r.u8() },
             _ => FxKind::Ghost,
         };
         w.fx.push(Fx { pos, life, max_life, kind });

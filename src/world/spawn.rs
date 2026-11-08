@@ -84,6 +84,13 @@ impl World {
             step: 0,
             lunge: Vec2::ZERO,
             affix: Affix::None,
+            freeze: 0.0,
+            bleed: 0.0,
+            bleed_dps: 0.0,
+            bleed_acc: 0.0,
+            bleed_src: Src { hero: 0, weapon: WeaponKind::Blade },
+            held: 0.0,
+            chill: 0.0,
             hunt: None,
             life_left: f32::INFINITY,
         }
@@ -187,6 +194,35 @@ impl World {
         MAX_ENEMIES.saturating_sub(self.enemies.len())
     }
 
+    /// A hard ceiling over everything that brings foes (splits, summons, calls, adds): past
+    /// it, the ordinary foes farthest from every hero fade from the field, without souls or
+    /// drops, so a long endless night can never pile up without bound.
+    pub(crate) fn trim_overflow(&mut self) {
+        let ceiling = MAX_ENEMIES + LORD_ADDS_OVER;
+        let over = self.enemies.iter().filter(|e| !e.dead).count().saturating_sub(ceiling);
+        if over == 0 {
+            return;
+        }
+        let heroes: Vec<Vec2> = self.heroes.iter().filter(|h| h.connected).map(|h| h.p.pos).collect();
+        let mut far: Vec<(f32, usize)> = self
+            .enemies
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                !e.dead
+                    && !e.boss
+                    && !e.elite
+                    && e.hunt.is_none()
+                    && !matches!(e.kind, EnemyKind::Prop(_) | EnemyKind::Champion | EnemyKind::Rival | EnemyKind::Courier | EnemyKind::Mimic(_))
+            })
+            .map(|(i, e)| (heroes.iter().map(|h| h.distance_squared(e.pos)).fold(f32::MAX, f32::min), i))
+            .collect();
+        far.sort_by(|a, b| b.0.total_cmp(&a.0));
+        for &(_, i) in far.iter().take(over) {
+            self.enemies[i].dead = true;
+        }
+    }
+
     pub(crate) fn update_spawns(&mut self, dt: f32) {
         let m = self.time / 60.0;
         let coop = 1.0 + 0.5 * (self.heroes.len().max(1) - 1) as f32;
@@ -239,6 +275,11 @@ impl World {
             }
         }
 
+        // Elites wait while the field is full: with elite tides stacked in a long endless night
+        // they came faster than they fell and piled up past every ceiling.
+        if self.time >= self.next_elite && self.enemies.len() >= MAX_ENEMIES + LORD_ADDS_OVER {
+            self.next_elite = self.time + 5.0;
+        }
         if self.time >= self.next_elite {
             self.next_elite = self.time + if self.cursed_by(Curse::EliteTide) { 24.0 } else { 70.0 } * self.mutated(Mutator::EliteTide, 0.7);
             let kind = match m as u32 {

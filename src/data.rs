@@ -334,6 +334,21 @@ impl WeaponKind {
         }
     }
 
+    /// The newer fields' weapons: every one fights in a way of its own (its twin only lends
+    /// its numbers, its place in the arsenal and the shape of its icon).
+    pub fn own_mechanic(self) -> bool {
+        self.field() >= 3
+    }
+
+    /// How a weapon fights: by its own code, or for most newer ones like their twin.
+    pub fn mechanic(self) -> WeaponKind {
+        if self.own_mechanic() {
+            self
+        } else {
+            self.twin()
+        }
+    }
+
     /// The element of a newer field's weapon, laid on whatever it strikes: 3 fire, 4 frost,
     /// 5 poison; none for the older fields.
     pub fn element(self) -> usize {
@@ -553,42 +568,42 @@ impl WeaponKind {
             Steps => "Your steps leave a trail of blood that eats at foes.",
             Spine => "A long spine lashes straight ahead through everything.",
             Tendrils => "Tendrils shoot out all around, then snap back.",
-            AshHatchet => "A burning hatchet swung ahead; what it cuts catches fire.",
-            AshShards => "Hot shards of charcoal flung at foes.",
+            AshHatchet => "Hatchets flung in a widening spiral around you, cleaving all they pass.",
+            AshShards => "A blast of burning splinters in a cone, cruellest up close.",
             AshSling => "A glowing ember slung at the nearest foe; it bursts into flame.",
-            AshBell => "A bell of hot iron rings around you and scorches all near.",
+            AshBell => "A bell that tolls around you; every third toll rings out a wave of fire.",
             AshShield => "Plates of burning bark circle you and batter foes.",
-            AshRoots => "Roots of fire burst up under foes and hold them.",
-            AshBrand => "Flaming brands thrown in wide arcs.",
-            AshFlies => "Seeking sparks that drift after foes.",
+            AshRoots => "Burning roots crawl to the foes, leave fire behind and hold what they reach.",
+            AshBrand => "A burning brand lobbed onto the foes; it lands in a ring of fire.",
+            AshFlies => "Fireflies drift around you and sting the nearest foes with sparks.",
             AshSickle => "A wide sweep of a blackened sickle that sets its path alight.",
-            AshTrail => "Your steps leave smouldering ground that burns foes.",
-            AshPike => "A burning pike thrust straight through everything.",
-            AshBurst => "Embers flung out in every direction.",
-            IceScourge => "A lash of icicles that chills what it strikes.",
-            IceNeedles => "Needles of ice hurled fast and far.",
-            IceFlask => "A flask of meltwater that freezes into a pool of frost.",
-            IceHalo => "A ring of rime breathes out around you.",
+            AshTrail => "Your steps leave smouldering ash; a roll leaves a wall of flame.",
+            AshPike => "A burning pike thrust; the first foe on its point blows up.",
+            AshBurst => "Embers burst out all round, slow, and fall burning to the ground.",
+            IceScourge => "A scourge of icicles: what it strikes is chilled, what its tip strikes freezes.",
+            IceNeedles => "Volleys of ice needles; each sting gathers cold until the foe freezes.",
+            IceFlask => "A flask of meltwater; its pool freezes the foes that wade in it.",
+            IceHalo => "A ring of rime that shoves foes out, chills them and slows bullets.",
             IceRosary => "Beads of ice circle you and chill all they touch.",
-            IceFall => "Great icicles fall on the foes.",
+            IceFall => "Icicles fall where the foes stand: a shadow first, then the ice.",
             IceOwl => "A snow owl swoops at the strongest foe and back.",
-            IceRunes => "Runes of frost written in the air, seeking foes.",
-            IceCrook => "A crook of ice sweeps around you.",
+            IceRunes => "Frost runes laid in the foes' way; the first to step on one sets it off.",
+            IceCrook => "A crook of ice that hooks a row of foes and hauls them in to you.",
             IceBreath => "A breath of cold that slows and gnaws at foes around you.",
             IceLance => "A lance of ice that pierces a whole row.",
-            IcePanes => "Panes of frost that burst into shards.",
+            IcePanes => "Panes of ice raised in the foes' way; bullets break on them.",
             ThornWhip => "A thorned whip lashes in an arc; thorns stay and bleed.",
-            ThornVolley => "Thorns shot fast at foes.",
+            ThornVolley => "Rose thorns that spring from foe to foe and leave them bleeding.",
             ThornBloom => "Seeds that burst into poison flowers.",
             ThornMirror => "A pond of dark water ripples out around you.",
-            ThornMoths => "Moths circle you and sting the foes they see.",
-            ThornSnare => "Brambles burst up under foes and hold them.",
-            ThornShears => "Shears flung out and back, snipping all they pass.",
-            ThornSpores => "Seeking pollen; each that strikes mends you a little.",
-            ThornHook => "A pruning hook sweeps around you.",
-            ThornTrail => "Your steps leave nightshade that poisons foes.",
-            ThornLash => "A long vine lashes straight ahead through everything.",
-            ThornRoots => "Roots shoot out all around, then snap back.",
+            ThornMoths => "Moths flutter wide around you and poison what they brush.",
+            ThornSnare => "Brambles burst up under the foes, hold them fast and make them bleed.",
+            ThornShears => "Shears flung out to snap shut on the foes, then back to you.",
+            ThornSpores => "Wisps of pollen drift after foes, burst into poison and mend you.",
+            ThornHook => "A hooked swing that drags the foes in its arc in to you, bleeding.",
+            ThornTrail => "Nightshade springs up in your steps and bursts when a foe comes near.",
+            ThornLash => "A vine lashes the nearest foe and flings it into the ones around it.",
+            ThornRoots => "Roots creep out every way from you and hold fast what they grow under.",
         }
     }
 

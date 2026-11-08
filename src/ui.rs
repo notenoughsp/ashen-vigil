@@ -96,8 +96,10 @@ const MINIMAP_RANGE: f32 = 1500.0;
 
 /// Sets the UI scale for this frame from the setting (an index into `UI_SCALES`).
 pub fn set_ui_scale(choice: u8) {
+    // On a phone the screen is small for its pixels: automatic size starts larger there.
+    let auto_base = if cfg!(target_os = "android") { 720.0 } else { 1080.0 };
     let s = match UI_SCALES.get(choice as usize).copied().unwrap_or(0.0) {
-        0.0 => (screen_height() / 1080.0).max(1.0),
+        0.0 => (screen_height() / auto_base).max(1.0),
         s => s,
     };
     // Never so large that the menus no longer fit.
@@ -590,8 +592,15 @@ impl<'a> Ui<'a> {
         for e in w.enemies.iter().filter(|e| e.kind == EnemyKind::Mimic(false)) {
             dot(e.pos, 2.5, GOLD);
         }
-        for r in w.runes.iter().filter(|r| r.ready()) {
-            dot(r.pos, 2.5, Color::new(0.4, 0.9, 0.85, 1.0));
+        for r in &w.runes {
+            // Each rune with a short stroke toward the one it throws to.
+            let teal = Color::new(0.4, 0.9, 0.85, if r.ready() { 1.0 } else { 0.35 });
+            let (q, t) = (to(r.pos), to(r.to));
+            if inside(q) {
+                let d = (t - q).normalize_or_zero();
+                draw_line(q.x, q.y, q.x + d.x * 9.0, q.y + d.y * 9.0, 1.2, teal);
+            }
+            dot(r.pos, 2.5, teal);
         }
         if let Some(g) = &w.gate {
             dot(g.pos, 4.0, Color::new(0.55, 0.95, 0.85, 1.0));
@@ -702,6 +711,37 @@ impl<'a> Ui<'a> {
         }
     }
 
+    /// The touch controls: the stick where the thumb went down, the buttons at the right
+    /// edge and the pause button by the clock, faint until pressed.
+    pub fn touch_controls(&self) {
+        use crate::app::input::{touch_held, touch_stick, TouchButton, STICK_REACH, TOUCH_BUTTONS};
+        if let Some((origin, thumb)) = touch_stick() {
+            draw_circle(origin.x, origin.y, STICK_REACH, Color::new(1.0, 1.0, 1.0, 0.06));
+            draw_circle_lines(origin.x, origin.y, STICK_REACH, 2.0, Color::new(1.0, 1.0, 1.0, 0.25));
+            draw_circle(thumb.x, thumb.y, 30.0, Color::new(1.0, 0.85, 0.6, 0.35));
+        } else {
+            // A hint where the stick goes.
+            let at = vec2(150.0, ui_h() - 150.0);
+            draw_circle_lines(at.x, at.y, STICK_REACH, 2.0, Color::new(1.0, 1.0, 1.0, 0.1));
+            self.text_c("Move", at.x, at.y + 6.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.2));
+        }
+        for b in TOUCH_BUTTONS {
+            let (c, r) = b.circle();
+            let held = touch_held(b);
+            let fill = if held { 0.35 } else { 0.12 };
+            let tint = match b {
+                TouchButton::Roll => Color::new(0.6, 0.85, 1.0, 1.0),
+                TouchButton::Skill => GOLD,
+                TouchButton::Ping => TEAL,
+                TouchButton::Pause => PALE,
+            };
+            draw_circle(c.x, c.y, r, Color::new(tint.r, tint.g, tint.b, fill));
+            draw_circle_lines(c.x, c.y, r, 2.5, Color::new(tint.r, tint.g, tint.b, 0.6));
+            let size = (r * 0.42).clamp(14.0, 24.0);
+            self.text_c(b.label(), c.x, c.y + size * 0.35, size, Color::new(tint.r, tint.g, tint.b, 0.9));
+        }
+    }
+
     /// The endless night's mutators, one line each with its stacks.
     fn mutator_list(&self, w: &World, x: f32, mut y: f32) {
         for m in ALL_MUTATORS {
@@ -772,7 +812,9 @@ impl<'a> Ui<'a> {
         let sy = by + 17.0;
         draw_rectangle(22.0, sy, 150.0, 14.0, Color::new(0.0, 0.0, 0.0, 0.6));
         draw_rectangle(22.0, sy + 10.0, 150.0 * frac, 4.0, if ready { GOLD } else { Color::new(0.45, 0.4, 0.35, 1.0) });
-        let label = if ready { format!("[{}] {}", key, skill) } else { format!("[{}] {}  {:.0}s", key, skill, me.skill_cd.ceil()) };
+        // On a phone the Skill button stands for the key.
+        let key = if crate::app::input::touch_shown() { String::new() } else { format!("[{}] ", key) };
+        let label = if ready { format!("{}{}", key, skill) } else { format!("{}{}  {:.0}s", key, skill, me.skill_cd.ceil()) };
         mono(&label, 25.0, sy + 9.0, 13.0, col);
 
         // Companions.
@@ -962,16 +1004,15 @@ impl<'a> Ui<'a> {
             rail.push(RailItem::new(&lord, EMBER));
         }
         if w.boss_warning > 0.0 {
-            // A lord is coming: a red pulse at the edges, and its countdown on the rail.
+            // A lord is coming: a red pulse at the edges, and its countdown under the clock.
             let t = w.boss_warning;
             let pulse = 0.5 + 0.5 * (t * std::f32::consts::TAU).cos();
             let edge = if w.cute { Color::new(1.0, 0.4, 0.7, 0.35 * pulse) } else { Color::new(0.75, 0.05, 0.03, 0.35 * pulse) };
             for (x, y, ww, hh) in [(0.0, 0.0, sw, 10.0), (0.0, sh - 10.0, sw, 10.0), (0.0, 0.0, 10.0, sh), (sw - 10.0, 0.0, 10.0, sh)] {
                 draw_rectangle(x, y, ww, hh, edge);
             }
-            let mut it = RailItem::new("A lord approaches", a(Color::new(0.95, 0.35, 0.25, 1.0), 0.6 + 0.4 * pulse));
-            it.clock = Some(format!("{}", t.ceil() as u32));
-            rail.push(it);
+            let red = a(Color::new(0.95, 0.35, 0.25, 1.0), 0.6 + 0.4 * pulse);
+            self.spaced_c(&format!("A LORD APPROACHES   {}", t.ceil() as u32), sw * 0.5, 80.0, 26.0, 5.0, red);
         }
         if w.blood_moon > 0.0 {
             rail.push(RailItem::timed("Blood Moon", "double souls, hungrier dead", Color::new(0.95, 0.3, 0.25, 1.0), clock(w.blood_moon), w.blood_moon / MOON_LENGTH));
@@ -1177,15 +1218,22 @@ impl<'a> Ui<'a> {
         }
         let shared = w.heroes.len() > 1 && !detailed;
         let h = 26.0 + rows.len() as f32 * 19.0 + if shared { 16.0 } else { 0.0 } + 20.0;
-        // Above the souls in the bottom right corner, and above the soul burden's line.
-        let mut y = sh - 104.0 - h;
+        // Above the souls in the bottom right corner, and above the soul burden's line; with
+        // touch controls, above their buttons.
+        let mut y = if crate::app::input::touch_shown() { sh - 262.0 - h } else { sh - 104.0 - h };
         draw_rectangle(x - 8.0, y - 4.0, 240.0, h, Color::new(0.0, 0.0, 0.0, 0.45));
         // Our damage per second over the last minute.
         let dps = format!("DPS {}", short(me.dmg_minute.max(0.0) as f64 / 60.0));
         mono(&dps, x, y + 12.0, 17.0, GOLD);
         y += 20.0;
         let weapons_key = if using_pad() { "LB" } else { key_label(Action::Weapons) };
-        let title = if w.heroes.len() > 1 && !detailed { "Damage   vigil / last min".to_string() } else { format!("Damage by weapon   ({})", weapons_key) };
+        let title = if w.heroes.len() > 1 && !detailed {
+            "Damage   vigil / last min".to_string()
+        } else if crate::app::input::touch_shown() {
+            "Damage by weapon".to_string()
+        } else {
+            format!("Damage by weapon   ({})", weapons_key)
+        };
         mono(title, x, y + 10.0, 15.0, a(DIM, 1.0));
         y += 16.0;
         let max = rows.iter().map(|r| r.1).fold(1.0, f64::max);

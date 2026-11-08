@@ -1,6 +1,6 @@
 //! Things on the field that are not foes: breakable props that fit the field (graves and urns,
-//! candelabra and reliquaries, egg sacs and bone piles) and teleport runes that throw a hero
-//! clear of a horde.
+//! candelabra and reliquaries, egg sacs and bone piles) and four teleport runes, one near each
+//! corner, each throwing a hero on to the next round the field.
 //!
 //! Props are foes of a kind (`EnemyKind::Prop`) so every weapon breaks them, but they never
 //! move, never hurt, are never aimed at and never count as felled. The host keeps a few of each
@@ -12,15 +12,17 @@ use super::*;
 const PROPS_NEAR: usize = 22;
 const PROP_RING: (f32, f32) = (650.0, 1300.0);
 const PROP_GONE: f32 = 2600.0;
-/// Runes kept round the party, how far one throws, and how long it rests after.
-const RUNES_NEAR: usize = 3;
+/// How big a rune is, how long it (and the one it threw to) rests after, how far in from the
+/// corners the runes lie (clear of the fields' secrets) and how far beside its rune a hero lands.
 pub const RUNE_RADIUS: f32 = 26.0;
 pub const RUNE_REST: f32 = 25.0;
-const RUNE_THROW: (f32, f32) = (900.0, 1300.0);
+const RUNE_INSET: f32 = 700.0;
+const RUNE_LAND: f32 = 75.0;
 
-/// A rune on the floor: step on it and land at `to`.
+/// A rune on the floor: step on it and land beside the rune at `to`.
 pub struct TeleRune {
     pub pos: Vec2,
+    /// The rune it throws to.
     pub to: Vec2,
     /// Seconds until it works again.
     pub rest: f32,
@@ -30,6 +32,19 @@ impl TeleRune {
     pub fn ready(&self) -> bool {
         self.rest <= 0.0
     }
+
+    /// Where a hero it throws lands: beside the far rune, toward the middle of the field, so
+    /// they do not stand on it.
+    pub fn landing(&self) -> Vec2 {
+        self.to - self.to.normalize_or_zero() * RUNE_LAND
+    }
+}
+
+/// The four runes, near the corners, each throwing to the next clockwise.
+pub fn corner_runes() -> Vec<TeleRune> {
+    let c = WORLD_HALF - RUNE_INSET;
+    let corners = [vec2(-c, -c), vec2(c, -c), vec2(c, c), vec2(-c, c)];
+    (0..4).map(|k| TeleRune { pos: corners[k], to: corners[(k + 1) % 4], rest: 0.0 }).collect()
 }
 
 impl World {
@@ -103,41 +118,18 @@ impl World {
     }
 
     fn keep_runes(&mut self) {
-        let heroes: Vec<Vec2> = self.heroes.iter().filter(|h| h.connected).map(|h| h.p.pos).collect();
-        let near = |p: Vec2, d: f32| heroes.iter().any(|h| h.distance(p) < d);
-        self.runes.retain(|r| near(r.pos, PROP_GONE));
-        let count = self.runes.iter().filter(|r| near(r.pos, 1500.0)).count();
-        if count < RUNES_NEAR {
-            let (at, _, _) = self.random_hero_pos();
-            let pos = clamp_world(at + rand_dir() * gen_range(380.0, 800.0), 200.0);
-            let to = self.safe_landing(pos);
-            self.runes.push(TeleRune { pos, to, rest: 0.0 });
-        }
-        // A rune whose landing has grown crowded looks for a quieter one.
-        for k in 0..self.runes.len() {
-            let to = self.runes[k].to;
-            let crowded = self.enemies.iter().filter(|e| !e.dead && !matches!(e.kind, EnemyKind::Prop(_)) && e.pos.distance_squared(to) < 300.0 * 300.0).count() > 3;
-            if crowded {
-                let to = self.safe_landing(self.runes[k].pos);
-                self.runes[k].to = to;
-            }
+        if self.runes.len() != 4 {
+            self.runes = corner_runes();
         }
     }
 
-    /// The quietest spot a throw away from `from`: the fewest foes within 300 of it.
-    fn safe_landing(&self, from: Vec2) -> Vec2 {
-        let mut best = (usize::MAX, clamp_world(from + rand_dir() * RUNE_THROW.0, 200.0));
-        for _ in 0..10 {
-            let p = clamp_world(from + rand_dir() * gen_range(RUNE_THROW.0, RUNE_THROW.1), 200.0);
-            if self.arena.is_some_and(|(c, r)| c.distance(p) < r + 80.0) {
-                continue;
-            }
-            let foes = self.enemies.iter().filter(|e| !e.dead && !matches!(e.kind, EnemyKind::Prop(_)) && e.pos.distance_squared(p) < 300.0 * 300.0).count();
-            if foes < best.0 {
-                best = (foes, p);
-            }
+    /// Puts rune `k` and the one it throws to at rest.
+    fn rest_runes(&mut self, k: usize) {
+        let to = self.runes[k].to;
+        for r in self.runes.iter_mut().filter(|r| r.pos.distance(to) < 1.0) {
+            r.rest = RUNE_REST;
         }
-        best.1
+        self.runes[k].rest = RUNE_REST;
     }
 
     fn update_runes(&mut self, dt: f32) {
@@ -152,7 +144,7 @@ impl World {
             if !self.runes[k].ready() {
                 continue;
             }
-            let (pos, to) = (self.runes[k].pos, self.runes[k].to);
+            let (pos, to) = (self.runes[k].pos, self.runes[k].landing());
             // Our own heroes step through here; a client's hero arrives by itself, so the
             // host only sees it land.
             let local = self.heroes.iter().position(|h| h.alive() && !h.remote && h.p.pos.distance(pos) < RUNE_RADIUS);
@@ -162,7 +154,7 @@ impl World {
                 self.heroes[h].p.pos = to;
             }
             self.heroes[h].p.iframes = self.heroes[h].p.iframes.max(1.0);
-            self.runes[k].rest = RUNE_REST;
+            self.rest_runes(k);
             self.runes_used += 1;
             let line = format!("{} steps through a rune", self.heroes[h].name);
             self.log_event(&line);
@@ -183,9 +175,9 @@ impl World {
             return;
         }
         let at = hero.p.pos;
-        if let Some(r) = self.runes.iter_mut().find(|r| r.ready() && r.pos.distance(at) < RUNE_RADIUS) {
-            r.rest = RUNE_REST;
-            let to = r.to;
+        if let Some(k) = self.runes.iter().position(|r| r.ready() && r.pos.distance(at) < RUNE_RADIUS) {
+            let to = self.runes[k].landing();
+            self.rest_runes(k);
             let h = &mut self.heroes[self.local];
             h.p.pos = to;
             h.p.iframes = h.p.iframes.max(1.0);

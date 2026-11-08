@@ -615,7 +615,21 @@ pub struct Enemy {
     pub life_left: f32,
     /// An elite's trait, see `Affix`; ordinary foes have none.
     pub affix: Affix,
+    /// Seconds it stays frozen: it does not move, and takes more from every blow.
+    pub freeze: f32,
+    /// Thorns left in it: seconds it bleeds on, how hard, and from whom.
+    pub bleed: f32,
+    pub bleed_dps: f32,
+    pub bleed_acc: f32,
+    pub bleed_src: Src,
+    /// Seconds it is held fast by roots or brambles.
+    pub held: f32,
+    /// Cold gathered from ice needles and meltwater; at 1 it freezes.
+    pub chill: f32,
 }
+
+/// How much more a frozen foe takes from every blow.
+pub const FROZEN_TAKES: f32 = 1.3;
 
 /// What makes an elite more than big: each elite gets one, shown by a coloured mark above its
 /// head.
@@ -713,6 +727,35 @@ pub enum PKind {
     Jaw,
     Mote,
     Tendril,
+    /// The spark sling's glowing ember: it bursts into sparks.
+    Sling,
+    Spark,
+    /// The bloom cannon's seed: it lands where it was thrown and grows into a poison flower.
+    Seed,
+    /// A foe's bullet the mirror pond sent back.
+    Mirror,
+    /// The charred hatchet, spiralling out round its thrower.
+    Hatchet,
+    /// Burning roots crawling along the ground, leaving fire behind.
+    Root,
+    /// A burning brand lobbed onto the foes.
+    Brand,
+    /// An ember of the ember burst; it falls to the ground burning.
+    Ember2,
+    /// An ice needle.
+    Needle,
+    /// The snow owl, diving at the strongest foe and back.
+    Owl,
+    /// A rose thorn; it springs on to the foes nearby.
+    Thorn,
+    /// The garden shears, flung out to snap shut and back.
+    Shears,
+    /// A wisp of pollen, seeking.
+    Wisp,
+    /// Creeping roots that hold what they grow under.
+    Vine,
+    /// A flask of meltwater, lobbed; it freezes over where it lands.
+    Meltwater,
 }
 
 impl PKind {
@@ -733,6 +776,21 @@ impl PKind {
             9 => PKind::Gargoyle,
             10 => PKind::Rune,
             11 => PKind::Ember,
+            17 => PKind::Sling,
+            18 => PKind::Spark,
+            19 => PKind::Seed,
+            20 => PKind::Mirror,
+            21 => PKind::Hatchet,
+            22 => PKind::Root,
+            23 => PKind::Brand,
+            24 => PKind::Ember2,
+            25 => PKind::Needle,
+            26 => PKind::Owl,
+            27 => PKind::Thorn,
+            28 => PKind::Shears,
+            29 => PKind::Wisp,
+            30 => PKind::Vine,
+            31 => PKind::Meltwater,
             12 => PKind::Tooth,
             13 => PKind::Sac,
             14 => PKind::Jaw,
@@ -839,6 +897,54 @@ pub enum FxKind {
     Lash {
         to: Vec2,
     },
+    /// The ash sickle's wide burning sweep round its owner (both ways once evolved).
+    Sickle {
+        ang: f32,
+        radius: f32,
+        evo: bool,
+        owner: u8,
+    },
+    /// A cone of snowburn breathed from its owner.
+    Breath {
+        ang: f32,
+        radius: f32,
+        owner: u8,
+    },
+    /// The thorn whip's lash in an arc round its owner.
+    Thorns {
+        ang: f32,
+        radius: f32,
+        owner: u8,
+    },
+    /// The ice lance's beam from `pos` to `to`.
+    Frost {
+        to: Vec2,
+    },
+    /// Spikes of ice bursting up where the ice lance passed.
+    IceSpikes {
+        r: f32,
+    },
+    /// A spark leaping from `pos` to `to`: a firefly's sting, or a moth's.
+    Zap {
+        to: Vec2,
+        poison: bool,
+    },
+    /// A hook flung from `pos` to `to` and hauled back.
+    Hook {
+        to: Vec2,
+    },
+    /// A swing that drags foes in toward its owner.
+    Haul {
+        ang: f32,
+        radius: f32,
+        owner: u8,
+    },
+    /// A straight strike from `pos` to `to`: 0 a burning pike, 1 an icicle scourge,
+    /// 2 a lashing vine.
+    Strike {
+        to: Vec2,
+        style: u8,
+    },
 }
 
 pub struct Fx {
@@ -859,11 +965,54 @@ pub enum PoolKind {
     Smoke,
     /// The bleeding steps' trail.
     Blood,
+    /// The ash sickle's burning trail.
+    Cinders,
+    /// A poison flower from the bloom cannon: a bud a moment, then a bloom.
+    Bloom,
+    /// An ice spike the ice lance left: it bursts once, a moment later.
+    IceSpike,
+    /// A burning pike's victim: it blows up a moment later.
+    FireBurst,
+    /// A pool of meltwater freezing over.
+    Frostpool,
+    /// A falling icicle's shadow; it strikes when its wait is over.
+    Icicle,
+    /// A frost rune laid on the ground: the first foe to step on it sets it off.
+    RuneTrap,
+    /// A pane of ice standing upright: it stops bullets and bites what touches it.
+    Pane,
+    /// Brambles that hold whatever stands in them, and make it bleed.
+    Bramble,
+    /// A cloud of poisonous pollen.
+    Pollen,
+    /// A nightshade flower: the first foe near it makes it burst into poison.
+    Nightshade,
 }
 
 impl PoolKind {
     pub fn from_u8(v: u8) -> PoolKind {
-        [PoolKind::Fire, PoolKind::Hex, PoolKind::Holy, PoolKind::Candle, PoolKind::Smoke, PoolKind::Blood].get(v as usize).copied().unwrap_or(PoolKind::Fire)
+        [
+            PoolKind::Fire,
+            PoolKind::Hex,
+            PoolKind::Holy,
+            PoolKind::Candle,
+            PoolKind::Smoke,
+            PoolKind::Blood,
+            PoolKind::Cinders,
+            PoolKind::Bloom,
+            PoolKind::IceSpike,
+            PoolKind::FireBurst,
+            PoolKind::Frostpool,
+            PoolKind::Icicle,
+            PoolKind::RuneTrap,
+            PoolKind::Pane,
+            PoolKind::Bramble,
+            PoolKind::Pollen,
+            PoolKind::Nightshade,
+        ]
+        .get(v as usize)
+        .copied()
+        .unwrap_or(PoolKind::Fire)
     }
 }
 
@@ -1845,6 +1994,8 @@ impl World {
             h.refresh_minute(now);
         }
         self.update_fx(dt);
+        // Last of all, after every split, summon and call of this frame.
+        self.trim_overflow();
         self.enemies.retain(|e| !e.dead);
         // Dawn ends a vigil once the Sovereign of the last hour has fallen; the last of the
         // lords ends a boss rush.

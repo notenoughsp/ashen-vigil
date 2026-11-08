@@ -195,6 +195,155 @@ impl World {
             let p = pr.pos;
             let d = pr.vel.normalize_or_zero();
             match pr.kind {
+                PKind::Hatchet => {
+                    // A charred hatchet tumbling, its edge glowing.
+                    let a = pr.age * 16.0;
+                    let u = Vec2::from_angle(a);
+                    let v = vec2(-u.y, u.x);
+                    let r = pr.r;
+                    let tail = p - u * r;
+                    let head = p + u * r * 0.8;
+                    if pr.evo {
+                        glow(p, r, rgba(255, 120, 40, 255), 0.6);
+                    }
+                    draw_line(tail.x, tail.y, head.x, head.y, 3.0, rgba(70, 45, 28, 255));
+                    let (e1, e2) = (head + v * r * 0.75 - u * r * 0.35, head + v * r * 0.7 + u * r * 0.3);
+                    draw_triangle(head + v * r * 0.1, e1, e2, rgba(58, 52, 50, 255));
+                    draw_line(e1.x, e1.y, e2.x, e2.y, 2.0, rgba(255, 120, 40, 240));
+                }
+                PKind::Root => {
+                    // A knot of root pushing through the ground, smouldering at its tip.
+                    let side = vec2(-d.y, d.x);
+                    for k in 0..4 {
+                        let f = k as f32;
+                        let q = p - d * f * 6.0 + side * (pr.age * 14.0 + f).sin() * 3.0;
+                        draw_circle(q.x, q.y, pr.r * (0.55 - f * 0.08), rgba(70, 40, 22, 255));
+                    }
+                    draw_circle(p.x, p.y, pr.r * 0.35, rgba(255, 140, 50, 255));
+                    draw_circle(p.x, p.y, pr.r * 0.7, rgba(255, 110, 30, 50));
+                }
+                PKind::Brand => {
+                    // A burning brand tumbling on its arc, its shadow under where it will land.
+                    let k = (pr.age / (pr.age + pr.life).max(0.01)).clamp(0.0, 1.0);
+                    let lift = (k * std::f32::consts::PI).sin() * 55.0;
+                    draw_ellipse(p.x, p.y + 4.0, 8.0, 3.0, 0.0, rgba(0, 0, 0, 90));
+                    let q = vec2(p.x, p.y - lift);
+                    let u = Vec2::from_angle(pr.age * 11.0) * 10.0;
+                    draw_line(q.x - u.x, q.y - u.y, q.x + u.x, q.y + u.y, 4.0, rgba(80, 50, 30, 255));
+                    glow(q + u, 6.0, rgba(255, 130, 40, 255), 1.3);
+                    draw_circle(q.x + u.x, q.y + u.y, 3.0, rgba(255, 220, 140, 255));
+                }
+                PKind::Ember2 => {
+                    let k = (pr.life / 0.8).clamp(0.3, 1.0);
+                    glow(p, 6.0 * k, rgba(255, 140, 40, 255), 1.4);
+                    draw_circle(p.x, p.y, 2.4, rgba(255, 235, 170, 255));
+                }
+                PKind::Needle => {
+                    let tail = p - d * 15.0;
+                    draw_line(tail.x, tail.y, p.x, p.y, 3.0, rgba(150, 200, 240, 90));
+                    draw_line(tail.x, tail.y, p.x, p.y, 1.3, rgba(210, 240, 255, 255));
+                    draw_circle(p.x, p.y, 1.4, WHITE);
+                }
+                PKind::Owl => {
+                    // A white owl, wings sweeping.
+                    let r = pr.r * 0.75;
+                    let side = vec2(-d.y, d.x);
+                    let beat = (pr.age * 16.0).sin() * 0.5 + 0.5;
+                    for s in [-1.0, 1.0] {
+                        let tip = p + side * s * r * (1.7 + beat * 0.7) - d * r * (0.2 + beat * 0.5);
+                        draw_triangle(p + side * s * r * 0.3 + d * r * 0.2, p - d * r * 0.7, tip, rgba(225, 232, 240, 255));
+                        draw_line(p.x, p.y, tip.x, tip.y, 1.0, rgba(160, 175, 195, 255));
+                    }
+                    draw_circle(p.x, p.y, r * 0.7, rgba(240, 244, 250, 255));
+                    let face = p + d * r * 0.35;
+                    for s in [-1.0, 1.0] {
+                        let eye = face + side * s * r * 0.25;
+                        draw_circle(eye.x, eye.y, 2.2, rgba(250, 200, 80, 255));
+                        draw_circle(eye.x, eye.y, 1.0, rgba(20, 20, 30, 255));
+                    }
+                    if pr.evo {
+                        glow(p, r * 1.4, rgba(170, 220, 255, 255), 0.5);
+                    }
+                }
+                PKind::Thorn => {
+                    let side = vec2(-d.y, d.x);
+                    draw_triangle(p + d * 6.0, p - d * 4.0 + side * 2.8, p - d * 4.0 - side * 2.8, rgba(120, 170, 80, 255));
+                    draw_line(p.x - d.x * 4.0, p.y - d.y * 4.0, p.x - d.x * 10.0, p.y - d.y * 10.0, 1.6, rgba(70, 110, 50, 200));
+                    draw_circle(p.x - d.x * 2.0, p.y - d.y * 2.0, 1.2, rgba(200, 40, 70, 255));
+                }
+                PKind::Shears => {
+                    // Two blades scissoring as the shears spin.
+                    let a = pr.age * 12.0;
+                    let open = if pr.vel.dot(pr.dir) > 0.0 { 0.6 * (1.0 - pr.age / 0.45).max(0.0) + 0.1 } else { 0.08 };
+                    let r = pr.r * 1.1;
+                    for s in [-1.0, 1.0] {
+                        let u = Vec2::from_angle(a + s * open);
+                        let (tip, grip) = (p + u * r, p - u * r * 0.6);
+                        draw_line(grip.x, grip.y, tip.x, tip.y, 3.0, rgba(200, 200, 210, 255));
+                        draw_circle_lines(grip.x, grip.y, 3.5, 1.5, rgba(90, 120, 60, 255));
+                    }
+                    draw_circle(p.x, p.y, 2.0, rgba(60, 60, 70, 255));
+                }
+                PKind::Wisp => {
+                    glow(p, 8.0, rgba(240, 225, 110, 255), 1.0);
+                    for k in 0..3 {
+                        let q = p + Vec2::from_angle(pr.age * 6.0 + k as f32 * 2.1) * 6.0;
+                        draw_circle(q.x, q.y, 1.6, rgba(255, 245, 170, 255));
+                    }
+                    draw_circle(p.x, p.y, 2.5, rgba(255, 250, 200, 255));
+                }
+                PKind::Vine => {
+                    // A green root winding out, a leaf here and there.
+                    let side = vec2(-d.y, d.x);
+                    let tail = p - d * 20.0;
+                    draw_line(tail.x, tail.y, p.x, p.y, 5.0, rgba(60, 90, 40, 255));
+                    draw_line(tail.x, tail.y, p.x, p.y, 2.0, rgba(110, 150, 70, 255));
+                    let leaf = p - d * 10.0 + side * 5.0 * (pr.age * 8.0).sin().signum();
+                    draw_ellipse(leaf.x, leaf.y, 4.0, 2.0, d.to_angle().to_degrees() + 40.0, rgba(120, 170, 80, 255));
+                    draw_circle(p.x, p.y, 3.0, rgba(160, 200, 110, 255));
+                }
+                PKind::Meltwater => {
+                    // A frosted flask on its arc.
+                    let k = (pr.age / (pr.age + pr.life).max(0.01)).clamp(0.0, 1.0);
+                    let lift = (k * std::f32::consts::PI).sin() * 45.0;
+                    draw_ellipse(p.x, p.y + 4.0, 6.0, 2.5, 0.0, rgba(0, 0, 0, 90));
+                    let q = vec2(p.x, p.y - lift);
+                    draw_circle(q.x, q.y, pr.r, rgba(30, 50, 70, 255));
+                    draw_circle(q.x, q.y, pr.r * 0.8, rgba(190, 230, 255, 255));
+                    let neck = q + Vec2::from_angle(pr.age * 10.0) * pr.r;
+                    draw_line(q.x, q.y, neck.x, neck.y, 2.5, rgba(230, 240, 250, 255));
+                    draw_circle(q.x - 2.0, q.y - 2.0, 1.5, WHITE);
+                }
+                PKind::Sling => {
+                    // A glowing ember with a smoky tail.
+                    for k in 1..5 {
+                        let q = p - d * k as f32 * 6.0;
+                        draw_circle(q.x, q.y, pr.r * (1.0 - k as f32 * 0.18), Color::new(0.35, 0.3, 0.28, 0.35 - k as f32 * 0.06));
+                    }
+                    draw_circle(p.x, p.y, pr.r * 1.8, Color::new(1.0, 0.45, 0.1, 0.25));
+                    draw_circle(p.x, p.y, pr.r, rgba(255, 120, 30, 255));
+                    draw_circle(p.x - pr.r * 0.25, p.y - pr.r * 0.25, pr.r * 0.45, rgba(255, 230, 150, 255));
+                }
+                PKind::Spark => {
+                    let tail = p - d * 10.0;
+                    draw_line(tail.x, tail.y, p.x, p.y, 2.0, rgba(255, 190, 80, 200));
+                    draw_circle(p.x, p.y, 2.2, rgba(255, 240, 180, 255));
+                }
+                PKind::Seed => {
+                    // A seed tumbling on its arc, a little shadow under where it will land.
+                    let k = (pr.age / (pr.age + pr.life).max(0.01)).clamp(0.0, 1.0);
+                    let lift = (k * std::f32::consts::PI).sin() * 40.0;
+                    draw_ellipse(p.x, p.y + 4.0, 5.0, 2.0, 0.0, rgba(0, 0, 0, 90));
+                    draw_ellipse(p.x, p.y - lift, 5.0, 3.5, pr.age * 9.0, rgba(120, 150, 60, 255));
+                    draw_circle(p.x - 1.5, p.y - lift - 1.0, 1.4, rgba(200, 230, 140, 255));
+                }
+                PKind::Mirror => {
+                    // A foe's bullet turned to cold water and flung back.
+                    let tail = p - d * 14.0;
+                    draw_line(tail.x, tail.y, p.x, p.y, 4.0, rgba(120, 160, 240, 120));
+                    draw_circle(p.x, p.y, pr.r, rgba(150, 190, 255, 255));
+                    draw_circle(p.x - 2.0, p.y - 2.0, pr.r * 0.4, WHITE);
+                }
                 PKind::Dagger => {
                     let side = vec2(-d.y, d.x);
                     let c = if pr.evo { rgba(255, 210, 210, 255) } else { rgba(222, 214, 196, 255) };
@@ -335,10 +484,153 @@ impl World {
     }
 
     fn draw_fx_under(&self) {
+        for hero in self.heroes.iter().filter(|h| !h.downed && !h.possessing) {
+            if let Some(r) = hero.rime_radius() {
+                // A ring of rime crystals turning round the hero.
+                let p = hero.p.pos;
+                draw_circle_lines(p.x, p.y, r, 2.0, Color::new(0.75, 0.9, 1.0, 0.45));
+                draw_circle(p.x, p.y, r, Color::new(0.6, 0.8, 1.0, 0.05));
+                for k in 0..10 {
+                    let a = k as f32 / 10.0 * TAU + self.time * 0.6;
+                    let q = p + Vec2::from_angle(a) * r;
+                    let u = Vec2::from_angle(a) * 6.0;
+                    let v = vec2(-u.y, u.x) * 0.5;
+                    draw_triangle(q + u, q + v, q - v, Color::new(0.85, 0.95, 1.0, 0.8));
+                    draw_triangle(q - u, q + v, q - v, Color::new(0.7, 0.85, 1.0, 0.8));
+                }
+            }
+            if let Some(r) = hero.pond_radius() {
+                // Dark still water with stars in it, rippling.
+                let p = hero.p.pos;
+                draw_ellipse(p.x, p.y + 6.0, r, r * 0.55, 0.0, Color::new(0.05, 0.08, 0.2, 0.45));
+                draw_ellipse_lines(p.x, p.y + 6.0, r, r * 0.55, 0.0, 2.0, Color::new(0.45, 0.6, 0.95, 0.5));
+                let ripple = (self.time * 0.8).fract();
+                draw_ellipse_lines(p.x, p.y + 6.0, r * ripple, r * 0.55 * ripple, 0.0, 1.5, Color::new(0.6, 0.75, 1.0, 0.4 * (1.0 - ripple)));
+                for k in 0..5 {
+                    let q = p + vec2(((k * 37) % 11) as f32 / 11.0 - 0.5, ((k * 53) % 7) as f32 / 7.0 - 0.5) * vec2(r * 1.2, r * 0.6);
+                    draw_circle(q.x, q.y + 6.0, 1.2, Color::new(0.9, 0.95, 1.0, 0.6 + 0.4 * (self.time * 2.0 + k as f32).sin()));
+                }
+            }
+        }
         for pool in &self.pools {
             let a = (pool.life / pool.max_life * 2.0).min(1.0);
             let (x, y, r) = (pool.pos.x, pool.pos.y, pool.r);
             match pool.kind {
+                PoolKind::FireBurst => {
+                    // The victim glowing hotter and hotter before it bursts.
+                    let g = 1.0 - pool.life / pool.max_life;
+                    draw_circle(x, y, r * 0.35 * g, Color::new(1.0, 0.5, 0.1, 0.35));
+                    draw_circle_lines(x, y, r * (1.0 - g * 0.7), 2.0, Color::new(1.0, 0.55, 0.15, 0.4 + 0.5 * g));
+                }
+                PoolKind::Frostpool => {
+                    // Meltwater icing over.
+                    let ice = ((pool.max_life - pool.life) / 1.2).clamp(0.0, 1.0);
+                    draw_ellipse(x, y, r, r * 0.75, 0.0, Color::new(0.55, 0.75, 0.95, (0.15 + 0.15 * ice) * a));
+                    draw_ellipse_lines(x, y, r, r * 0.75, 0.0, 1.5, Color::new(0.85, 0.95, 1.0, 0.5 * a));
+                    for k in 0..6 {
+                        let u = Vec2::from_angle(k as f32 / 6.0 * TAU + x * 0.02) * r * 0.7 * ice;
+                        draw_line(x, y, x + u.x, y + u.y * 0.75, 1.0, Color::new(0.95, 1.0, 1.0, 0.5 * a));
+                    }
+                }
+                PoolKind::Icicle => {
+                    // A shadow growing where the icicle will fall, and the icicle dropping.
+                    let g = 1.0 - pool.life / pool.max_life;
+                    draw_ellipse(x, y, r * g, r * 0.5 * g, 0.0, Color::new(0.0, 0.02, 0.08, 0.35));
+                    draw_ellipse_lines(x, y, r, r * 0.5, 0.0, 1.2, Color::new(0.75, 0.9, 1.0, 0.35));
+                    let drop = (1.0 - g) * 160.0;
+                    let tip = vec2(x, y - drop);
+                    draw_triangle(tip + vec2(-7.0, -34.0), tip + vec2(7.0, -34.0), tip, Color::new(0.8, 0.92, 1.0, 0.9));
+                    draw_line(tip.x - 2.0, tip.y - 32.0, tip.x, tip.y, 1.0, WHITE);
+                }
+                PoolKind::RuneTrap => {
+                    // A frost rune cut into the ground, glimmering.
+                    let pulse = 0.6 + 0.4 * (self.time * 3.0 + x * 0.1).sin();
+                    let c = Color::new(0.6, 0.85, 1.0, 0.7 * a * pulse);
+                    draw_circle(x, y, r * 1.3, Color::new(0.4, 0.65, 0.95, 0.12 * a));
+                    draw_circle_lines(x, y, r * 1.3, 1.5, c);
+                    draw_poly_lines(x, y, 6, r * 0.9, self.time * 20.0, 1.2, c);
+                    draw_line(x - r * 0.6, y, x + r * 0.6, y, 1.2, c);
+                    draw_line(x, y - r * 0.6, x, y + r * 0.6, 1.2, c);
+                }
+                PoolKind::Pane => {
+                    // An upright pane of ice.
+                    let (w, hgt) = (r * 1.3, r * 2.8);
+                    let fade = a.min(1.0);
+                    draw_ellipse(x, y + 2.0, w * 0.7, 4.0, 0.0, Color::new(0.0, 0.0, 0.0, 0.25 * fade));
+                    draw_rectangle(x - w * 0.5, y - hgt, w, hgt, Color::new(0.65, 0.85, 1.0, 0.45 * fade));
+                    draw_rectangle_lines(x - w * 0.5, y - hgt, w, hgt, 1.5, Color::new(0.95, 1.0, 1.0, 0.8 * fade));
+                    draw_line(x - w * 0.3, y - hgt * 0.8, x + w * 0.1, y - hgt * 0.45, 1.0, Color::new(1.0, 1.0, 1.0, 0.7 * fade));
+                    draw_line(x + w * 0.1, y - hgt * 0.45, x - w * 0.15, y - hgt * 0.15, 1.0, Color::new(1.0, 1.0, 1.0, 0.5 * fade));
+                }
+                PoolKind::Bramble => {
+                    // A tangle of thorny brambles.
+                    draw_circle(x, y, r, Color::new(0.12, 0.2, 0.08, 0.35 * a));
+                    for k in 0..9 {
+                        let f = k as f32;
+                        let a0 = f * 0.7 + x * 0.013;
+                        let p0 = vec2(x, y) + Vec2::from_angle(a0) * r * (0.2 + 0.08 * f % 0.6);
+                        let p1 = vec2(x, y) + Vec2::from_angle(a0 + 1.3) * r * 0.85;
+                        draw_line(p0.x, p0.y, p1.x, p1.y, 2.5, Color::new(0.25, 0.4, 0.15, a));
+                        let m = p0.lerp(p1, 0.5);
+                        draw_triangle(m + vec2(-2.0, 0.0), m + vec2(2.0, 0.0), m + vec2(0.0, -6.0), Color::new(0.65, 0.75, 0.5, a));
+                    }
+                }
+                PoolKind::Pollen => {
+                    // A drifting yellow haze.
+                    for k in 0..4 {
+                        let o = Vec2::from_angle(self.time * 0.8 + k as f32 * 1.6 + x * 0.01) * r * 0.3;
+                        draw_circle(x + o.x, y + o.y, r * (0.55 + 0.1 * k as f32), Color::new(0.9, 0.85, 0.35, 0.09 * a));
+                    }
+                    for k in 0..7 {
+                        let o = Vec2::from_angle(k as f32 * 0.9 + self.time * 0.5) * r * (0.3 + 0.1 * k as f32);
+                        draw_circle(x + o.x, y + o.y - (self.time * 10.0 + k as f32 * 5.0) % 12.0, 1.4, Color::new(1.0, 0.95, 0.5, 0.7 * a));
+                    }
+                }
+                PoolKind::Nightshade => {
+                    // A little purple flower nodding on its stem.
+                    let sway = (self.time * 2.0 + x * 0.1).sin() * 2.0;
+                    let head = vec2(x + sway, y - 10.0);
+                    draw_line(x, y, head.x, head.y, 1.5, Color::new(0.3, 0.5, 0.25, a));
+                    for k in 0..5 {
+                        let q = head + Vec2::from_angle(k as f32 / 5.0 * TAU + 0.3) * 4.0;
+                        draw_circle(q.x, q.y, 3.0, Color::new(0.5, 0.2, 0.65, a));
+                    }
+                    draw_circle(head.x, head.y, 1.8, Color::new(0.95, 0.85, 0.3, a));
+                }
+                PoolKind::Cinders => {
+                    let fl = 0.75 + 0.25 * (self.time * 9.0 + x * 0.05).sin();
+                    draw_circle(x, y, r, Color::new(0.15, 0.06, 0.03, 0.5 * a));
+                    draw_circle(x, y, r * 0.75, Color::new(1.0, 0.4, 0.08, 0.35 * a * fl));
+                    for k in 0..4 {
+                        let q = vec2(x, y) + Vec2::from_angle(k as f32 * 1.7 + x) * r * 0.5;
+                        draw_circle(q.x, q.y, 2.0, Color::new(1.0, 0.75, 0.3, a * fl));
+                    }
+                }
+                PoolKind::Bloom => {
+                    // A bud for a moment, then a dark flower breathing out poison.
+                    let budding = pool.max_life - pool.life < 0.8;
+                    if budding {
+                        let g = ((pool.max_life - pool.life) / 0.8).clamp(0.0, 1.0);
+                        draw_circle(x, y, 4.0 + g * 6.0, rgba(90, 140, 60, 255));
+                        draw_circle_lines(x, y, r, 1.5, Color::new(0.6, 0.35, 0.8, 0.25 * g));
+                    } else {
+                        let breathe = 0.85 + 0.15 * (self.time * 3.0 + x).sin();
+                        draw_circle(x, y, r * breathe, Color::new(0.45, 0.2, 0.6, 0.18 * a));
+                        draw_circle_lines(x, y, r * breathe, 2.0, Color::new(0.7, 0.4, 0.9, 0.45 * a));
+                        for k in 0..6 {
+                            let q = vec2(x, y) + Vec2::from_angle(k as f32 / 6.0 * TAU + self.time * 0.3) * 9.0;
+                            draw_circle(q.x, q.y, 7.0, Color::new(0.35, 0.12, 0.45, a));
+                        }
+                        draw_circle(x, y, 6.0, Color::new(0.95, 0.85, 0.3, a));
+                    }
+                }
+                PoolKind::IceSpike => {
+                    // Frost on the ground where a spike will burst.
+                    let waiting = pool.max_life - pool.life < 0.45;
+                    let c = if waiting { Color::new(0.7, 0.85, 1.0, 0.25) } else { Color::new(0.85, 0.95, 1.0, 0.15 * a) };
+                    draw_circle(x, y, r, c);
+                    draw_circle_lines(x, y, r, 1.5, Color::new(0.8, 0.92, 1.0, 0.5));
+                }
                 PoolKind::Blood => {
                     // Fresh blood, dark at the rim, wet in the middle.
                     draw_circle(x, y, r, Color::new(0.35, 0.0, 0.03, 0.4 * a));
@@ -601,6 +893,147 @@ impl World {
                         draw_arc(p.x, p.y, 40, lr, start, 8.0 - layer as f32 * 2.0, 110.0, Color::new(0.75, 0.05, 0.08, k * (0.75 - layer as f32 * 0.2)));
                     }
                     draw_arc(p.x, p.y, 40, radius * 0.86, start, 2.0, 110.0, Color::new(0.95, 0.9, 0.82, k * 0.8));
+                }
+                FxKind::Sickle { ang, radius, evo, owner } => {
+                    // A blackened blade's arc with fire along its edge.
+                    let p = self.hero_pos(owner, f.pos);
+                    let sides: &[f32] = if evo { &[0.0, std::f32::consts::PI] } else { &[0.0] };
+                    for &turn in sides {
+                        let start = (ang + turn).to_degrees() - 63.0;
+                        let sweep = 126.0 * (1.0 - k * 0.6);
+                        draw_arc(p.x, p.y, 48, radius * 0.7, start, 12.0, sweep, Color::new(1.0, 0.4, 0.08, 0.45 * k));
+                        draw_arc(p.x, p.y, 48, radius * 0.9, start, 4.0, sweep, Color::new(1.0, 0.75, 0.3, 0.8 * k));
+                        draw_arc(p.x, p.y, 48, radius, start, 2.0, sweep, Color::new(0.2, 0.17, 0.15, k));
+                    }
+                }
+                FxKind::Breath { ang, radius, owner } => {
+                    // A cone of frost breath: pale mist with flakes in it.
+                    let p = self.hero_pos(owner, f.pos);
+                    for s in 0..6 {
+                        let t = s as f32 / 5.0;
+                        let a = ang - 0.5 + t;
+                        let tip = p + Vec2::from_angle(a) * radius;
+                        draw_triangle(p, tip, p + Vec2::from_angle(a + 0.2) * radius, Color::new(0.85, 0.93, 1.0, 0.07 * k));
+                    }
+                    for s in 0..10 {
+                        let a = ang + ((s * 37) % 10) as f32 / 10.0 - 0.5;
+                        let d = radius * (0.3 + ((s * 53) % 10) as f32 / 14.0) * (1.2 - k * 0.3);
+                        let q = p + Vec2::from_angle(a) * d;
+                        draw_circle(q.x, q.y, 2.0, Color::new(1.0, 1.0, 1.0, 0.7 * k));
+                    }
+                }
+                FxKind::Thorns { ang, radius, owner } => {
+                    // A vine lashing round in an arc, thorns along it.
+                    let p = self.hero_pos(owner, f.pos);
+                    let start = ang - 0.95;
+                    let n = 16;
+                    let reach = 1.0 - k;
+                    for s in 0..n {
+                        let t = s as f32 / n as f32 * 1.9 * (0.3 + reach.min(0.7) / 0.7 * 0.7);
+                        let a = start + t;
+                        let q = p + Vec2::from_angle(a) * radius * (0.8 + 0.08 * (s as f32).sin());
+                        let q2 = p + Vec2::from_angle(a + 0.12) * radius * 0.82;
+                        draw_line(q.x, q.y, q2.x, q2.y, 4.0, Color::new(0.25, 0.45, 0.2, k));
+                        if s % 2 == 0 {
+                            let out = Vec2::from_angle(a) * 8.0;
+                            draw_triangle(q - vec2(-out.y, out.x) * 0.3, q + vec2(-out.y, out.x) * 0.3, q + out, Color::new(0.75, 0.85, 0.6, k));
+                        }
+                    }
+                }
+                FxKind::Zap { to, poison } => {
+                    // A jagged spark leaping to the foe.
+                    let c = if poison { Color::new(0.6, 0.9, 0.3, k) } else { Color::new(1.0, 0.75, 0.3, k) };
+                    let side = vec2(-(to - f.pos).y, (to - f.pos).x).normalize_or_zero();
+                    let mut last = f.pos;
+                    for s in 1..=4 {
+                        let t = s as f32 / 4.0;
+                        let wob = if s == 4 { 0.0 } else { ((s as f32 * 7.3 + f.pos.x) * 3.1).sin() * 7.0 };
+                        let q = f.pos.lerp(to, t) + side * wob;
+                        draw_line(last.x, last.y, q.x, q.y, 1.6, c);
+                        last = q;
+                    }
+                    draw_circle(to.x, to.y, 3.0, with_alpha(c, 0.6 * k));
+                }
+                FxKind::Hook { to } => {
+                    // The crook's chain flung out and hauled back, an icy hook at its end.
+                    let ext = 1.0 - (2.0 * k - 1.0).abs();
+                    let head = f.pos.lerp(to, ext.max(0.15));
+                    let n = ((head - f.pos).length() / 12.0).clamp(2.0, 30.0) as usize;
+                    for s in 0..=n {
+                        let q = f.pos.lerp(head, s as f32 / n as f32);
+                        draw_circle_lines(q.x, q.y, 2.5, 1.0, Color::new(0.75, 0.82, 0.9, k));
+                    }
+                    let a = (to - f.pos).to_angle();
+                    draw_arc(head.x, head.y, 16, 9.0, a.to_degrees() - 90.0, 3.0, 220.0, Color::new(0.8, 0.92, 1.0, k));
+                }
+                FxKind::Haul { ang, radius, owner } => {
+                    // A hooked vine swung round and dragged in, thorns along it.
+                    let p = self.hero_pos(owner, f.pos);
+                    let r = radius * (0.55 + 0.45 * k);
+                    draw_arc(p.x, p.y, 40, r, ang.to_degrees() - 57.0, 4.0, 115.0, Color::new(0.3, 0.5, 0.2, k));
+                    for s in 0..8 {
+                        let a = ang - 1.0 + s as f32 / 7.0 * 2.0;
+                        let q = p + Vec2::from_angle(a) * r;
+                        let inward = (p - q).normalize_or_zero() * 8.0;
+                        draw_triangle(q - vec2(-inward.y, inward.x) * 0.3, q + vec2(-inward.y, inward.x) * 0.3, q + inward, Color::new(0.75, 0.85, 0.55, k));
+                    }
+                    let tip = p + Vec2::from_angle(ang + 1.0) * r;
+                    draw_arc(tip.x, tip.y, 12, 7.0, (ang + 1.0).to_degrees() + 90.0, 3.0, 200.0, Color::new(0.55, 0.7, 0.35, k));
+                }
+                FxKind::Strike { to, style } => {
+                    let d = (to - f.pos).normalize_or_zero();
+                    let side = vec2(-d.y, d.x);
+                    let reach = (1.0 - k).min(0.35) / 0.35;
+                    let end = f.pos.lerp(to, reach.max(0.2));
+                    match style {
+                        0 => {
+                            // A burning pike thrust out.
+                            draw_line(f.pos.x, f.pos.y, end.x, end.y, 4.0, Color::new(0.3, 0.2, 0.12, k));
+                            draw_triangle(end + d * 16.0, end + side * 5.0, end - side * 5.0, Color::new(0.35, 0.33, 0.32, k));
+                            glow(end + d * 6.0, 10.0, Color::new(1.0, 0.5, 0.15, k), 1.0);
+                        }
+                        1 => {
+                            // A scourge of icicles, links of ice.
+                            let n = ((end - f.pos).length() / 16.0).clamp(3.0, 30.0) as usize;
+                            for s in 0..=n {
+                                let t = s as f32 / n as f32;
+                                let q = f.pos.lerp(end, t) + side * (t * 8.0 + self.time * 20.0).sin() * 5.0 * k;
+                                draw_triangle(q + d * 7.0, q + side * 3.0, q - side * 3.0, Color::new(0.8, 0.92, 1.0, k));
+                            }
+                        }
+                        _ => {
+                            // A lashing vine.
+                            let n = ((end - f.pos).length() / 10.0).clamp(3.0, 40.0) as usize;
+                            let mut last = f.pos;
+                            for s in 1..=n {
+                                let t = s as f32 / n as f32;
+                                let q = f.pos.lerp(end, t) + side * (t * 10.0 + self.time * 25.0).sin() * 6.0 * k;
+                                draw_line(last.x, last.y, q.x, q.y, 4.0 - t * 2.0, Color::new(0.3, 0.55, 0.2, k));
+                                if s % 3 == 0 {
+                                    draw_ellipse(q.x, q.y, 4.0, 2.0, d.to_angle().to_degrees() + 50.0, Color::new(0.5, 0.75, 0.35, k));
+                                }
+                                last = q;
+                            }
+                        }
+                    }
+                }
+                FxKind::IceSpikes { r } => {
+                    // Clear blue spikes of ice thrusting up, then melting.
+                    let rise = (k * 2.5).min(1.0).min((1.0 - k) * 6.0 + 0.3);
+                    draw_circle(f.pos.x, f.pos.y, r * 0.9, Color::new(0.7, 0.88, 1.0, 0.2 * k));
+                    for s in 0..5 {
+                        let a = s as f32 / 5.0 * TAU + f.pos.x * 0.01;
+                        let base = f.pos + Vec2::from_angle(a) * r * 0.45;
+                        let tip = base + vec2((s as f32 - 2.0) * 2.5, -40.0 * rise);
+                        draw_triangle(base + vec2(-5.0, 0.0), base + vec2(5.0, 0.0), tip, Color::new(0.75, 0.9, 1.0, 0.85 * k));
+                        draw_line(base.x - 1.5, base.y, tip.x, tip.y, 1.0, Color::new(1.0, 1.0, 1.0, k));
+                    }
+                }
+                FxKind::Frost { to } => {
+                    // The lance of ice: a bright core in a cold glow.
+                    draw_line(f.pos.x, f.pos.y, to.x, to.y, 14.0 * k, Color::new(0.6, 0.85, 1.0, 0.25 * k));
+                    draw_line(f.pos.x, f.pos.y, to.x, to.y, 5.0 * k, Color::new(0.85, 0.95, 1.0, 0.8 * k));
+                    draw_line(f.pos.x, f.pos.y, to.x, to.y, 1.5, Color::new(1.0, 1.0, 1.0, k));
                 }
                 FxKind::Gaze { to } => {
                     draw_line(f.pos.x, f.pos.y, to.x, to.y, 4.0, Color::new(1.0, 0.3, 0.2, 0.3 * k));
@@ -1226,6 +1659,36 @@ impl World {
             }
         }
         self.faded(&cam, |w| {
+            for hero in w.heroes.iter().filter(|h| !h.downed && !h.possessing) {
+                for (p, r) in hero.shield_positions() {
+                    // A plate of burning bark.
+                    let a = (p - hero.p.pos).to_angle() + std::f32::consts::FRAC_PI_2;
+                    let (ax, ay) = (Vec2::from_angle(a) * r, Vec2::from_angle(a + std::f32::consts::FRAC_PI_2) * r * 0.45);
+                    let corners = [p - ax - ay, p + ax - ay, p + ax + ay, p - ax + ay];
+                    draw_triangle(corners[0], corners[1], corners[2], rgba(96, 62, 36, 255));
+                    draw_triangle(corners[0], corners[2], corners[3], rgba(96, 62, 36, 255));
+                    draw_line(corners[0].x, corners[0].y, corners[1].x, corners[1].y, 2.0, rgba(255, 130, 40, 220));
+                    draw_line(p.x - ax.x * 0.6, p.y - ax.y * 0.6, p.x + ax.x * 0.6, p.y + ax.y * 0.6, 1.0, rgba(50, 32, 20, 255));
+                }
+                for (p, r) in hero.bead_positions() {
+                    glow(p, r * 0.6, rgba(170, 220, 255, 255), 1.0);
+                    draw_circle(p.x, p.y, r * 0.6, rgba(220, 240, 255, 255));
+                    draw_circle(p.x - r * 0.2, p.y - r * 0.2, r * 0.22, WHITE);
+                }
+                for p in hero.swarm_positions(WeaponKind::AshFlies) {
+                    let flick = 0.7 + 0.3 * (w.time * 11.0 + p.x * 0.3).sin();
+                    glow(p, 6.0 * flick, rgba(255, 200, 80, 255), 1.2);
+                    draw_circle(p.x, p.y, 1.8, rgba(255, 250, 200, 255));
+                }
+                for p in hero.swarm_positions(WeaponKind::ThornMoths) {
+                    let beat = (w.time * 28.0 + p.x * 0.2).sin().abs();
+                    for s in [-1.0, 1.0] {
+                        draw_ellipse(p.x + s * 4.0 * beat, p.y - 1.0, 4.5 * beat + 1.0, 3.0, s * 25.0, rgba(215, 205, 165, 230));
+                    }
+                    draw_ellipse(p.x, p.y, 1.8, 3.5, 0.0, rgba(70, 60, 40, 255));
+                    draw_circle(p.x, p.y + 4.0, 1.0, rgba(150, 220, 80, 200));
+                }
+            }
             for hero in w.heroes.iter().filter(|h| !h.downed) {
                 let evo = hero.weapons.iter().any(|w| w.has_like(WeaponKind::Lanterns) && (w.evolved || w.is_fused()));
                 let c = if evo { rgba(140, 255, 230, 255) } else { rgba(120, 200, 255, 255) };

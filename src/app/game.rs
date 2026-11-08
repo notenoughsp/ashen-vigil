@@ -441,7 +441,7 @@ impl App {
         }
         self.show_tips();
         let paused = self.screen == Screen::Paused;
-        if is_key_pressed(KeyCode::Escape) || act_pressed(Action::Pause) || pad_pressed(Pad::Pause) || (paused && pad_pressed(Pad::Back)) {
+        if back_key() || act_pressed(Action::Pause) || pad_pressed(Pad::Pause) || touch_pressed(TouchButton::Pause) || (paused && pad_pressed(Pad::Back)) {
             self.screen = if paused { Screen::Playing } else { Screen::Paused };
             self.pause_sel = 0;
             return;
@@ -463,8 +463,9 @@ impl App {
         } else {
             Input {
                 dir: move_input(),
-                roll: (pressed_any(&[key_for(Action::Roll), KeyCode::LeftShift, KeyCode::RightShift]) || pad_pressed(Pad::Roll)) && get_time() >= self.roll_blocked_until,
-                skill: act_pressed(Action::Skill) || pad_pressed(Pad::Skill),
+                roll: (pressed_any(&[key_for(Action::Roll), KeyCode::LeftShift, KeyCode::RightShift]) || pad_pressed(Pad::Roll) || touch_pressed(TouchButton::Roll))
+                    && get_time() >= self.roll_blocked_until,
+                skill: act_pressed(Action::Skill) || pad_pressed(Pad::Skill) || touch_pressed(TouchButton::Skill),
             }
         };
         if let Some(i) = self.auto.as_ref().map(|a| a.input()) {
@@ -582,7 +583,8 @@ impl App {
         y += 12.0;
         ui.text("Weapons and passives", x, y, 17.0, crate::ui::GOLD);
         let (tips, _) = ui.loadout(w, me, x, y + 14.0, 1.4, pw);
-        ui.text("Rest the mouse on one to read what it does.", x, sh * 0.3 - 74.0 + sh * 0.62, 14.0, DIM);
+        let how = if crate::app::input::touch_shown() { "Tap one to read what it does." } else { "Rest the mouse on one to read what it does." };
+        ui.text(how, x, sh * 0.3 - 74.0 + sh * 0.62, 14.0, DIM);
         ui.tooltip(&tips);
     }
 
@@ -694,7 +696,8 @@ impl App {
         let my_class = class_to_u8(self.class());
         let name = self.player_name();
         let in_menu = self.screen == Screen::Paused || (self.screen == Screen::Options && self.options_in_game);
-        let ping = !choosing && !in_menu && (act_pressed(Action::Ping) || is_mouse_button_pressed(MouseButton::Middle) || pad_pressed(Pad::Ping));
+        let touched_ping = touch_pressed(TouchButton::Ping);
+        let ping = !choosing && !in_menu && (act_pressed(Action::Ping) || is_mouse_button_pressed(MouseButton::Middle) || pad_pressed(Pad::Ping) || touched_ping);
         let Some(w) = self.world.as_mut() else { return };
         w.screen = crate::draw::view_size();
         if !w.heroes.is_empty() {
@@ -705,7 +708,7 @@ impl App {
         // A ping goes where the mouse points, or a little ahead of us on a controller.
         if ping && !w.heroes.is_empty() && !w.spectating {
             let me = w.me();
-            let at = if using_pad() { me.p.pos + me.p.facing * 160.0 } else { w.screen_to_world(mouse_ui()) };
+            let at = if using_pad() || touched_ping { me.p.pos + me.p.facing * 160.0 } else { w.screen_to_world(mouse_ui()) };
             if w.is_client {
                 self.ping_seq = self.ping_seq.wrapping_add(1);
                 self.ping_at = at;

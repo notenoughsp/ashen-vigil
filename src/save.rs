@@ -413,7 +413,14 @@ fn backup_path(p: &Path) -> PathBuf {
     p.with_extension("sav.bak")
 }
 
+/// The app's own private folder on Android, where the save and the logs live.
+#[cfg(target_os = "android")]
+pub const ANDROID_DIR: &str = "/data/data/com.notenoughsp.ashen_vigil/files";
+
 fn path() -> PathBuf {
+    #[cfg(target_os = "android")]
+    return PathBuf::from(ANDROID_DIR).join(FILE);
+    #[cfg(not(target_os = "android"))]
     match std::env::var_os("APPDATA") {
         Some(appdata) => PathBuf::from(appdata).join("AshenVigil").join(FILE),
         None => legacy_path().unwrap_or_else(|| PathBuf::from(FILE)),

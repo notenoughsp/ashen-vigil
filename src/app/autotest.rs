@@ -2,7 +2,8 @@
 //!
 //! ASHEN_AUTOTEST=<dir> runs a single-player script. With ASHEN_AUTOTEST_ROLE=host|client two
 //! processes play together over localhost. ASHEN_WINDOW_POS=x,y moves the window, e.g. onto a
-//! second monitor. Tests run muted and never touch the real save file.
+//! second monitor. Tests run muted and never touch the real save file. ASHEN_AUTOTEST_LORDS
+//! takes a picture of every lord, ASHEN_AUTOTEST_ARMS of the newer fields' weapons at work.
 
 use super::*;
 use std::f32::consts::TAU;
@@ -188,6 +189,36 @@ impl App {
             } else if step == 8 {
                 let slug: String = kind.name().to_lowercase().chars().filter(|c| c.is_alphanumeric() || *c == ' ').collect::<String>().replace(' ', "_");
                 want.push(&*Box::leak(format!("lord_{}", slug).into_boxed_str()));
+            }
+            return want;
+        }
+        // ASHEN_AUTOTEST_ARMS: the newer fields' weapons at work, four to a picture.
+        if std::env::var("ASHEN_AUTOTEST_ARMS").is_ok() {
+            let (i, step) = ((f / 100) as usize, f % 100);
+            let fields = [(Biome::Ashwood, BossKind::BurntOak), (Biome::Abbey, BossKind::SnowAbbess), (Biome::Garden, BossKind::Gardener)];
+            let Some(&(biome, lord)) = fields.get(i / 3) else { std::process::exit(0) };
+            let group = i % 3;
+            match step {
+                2 => {
+                    self.field_showcase(biome, lord);
+                    if let Some(w) = self.world.as_mut() {
+                        w.next_boss = f32::MAX;
+                        w.enemies.retain(|e| !e.boss);
+                        let arsenal = w.heroes[0].arsenal();
+                        let h = &mut w.heroes[0];
+                        h.weapons = arsenal[group * 4..group * 4 + 4].iter().map(|&k| Weapon { level: 7, ..Weapon::new(k) }).collect();
+                        h.recompute_stats();
+                    }
+                }
+                60 => {
+                    if let Some(w) = self.world.as_mut() {
+                        w.pending_levels = 0;
+                        w.pause = Pause::Running;
+                        w.xp = 0.0;
+                    }
+                }
+                85 => want.push(&*Box::leak(format!("arms_{}_{}", biome.name().to_lowercase().replace(' ', "_"), group).into_boxed_str())),
+                _ => {}
             }
             return want;
         }
@@ -582,7 +613,9 @@ impl App {
                     e.hp = 1e9;
                     w.enemies.push(e);
                 }
-                w.runes = vec![crate::world::TeleRune { pos: p + vec2(140.0, 60.0), to: p + vec2(1100.0, 300.0), rest: 0.0 }];
+                // One of the corner runes, brought into the picture.
+                w.runes = crate::world::corner_runes();
+                w.runes[0].pos = p + vec2(140.0, 60.0);
                 let ally = w.add_hero(1, "Ally", Class::BellAcolyte, Profile::default(), false);
                 w.heroes[ally].p.pos = p + vec2(-110.0, 60.0);
                 w.heroes[ally].downed = true;
@@ -593,6 +626,13 @@ impl App {
             }
             2200 => want.push("fieldthings"),
             2201 => self.field_showcase(Biome::Ashwood, BossKind::BurntOak),
+            2202 => {
+                // The field's own weapons at work.
+                if let Some(h) = self.world.as_mut().and_then(|w| w.heroes.first_mut()) {
+                    h.weapons = [WeaponKind::AshSling, WeaponKind::AshShield, WeaponKind::AshSickle].into_iter().map(|k| Weapon { level: 7, ..Weapon::new(k) }).collect();
+                    h.recompute_stats();
+                }
+            }
             2280 => {
                 // No level-up cards in the picture.
                 if let Some(w) = self.world.as_mut() {
@@ -603,6 +643,13 @@ impl App {
             }
             2290 => want.push("ashwood"),
             2301 => self.field_showcase(Biome::Abbey, BossKind::SnowAbbess),
+            2302 => {
+                // The field's own weapons at work.
+                if let Some(h) = self.world.as_mut().and_then(|w| w.heroes.first_mut()) {
+                    h.weapons = [WeaponKind::IceRosary, WeaponKind::IceLance, WeaponKind::IceBreath].into_iter().map(|k| Weapon { level: 7, ..Weapon::new(k) }).collect();
+                    h.recompute_stats();
+                }
+            }
             2380 => {
                 // No level-up cards in the picture.
                 if let Some(w) = self.world.as_mut() {
@@ -613,6 +660,13 @@ impl App {
             }
             2390 => want.push("abbey"),
             2401 => self.field_showcase(Biome::Garden, BossKind::Gardener),
+            2402 => {
+                // The field's own weapons at work.
+                if let Some(h) = self.world.as_mut().and_then(|w| w.heroes.first_mut()) {
+                    h.weapons = [WeaponKind::ThornWhip, WeaponKind::ThornBloom, WeaponKind::ThornMirror].into_iter().map(|k| Weapon { level: 7, ..Weapon::new(k) }).collect();
+                    h.recompute_stats();
+                }
+            }
             2480 => {
                 // No level-up cards in the picture.
                 if let Some(w) = self.world.as_mut() {

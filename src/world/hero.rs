@@ -108,7 +108,7 @@ impl Weapon {
     pub fn parts(&self) -> Vec<Part> {
         let mult = [1.0, FUSION_MULT, MEGA_MULT, ULTRA_MULT, LAST_MULT][self.tier() as usize];
         let evo = self.evolved || self.is_fused();
-        self.kinds().into_iter().enumerate().map(|(slot, own)| Part { kind: own.twin(), own, evo, mult, slot }).collect()
+        self.kinds().into_iter().enumerate().map(|(slot, own)| Part { kind: own.mechanic(), own, evo, mult, slot }).collect()
     }
 
     pub fn has(&self, k: WeaponKind) -> bool {
@@ -685,6 +685,87 @@ impl Hero {
             }
         }
         out
+    }
+
+    /// Plates of the bark shield circling the hero: where each is and how big.
+    pub fn shield_positions(&self) -> Vec<(Vec2, f32)> {
+        let mut out = Vec::new();
+        for w in &self.weapons {
+            for part in w.parts().into_iter().filter(|p| p.kind == WeaponKind::AshShield) {
+                let spin = w.spins.get(part.slot).copied().unwrap_or(0.0);
+                let s = WeaponKind::AshShield.stats(w.level, part.evo);
+                let n = (s.amount + self.stats.amount).min(8) + if part.evo { 2 } else { 0 };
+                let area = (s.area * self.stats.area).sqrt();
+                for k in 0..n {
+                    let a = spin + k as f32 / n as f32 * TAU;
+                    out.push((self.p.pos + Vec2::from_angle(a) * 64.0 * area, 17.0 * area));
+                }
+            }
+        }
+        out
+    }
+
+    /// Beads of the frost rosary: a ring turning one way, and once evolved a second, wider
+    /// ring turning the other.
+    pub fn bead_positions(&self) -> Vec<(Vec2, f32)> {
+        let mut out = Vec::new();
+        for w in &self.weapons {
+            for part in w.parts().into_iter().filter(|p| p.kind == WeaponKind::IceRosary) {
+                let spin = w.spins.get(part.slot).copied().unwrap_or(0.0);
+                let s = WeaponKind::IceRosary.stats(w.level, part.evo);
+                let area = (s.area * self.stats.area).sqrt();
+                let n = 4 + (s.amount + self.stats.amount).min(6);
+                for k in 0..n {
+                    let a = -spin + k as f32 / n as f32 * TAU;
+                    out.push((self.p.pos + Vec2::from_angle(a) * 52.0 * area, 9.0 * area));
+                }
+                if part.evo {
+                    for k in 0..n {
+                        let a = spin * 1.3 + k as f32 / n as f32 * TAU;
+                        out.push((self.p.pos + Vec2::from_angle(a) * 92.0 * area, 9.0 * area));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Fireflies (or moths) drifting round the hero: each loops on its own path, the moths
+    /// wider and wilder.
+    pub fn swarm_positions(&self, kind: WeaponKind) -> Vec<Vec2> {
+        let mut out = Vec::new();
+        for w in &self.weapons {
+            for part in w.parts().into_iter().filter(|p| p.kind == kind) {
+                let spin = w.spins.get(part.slot).copied().unwrap_or(0.0);
+                let s = kind.stats(w.level, part.evo);
+                let n = (s.amount + self.stats.amount).clamp(3, 9) as usize;
+                let wide = if kind == WeaponKind::ThornMoths { 1.6 } else { 1.0 };
+                let area = (s.area * self.stats.area).sqrt() * wide;
+                for k in 0..n {
+                    let f = k as f32;
+                    let a = spin * (0.6 + f * 0.07) + f * 2.4;
+                    let r = (70.0 + 30.0 * (spin * 1.3 + f).sin()) * area;
+                    out.push(self.p.pos + vec2(a.cos() * r, a.sin() * r * 0.8));
+                }
+            }
+        }
+        out
+    }
+
+    /// The rime halo round the hero, if they carry one: its radius.
+    pub fn rime_radius(&self) -> Option<f32> {
+        let w = self.weapons.iter().find(|w| w.parts().iter().any(|p| p.kind == WeaponKind::IceHalo))?;
+        let evo = w.evolved || w.is_fused();
+        let s = WeaponKind::IceHalo.stats(w.level, evo);
+        Some(95.0 * (s.area * self.stats.area).sqrt() * if evo { 1.35 } else { 1.0 })
+    }
+
+    /// The mirror pond under the hero, if they carry one: its radius.
+    pub fn pond_radius(&self) -> Option<f32> {
+        let w = self.weapons.iter().find(|w| w.parts().iter().any(|p| p.kind == WeaponKind::ThornMirror))?;
+        let evo = w.evolved || w.is_fused();
+        let s = WeaponKind::ThornMirror.stats(w.level, evo);
+        Some(105.0 * (s.area * self.stats.area).sqrt() * if evo { 1.4 } else { 1.0 })
     }
 
     pub fn lantern_positions(&self) -> Vec<(Vec2, f32)> {

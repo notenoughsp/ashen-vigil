@@ -147,6 +147,9 @@ pub fn key_label(a: Action) -> &'static str {
 pub fn hint<'a>(keys: &'a str, pad: &'a str) -> &'a str {
     if using_pad() {
         pad
+    } else if cfg!(target_os = "android") {
+        // On a phone everything is tapped; key hints would only confuse.
+        ""
     } else {
         keys
     }
@@ -168,7 +171,8 @@ pub fn move_input() -> Vec2 {
     }
     if dir == Vec2::ZERO {
         // The stick only steers; speed stays the hero's own.
-        return pad_stick().normalize_or_zero();
+        let pad = pad_stick().normalize_or_zero();
+        return if pad == Vec2::ZERO { touch_dir() } else { pad };
     }
     dir.normalize_or_zero()
 }
@@ -330,8 +334,156 @@ pub fn rumble(strength: f32, ms: u32) {
     });
 }
 
+// ---------------------------------------------------------------- touch
+
+/// The buttons on a touch screen, at the right edge, and the pause button by the clock.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TouchButton {
+    Roll,
+    Skill,
+    Ping,
+    Pause,
+}
+
+pub const TOUCH_BUTTONS: [TouchButton; 4] = [TouchButton::Roll, TouchButton::Skill, TouchButton::Ping, TouchButton::Pause];
+
+impl TouchButton {
+    pub fn label(self) -> &'static str {
+        match self {
+            TouchButton::Roll => "Roll",
+            TouchButton::Skill => "Skill",
+            TouchButton::Ping => "Ping",
+            TouchButton::Pause => "II",
+        }
+    }
+
+    /// Where the button sits and how big it is, in UI space.
+    pub fn circle(self) -> (Vec2, f32) {
+        let (w, h) = (crate::ui::ui_w(), crate::ui::ui_h());
+        match self {
+            TouchButton::Roll => (vec2(w - 120.0, h - 150.0), 62.0),
+            TouchButton::Skill => (vec2(w - 255.0, h - 95.0), 46.0),
+            TouchButton::Ping => (vec2(w - 255.0, h - 215.0), 34.0),
+            TouchButton::Pause => (vec2(w * 0.5 + 105.0, 30.0), 24.0),
+        }
+    }
+}
+
+/// How far the thumb may move the stick from where it went down, in UI space.
+pub const STICK_REACH: f32 = 70.0;
+
+#[derive(Default)]
+struct TouchState {
+    /// The stick's touch: its id, where it went down and where it is now (UI space).
+    stick: Option<(u64, Vec2, Vec2)>,
+    pressed: Vec<TouchButton>,
+    held: Vec<TouchButton>,
+    /// Touches already counted as a press of a button, so a held finger presses only once.
+    counted: Vec<u64>,
+    /// The screen has been touched: from then on the touch controls show.
+    used: bool,
+}
+
+thread_local! {
+    static TOUCH: RefCell<TouchState> = RefCell::new(TouchState::default());
+}
+
+/// Reads this frame's touches: the stick on the left part of the screen, buttons on the right.
+fn poll_touch() {
+    let scale = crate::ui::ui_scale();
+    TOUCH.with(|t| {
+        let mut t = t.borrow_mut();
+        t.pressed.clear();
+        t.held.clear();
+        let mut stick_alive = false;
+        for touch in touches() {
+            t.used = true;
+            let p = touch.position / scale;
+            let on = TOUCH_BUTTONS.into_iter().find(|b| {
+                let (c, r) = b.circle();
+                c.distance(p) < r * 1.15
+            });
+            match touch.phase {
+                TouchPhase::Started => {
+                    if let Some(b) = on {
+                        t.pressed.push(b);
+                        t.held.push(b);
+                        t.counted.push(touch.id);
+                    } else if p.x < crate::ui::ui_w() * 0.45 && t.stick.is_none() {
+                        t.stick = Some((touch.id, p, p));
+                        stick_alive = true;
+                    }
+                }
+                TouchPhase::Moved | TouchPhase::Stationary => {
+                    if let Some((id, origin, _)) = t.stick {
+                        if id == touch.id {
+                            t.stick = Some((id, origin, p));
+                            stick_alive = true;
+                        }
+                    }
+                    if let Some(b) = on {
+                        t.held.push(b);
+                        // A start we never saw still counts as a press.
+                        if t.stick.map(|s| s.0) != Some(touch.id) && !t.counted.contains(&touch.id) {
+                            t.pressed.push(b);
+                            t.counted.push(touch.id);
+                        }
+                    }
+                }
+                TouchPhase::Ended | TouchPhase::Cancelled => {
+                    // A quick tap can go down and up within one frame: only its end is seen.
+                    if let Some(b) = on {
+                        if touch.phase == TouchPhase::Ended && !t.counted.contains(&touch.id) && t.stick.map(|s| s.0) != Some(touch.id) {
+                            t.pressed.push(b);
+                        }
+                    }
+                    t.counted.retain(|&id| id != touch.id);
+                }
+            }
+        }
+        if !stick_alive {
+            t.stick = None;
+        }
+    });
+}
+
+/// Where the touch stick points, scaled to its reach: zero without a thumb on it.
+pub fn touch_dir() -> Vec2 {
+    TOUCH
+        .with(|t| {
+            t.borrow().stick.map(|(_, origin, at)| {
+                let d = at - origin;
+                if d.length() < 8.0 {
+                    Vec2::ZERO
+                } else {
+                    d.normalize()
+                }
+            })
+        })
+        .unwrap_or(Vec2::ZERO)
+}
+
+/// The stick as it is drawn: where it went down and where the thumb is.
+pub fn touch_stick() -> Option<(Vec2, Vec2)> {
+    TOUCH.with(|t| t.borrow().stick.map(|(_, o, p)| (o, o + (p - o).clamp_length_max(STICK_REACH))))
+}
+
+pub fn touch_pressed(b: TouchButton) -> bool {
+    TOUCH.with(|t| t.borrow().pressed.contains(&b))
+}
+
+pub fn touch_held(b: TouchButton) -> bool {
+    TOUCH.with(|t| t.borrow().held.contains(&b))
+}
+
+/// Whether to show the touch controls: always on a phone, else once the screen was touched.
+pub fn touch_shown() -> bool {
+    cfg!(target_os = "android") || TOUCH.with(|t| t.borrow().used)
+}
+
 /// Reads all gamepad events and the mouse; call once at the start of every frame.
 pub fn poll_gamepad() {
+    poll_touch();
     let mouse_used = MOUSE.with(|m| {
         let now = Vec2::from(mouse_position());
         let moved = now.distance(m.get().0) > 0.5;
@@ -442,7 +594,12 @@ pub fn using_pad() -> bool {
     PAD.with(|p| p.borrow().active)
 }
 
-/// Escape or B.
+/// Escape or a phone's back button (keys only).
+pub fn back_key() -> bool {
+    is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::Back)
+}
+
+/// Escape, B, or a phone's back button.
 pub fn back() -> bool {
-    is_key_pressed(KeyCode::Escape) || pad_pressed(Pad::Back)
+    is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::Back) || pad_pressed(Pad::Back)
 }

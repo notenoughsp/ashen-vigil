@@ -219,7 +219,8 @@ fn make_grain() -> Texture2D {
 
 impl App {
     pub fn new(mut save: Save, audio: Audio, font: Option<Font>, auto: Option<AutoTest>) -> App {
-        let check_updates = save.settings.check_updates;
+        // A phone updates through its APK, not by swapping an exe.
+        let check_updates = save.settings.check_updates && !cfg!(target_os = "android");
         // The first start of a new version shows what changed; the very first start does not.
         let updated = auto.is_none() && save.seen_version != crate::net::VERSION;
         let whats_new = (updated && (!save.seen_version.is_empty() || save.vigils > 0)).then_some(false);
@@ -711,6 +712,9 @@ impl App {
             }
             if self.save.settings.minimap {
                 ui.minimap(w);
+            }
+            if touch_shown() && w.pause == Pause::Running && self.screen == Screen::Playing {
+                ui.touch_controls();
             }
             if w.spectating {
                 // Top left, under the party: clear of the boss bars and the tips.

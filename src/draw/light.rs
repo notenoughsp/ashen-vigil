@@ -181,7 +181,14 @@ impl World {
                 PoolKind::Holy => (Color::new(0.45, 0.65, 0.9, 1.0), 2.2),
                 PoolKind::Candle => (Color::new(1.0, 0.65, 0.3, 1.0), 9.0),
                 PoolKind::Smoke | PoolKind::Blood => continue,
-                PoolKind::Fire => (Color::new(1.0, 0.45, 0.12, 1.0), 2.6),
+                PoolKind::Fire | PoolKind::Cinders => (Color::new(1.0, 0.45, 0.12, 1.0), 2.6),
+                PoolKind::Bloom => (Color::new(0.5, 0.25, 0.7, 1.0), 1.8),
+                PoolKind::IceSpike => (Color::new(0.5, 0.7, 0.95, 1.0), 1.6),
+                PoolKind::FireBurst => (Color::new(1.0, 0.5, 0.15, 1.0), 1.4),
+                PoolKind::Frostpool | PoolKind::RuneTrap | PoolKind::Pane => (Color::new(0.5, 0.7, 0.95, 1.0), 1.5),
+                PoolKind::Icicle | PoolKind::Bramble => continue,
+                PoolKind::Pollen => (Color::new(0.8, 0.75, 0.3, 1.0), 1.2),
+                PoolKind::Nightshade => (Color::new(0.55, 0.25, 0.7, 1.0), 3.0),
             };
             out.push((p.pos, p.r * reach, tint(c, k)));
         }

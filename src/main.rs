@@ -54,6 +54,15 @@ fn conf() -> Conf {
         ..Default::default()
     };
     c.platform.swap_interval = Some(if st.vsync { 1 } else { 0 });
+    // Phones: the whole screen, sharp on high-density displays, and no multisampling, which
+    // many GPUs (and the emulator) offer no surface for.
+    #[cfg(target_os = "android")]
+    {
+        c.sample_count = 0;
+        c.fullscreen = true;
+        c.high_dpi = true;
+        c.platform.swap_interval = Some(1);
+    }
     c
 }
 

@@ -462,6 +462,7 @@ fn tailscale_cmd() -> Option<std::process::Command> {
         }
         cmd.arg("version");
         if cmd.output().map(|o| o.status.success()).unwrap_or(false) {
+            #[cfg_attr(not(windows), allow(unused_mut))]
             let mut real = std::process::Command::new(c);
             #[cfg(windows)]
             {

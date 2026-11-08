@@ -232,14 +232,13 @@ fn update_notice() -> Rect {
 }
 
 /// What is new in this version, in a few words each, shown once after an update.
-const WHATS_NEW: [&str; 7] = [
-    "Three new fields: the Ashwood, the Frozen Abbey and the Starless Garden.",
-    "Embers that burn, ice you slide on, statues that move only unseen.",
-    "Ten new foes and three new lords, and a new weather: the blizzard.",
-    "Each new field has twelve weapons of its own, fire, frost or poison.",
-    "Their arsenals fuse all the way to a last weapon of their own.",
-    "Announcements and timed events now sit small at the right edge.",
-    "The bestiary has grown to two pages.",
+const WHATS_NEW: [&str; 6] = [
+    "Every weapon of the three new fields now fights in a way all its own.",
+    "Spiralling hatchets, ice walls that stop bullets, shears that snap shut and more.",
+    "Ice needles and meltwater gather cold until a foe freezes; roots hold foes fast.",
+    "Four teleport runes, one near each corner, each throwing you on to the next.",
+    "A used rune and the one it threw you to both rest a while.",
+    "The lord's warning is back at the top, under the clock.",
 ];
 
 /// The button on the left of the main menu that folds out what is new.
@@ -633,7 +632,7 @@ impl App {
         // Waiting for the key to bind: Esc cancels, anything bindable takes the slot and
         // swaps with whatever action had that key before.
         if let Some(i) = self.binding {
-            if is_key_pressed(KeyCode::Escape) || pad_pressed(Pad::Back) {
+            if back() {
                 self.binding = None;
             } else if let Some(k) = get_last_key_pressed().filter(|k| bindable(*k)) {
                 let binds = &mut self.save.settings.binds;

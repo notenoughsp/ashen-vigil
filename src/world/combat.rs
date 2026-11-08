@@ -39,6 +39,9 @@ impl World {
         if e.affix == Affix::Warded {
             dmg *= 0.6;
         }
+        if e.freeze > 0.0 {
+            dmg *= FROZEN_TAKES;
+        }
         if !self.dot_tick {
             match src.weapon.element() {
                 // Fire: burns for a while after.
@@ -629,6 +632,21 @@ impl World {
         n
     }
 
+    /// Gathers cold on foe `i`; once it has gathered enough, it freezes.
+    pub(crate) fn chill(&mut self, i: usize, amount: f32) {
+        let e = &mut self.enemies[i];
+        if e.dead || e.boss || matches!(e.kind, EnemyKind::Prop(_)) {
+            return;
+        }
+        e.chill += amount;
+        if e.chill >= 1.0 {
+            e.chill = 0.0;
+            e.freeze = e.freeze.max(1.3);
+            let (pos, r) = (e.pos, e.r);
+            self.fx.push(Fx { pos, life: 0.3, max_life: 0.3, kind: FxKind::Ring { r: r + 10.0, color: Color::from_rgba(190, 230, 255, 255) } });
+        }
+    }
+
     pub(crate) fn explode(&mut self, c: Vec2, r: f32, dmg: f32, evo: bool, src: Src) {
         self.hit_circle(c, r, dmg, 200.0, src, None);
         self.fx.push(Fx { pos: c, life: 0.35, max_life: 0.35, kind: FxKind::Explosion { r, color: Color::from_rgba(255, 140, 40, 255) } });
@@ -646,6 +664,11 @@ impl World {
         for k in 0..self.pools.len() {
             self.pools[k].life -= dt;
             self.pools[k].tick -= dt;
+            if self.pools[k].kind == PoolKind::Pane {
+                // Whatever is shot at a pane of ice breaks on it.
+                let (c, r) = (self.pools[k].pos, self.pools[k].r);
+                self.ebullets.retain(|b| b.pos.distance(c) >= r + b.r + 4.0);
+            }
             if self.pools[k].tick <= 0.0 {
                 let p = &self.pools[k];
                 let (c, r, kind, src) = (p.pos, p.r, p.kind, p.src);
@@ -673,10 +696,86 @@ impl World {
                             dead: false,
                         });
                     }
+                } else if kind == PoolKind::IceSpike {
+                    // It bursts up once, and again a little later if there is time left.
+                    let d = self.pools[k].dps;
+                    self.pools[k].tick = 0.45;
+                    self.hit_circle(c, r, d, 60.0, src, None);
+                    for e in self.enemies.iter_mut().filter(|e| !e.dead && !e.boss && e.pos.distance(c) < r + e.r) {
+                        e.freeze = e.freeze.max(0.4);
+                    }
+                    self.fx.push(Fx { pos: c, life: 0.4, max_life: 0.4, kind: FxKind::IceSpikes { r } });
+                } else if kind == PoolKind::FireBurst {
+                    // The pike's victim blows up.
+                    let d = self.pools[k].dps;
+                    self.pools[k].life = 0.0;
+                    self.pools[k].tick = 99.0;
+                    self.explode(c, r, d, false, src);
+                } else if kind == PoolKind::Icicle {
+                    // The icicle strikes where its shadow fell.
+                    let d = self.pools[k].dps;
+                    self.pools[k].life = 0.0;
+                    self.pools[k].tick = 99.0;
+                    self.hit_circle(c, r, d, 80.0, src, None);
+                    for e in self.enemies.iter_mut().filter(|e| !e.dead && !e.boss && e.pos.distance(c) < r + e.r) {
+                        e.freeze = e.freeze.max(0.6);
+                    }
+                    self.fx.push(Fx { pos: c, life: 0.4, max_life: 0.4, kind: FxKind::IceSpikes { r: r * 0.8 } });
+                    self.fx.push(Fx { pos: c, life: 0.3, max_life: 0.3, kind: FxKind::Ring { r, color: Color::from_rgba(200, 235, 255, 255) } });
+                    self.shake = self.shake.max(2.0);
+                    self.sfx_gap_at("slam", 0.25, 0.1, c);
+                } else if kind == PoolKind::RuneTrap || kind == PoolKind::Nightshade {
+                    // Waiting for a foe to step near.
+                    self.pools[k].tick = 0.1;
+                    let reach = if kind == PoolKind::RuneTrap { r + 8.0 } else { r * 3.0 };
+                    if !self.foes_within(c, reach).is_empty() {
+                        let d = self.pools[k].dps;
+                        self.pools[k].life = 0.0;
+                        let big = r * 4.2;
+                        if kind == PoolKind::RuneTrap {
+                            self.hit_circle(c, big, d, 150.0, src, None);
+                            for e in self.enemies.iter_mut().filter(|e| !e.dead && !e.boss && e.pos.distance(c) < big + e.r) {
+                                e.freeze = e.freeze.max(1.0);
+                            }
+                            self.fx.push(Fx { pos: c, life: 0.4, max_life: 0.4, kind: FxKind::IceSpikes { r: big * 0.7 } });
+                            self.fx.push(Fx { pos: c, life: 0.35, max_life: 0.35, kind: FxKind::Ring { r: big, color: Color::from_rgba(150, 210, 255, 255) } });
+                            self.sfx_gap_at("chime", 0.3, 0.1, c);
+                        } else {
+                            self.hit_circle(c, big, d, 60.0, src, None);
+                            let life = 2.5;
+                            self.pools.push(FirePool { pos: c, r: big, life, max_life: life, dps: d * 0.35, tick: 0.0, src, kind: PoolKind::Pollen });
+                            self.fx.push(Fx { pos: c, life: 0.35, max_life: 0.35, kind: FxKind::Explosion { r: big, color: Color::from_rgba(150, 70, 190, 255) } });
+                            self.sfx_gap_at("hit", 0.3, 0.1, c);
+                        }
+                    }
+                } else if kind == PoolKind::Pane {
+                    // Foes that touch the pane are bitten and thrown back.
+                    self.pools[k].tick = 0.3;
+                    let d = self.pools[k].dps * 0.5;
+                    self.hit_circle(c, r + 6.0, d, 260.0, src, None);
                 } else {
                     self.pools[k].tick = 0.3;
                     let d = self.pools[k].dps * 0.3;
                     self.hit_circle(c, r, d, 0.0, src, None);
+                    if matches!(kind, PoolKind::Frostpool | PoolKind::Bramble | PoolKind::Pollen) {
+                        let dps = self.pools[k].dps;
+                        for i in self.foes_within(c, r) {
+                            match kind {
+                                PoolKind::Frostpool => {
+                                    self.enemies[i].slow = self.enemies[i].slow.max(0.6);
+                                    self.chill(i, 0.12);
+                                }
+                                PoolKind::Bramble => {
+                                    let e = &mut self.enemies[i];
+                                    e.held = e.held.max(0.35);
+                                    e.bleed = e.bleed.max(1.5);
+                                    e.bleed_dps = e.bleed_dps.max(dps * 0.25);
+                                    e.bleed_src = src;
+                                }
+                                _ => self.enemies[i].slow = self.enemies[i].slow.max(0.3),
+                            }
+                        }
+                    }
                     if kind == PoolKind::Holy {
                         for e in self.enemies.iter_mut().filter(|e| !e.dead && e.pos.distance(c) < r + e.r) {
                             e.slow = e.slow.max(0.45);
@@ -692,6 +791,10 @@ impl World {
                     PoolKind::Holy => Color::from_rgba(170, 220, 255, 255),
                     PoolKind::Smoke => Color::from_rgba(150, 140, 130, 255),
                     PoolKind::Blood => Color::from_rgba(150, 10, 18, 255),
+                    PoolKind::Frostpool | PoolKind::Icicle | PoolKind::RuneTrap | PoolKind::Pane | PoolKind::IceSpike => Color::from_rgba(190, 230, 255, 255),
+                    PoolKind::Bramble => Color::from_rgba(110, 160, 70, 255),
+                    PoolKind::Pollen => Color::from_rgba(230, 220, 120, 255),
+                    PoolKind::Nightshade | PoolKind::Bloom => Color::from_rgba(160, 90, 200, 255),
                     _ => Color::from_rgba(255, 120, 30, 255),
                 };
                 self.particle(c, vec2(0.0, -40.0), 0.5, 3.0, col, true);
@@ -814,6 +917,14 @@ impl World {
             }
             e.flash -= dt;
             e.slow = (e.slow - dt).max(0.0);
+            if e.bleed > 0.0 {
+                e.bleed -= dt;
+                e.bleed_acc += dt;
+                if e.bleed_acc >= 0.5 {
+                    e.bleed_acc = 0.0;
+                    burns.push((i, e.bleed_dps * 0.5, e.bleed_src));
+                }
+            }
             if e.burn > 0.0 {
                 e.burn -= dt;
                 e.burn_acc += dt;
@@ -840,6 +951,16 @@ impl World {
             let to = pp - e.pos;
             let d = to.length().max(0.001);
             let dir = to / d;
+            e.chill = (e.chill - dt * 0.1).max(0.0);
+            if (e.freeze > 0.0 || e.held > 0.0) && !e.boss {
+                // Frozen in place, or held fast by roots.
+                e.freeze = (e.freeze - dt).max(0.0);
+                e.held = (e.held - dt).max(0.0);
+                e.knock *= 0.8;
+                continue;
+            }
+            e.freeze = (e.freeze - dt).max(0.0);
+            e.held = (e.held - dt).max(0.0);
             if matches!(e.kind, EnemyKind::Prop(_)) {
                 // Props stand where they stand.
                 e.knock = Vec2::ZERO;

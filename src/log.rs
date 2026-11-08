@@ -47,6 +47,9 @@ pub fn write(line: &str) {
 
 /// The folder for the player's logs.
 pub fn log_dir() -> PathBuf {
+    #[cfg(target_os = "android")]
+    return PathBuf::from(crate::save::ANDROID_DIR).join("logs");
+    #[cfg(not(target_os = "android"))]
     match std::env::var_os("APPDATA") {
         Some(appdata) => PathBuf::from(appdata).join("AshenVigil").join("logs"),
         None => PathBuf::from("logs"),

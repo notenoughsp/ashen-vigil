@@ -2455,7 +2455,7 @@ fn props_break_into_souls_and_runes_throw_heroes_clear() {
     simulate(&mut w, 5.0, true, |_, _| {});
     let props = w.enemies.iter().filter(|e| matches!(e.kind, EnemyKind::Prop(_))).count();
     assert!(props > 5, "only {} props round the hero", props);
-    assert!(!w.runes.is_empty(), "no rune round the hero");
+    assert_eq!(w.runes.len(), 4, "not a rune in each corner");
     // Breaking one: souls, no kill counted.
     let i = w.enemies.iter().position(|e| matches!(e.kind, EnemyKind::Prop(_))).unwrap();
     let (kills, souls) = (w.kills, w.pickups.iter().filter(|p| matches!(p.kind, PickKind::Soul(_))).count());
@@ -2468,14 +2468,20 @@ fn props_break_into_souls_and_runes_throw_heroes_clear() {
     w.grid.rebuild(&w.enemies);
     let near = w.nearest_enemies(at, 30.0, 5);
     assert!(near.iter().all(|&k| !matches!(w.enemies[k].kind, EnemyKind::Prop(_))));
-    // A rune throws.
+    // The runes lie in the corners, each throwing to the next round the field.
+    for (k, r) in w.runes.iter().enumerate() {
+        assert!(r.pos.x.abs() > WORLD_HALF * 0.6 && r.pos.y.abs() > WORLD_HALF * 0.6, "rune {} is not in a corner", k);
+        assert_eq!(r.to, w.runes[(k + 1) % 4].pos, "rune {} throws elsewhere than the next", k);
+    }
+    // A rune throws beside the far rune, and both rest.
     let rp = w.runes[0].pos;
+    let far = w.runes[1].pos;
     w.heroes[0].p.pos = rp;
     w.update(1.0 / 30.0);
-    // A crowded landing may move just before the throw; the hero lands where it is now.
-    let to = w.runes[0].to;
-    assert!(w.heroes[0].p.pos.distance(to) < 20.0 && w.heroes[0].p.pos.distance(rp) > 500.0, "the rune did not throw");
-    assert!(!w.runes[0].ready());
+    let at = w.heroes[0].p.pos;
+    assert!(at.distance(far) < 120.0 && at.distance(far) > RUNE_RADIUS, "the rune did not throw beside the next one");
+    assert!(!w.runes[0].ready() && !w.runes[1].ready(), "both runes should rest");
+    assert!(w.runes[2].ready() && w.runes[3].ready());
 }
 
 #[test]
@@ -2682,8 +2688,8 @@ fn statues_stand_still_while_watched() {
 }
 
 #[test]
-fn the_newer_arsenals_fight_like_their_twins_and_lay_their_elements() {
-    // Every newer weapon fights like an older one in the same place, so fusions line up.
+fn the_newer_arsenals_keep_their_twins_places_and_lay_their_elements() {
+    // Every newer weapon sits where an older one does, so fusions line up.
     for k in ASH_WEAPONS.iter().chain(ABBEY_WEAPONS.iter()).chain(GARDEN_WEAPONS.iter()) {
         assert!(k.field() >= 3 && k.twin().field() < 3, "{:?}", k);
         assert_eq!(k.twin().idx() % ARSENAL, k.idx() % ARSENAL, "{:?} sits elsewhere than its twin", k);
@@ -2722,4 +2728,168 @@ fn the_newer_arsenals_fight_like_their_twins_and_lay_their_elements() {
     }
     // Ash rain loves the Ashwood's weapons.
     assert!(ASH_WEAPONS.iter().all(|k| k.is_fire()));
+}
+
+/// A hero alone with one weapon among tough foes that stand still, run for a while.
+fn weapon_trial(k: WeaponKind, frames: u32, mut each: impl FnMut(&mut World)) -> World {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = 9999.0;
+    w.heroes[0].arm_for(k.field());
+    w.heroes[0].weapons = vec![Weapon::new(k)];
+    w.heroes[0].recompute_stats();
+    for i in 0..12 {
+        let at = w.heroes[0].p.pos + Vec2::from_angle(i as f32 * 0.52) * (60.0 + (i % 3) as f32 * 45.0);
+        let mut e = w.make_enemy(EnemyKind::Knight, at);
+        e.hp = 1e6;
+        e.max_hp = 1e6;
+        e.speed = 0.0;
+        w.enemies.push(e);
+    }
+    for _ in 0..frames {
+        w.heroes[0].input = Input { dir: vec2(1.0, 0.0), roll: false, skill: false };
+        w.heroes[0].p.hp = w.heroes[0].stats.max_hp;
+        w.heroes[0].p.iframes = 1.0;
+        w.update(1.0 / 60.0);
+        each(&mut w);
+    }
+    w
+}
+
+#[test]
+fn the_other_twenty_seven_each_fight_their_own_way() {
+    use WeaponKind::*;
+    let proj = |k: WeaponKind, pk: PKind, frames: u32| {
+        let mut seen = false;
+        weapon_trial(k, frames, |w| seen |= w.projs.iter().any(|p| p.kind == pk));
+        assert!(seen, "{:?} never threw a {:?}", k, pk);
+    };
+    let pool = |k: WeaponKind, pk: PoolKind, frames: u32| {
+        let mut seen = false;
+        weapon_trial(k, frames, |w| seen |= w.pools.iter().any(|p| p.kind == pk));
+        assert!(seen, "{:?} never left a {:?}", k, pk);
+    };
+    let fx = |k: WeaponKind, frames: u32, what: fn(&FxKind) -> bool| {
+        let mut seen = false;
+        weapon_trial(k, frames, |w| seen |= w.fx.iter().any(|f| what(&f.kind)));
+        assert!(seen, "{:?} showed nothing of its own", k);
+    };
+    let foes = |k: WeaponKind, frames: u32, what: fn(&Enemy) -> bool, said: &str| {
+        let mut seen = false;
+        weapon_trial(k, frames, |w| seen |= w.enemies.iter().any(what));
+        assert!(seen, "{:?} {}", k, said);
+    };
+
+    // The Ashwood.
+    proj(AshHatchet, PKind::Hatchet, 120);
+    let mut w = weapon_trial(AshHatchet, 40, |_| {});
+    let home = w.heroes[0].p.pos;
+    let near: Vec<f32> = w.projs.iter().filter(|p| p.kind == PKind::Hatchet).map(|p| p.pos.distance(home)).collect();
+    w.update(0.3);
+    let far: Vec<f32> = w.projs.iter().filter(|p| p.kind == PKind::Hatchet).map(|p| p.pos.distance(home)).collect();
+    assert!(!near.is_empty() && far.iter().zip(&near).all(|(f, n)| f > n), "the hatchets did not spiral out");
+    proj(AshShards, PKind::Spark, 120);
+    let mut nova = false;
+    weapon_trial(AshBell, 400, |w| nova |= w.fx.iter().any(|f| matches!(f.kind, FxKind::Explosion { r, .. } if r > 150.0)));
+    assert!(nova, "the bell never rang out fire");
+    proj(AshRoots, PKind::Root, 200);
+    foes(AshRoots, 240, |e| e.held > 0.0, "held nothing fast");
+    proj(AshBrand, PKind::Brand, 200);
+    pool(AshBrand, PoolKind::Cinders, 300);
+    assert!(!weapon_trial(AshFlies, 10, |_| {}).heroes[0].swarm_positions(AshFlies).is_empty(), "no fireflies");
+    fx(AshFlies, 200, |f| matches!(f, FxKind::Zap { poison: false, .. }));
+    pool(AshTrail, PoolKind::Cinders, 60);
+    pool(AshPike, PoolKind::FireBurst, 200);
+    fx(AshPike, 200, |f| matches!(f, FxKind::Strike { style: 0, .. }));
+    proj(AshBurst, PKind::Ember2, 200);
+    pool(AshBurst, PoolKind::Cinders, 300);
+
+    // The Frozen Abbey.
+    fx(IceScourge, 200, |f| matches!(f, FxKind::Strike { style: 1, .. }));
+    foes(IceScourge, 200, |e| e.freeze > 0.0, "froze nothing at its tip");
+    proj(IceNeedles, PKind::Needle, 120);
+    foes(IceNeedles, 600, |e| e.freeze > 0.0, "never gathered enough cold to freeze");
+    proj(IceFlask, PKind::Meltwater, 200);
+    pool(IceFlask, PoolKind::Frostpool, 300);
+    assert!(weapon_trial(IceHalo, 10, |_| {}).heroes[0].rime_radius().is_some(), "no rime halo");
+    foes(IceHalo, 200, |e| e.chill > 0.0 || e.freeze > 0.0, "chilled nothing");
+    pool(IceFall, PoolKind::Icicle, 200);
+    foes(IceFall, 300, |e| e.freeze > 0.0, "the icicles froze nothing");
+    proj(IceOwl, PKind::Owl, 200);
+    foes(IceOwl, 300, |e| e.freeze > 0.0, "the owl froze nothing");
+    pool(IceRunes, PoolKind::RuneTrap, 200);
+    fx(IceCrook, 200, |f| matches!(f, FxKind::Hook { .. }));
+    pool(IcePanes, PoolKind::Pane, 200);
+    // A pane stops what is shot at it.
+    let mut w = weapon_trial(IcePanes, 200, |_| {});
+    let pane = w.pools.iter().find(|p| p.kind == PoolKind::Pane).map(|p| p.pos).expect("a pane");
+    w.ebullets.push(EBullet { pos: pane, vel: Vec2::ZERO, r: 6.0, dmg: 5.0, life: 3.0, homing: 0.0, hp: 1e6, hit_cd: 0.0 });
+    w.update(1.0 / 60.0);
+    assert!(w.ebullets.iter().all(|b| b.pos.distance(pane) > 5.0), "the pane let a bullet through");
+
+    // The Starless Garden.
+    proj(ThornVolley, PKind::Thorn, 120);
+    foes(ThornVolley, 200, |e| e.bleed > 0.0, "left no thorns in");
+    assert!(!weapon_trial(ThornMoths, 10, |_| {}).heroes[0].swarm_positions(ThornMoths).is_empty(), "no moths");
+    pool(ThornSnare, PoolKind::Bramble, 200);
+    foes(ThornSnare, 200, |e| e.held > 0.0, "held nothing fast");
+    proj(ThornShears, PKind::Shears, 200);
+    foes(ThornShears, 200, |e| e.bleed > 0.0, "the shears cut nothing");
+    proj(ThornSpores, PKind::Wisp, 200);
+    pool(ThornSpores, PoolKind::Pollen, 400);
+    fx(ThornHook, 200, |f| matches!(f, FxKind::Haul { .. }));
+    pool(ThornTrail, PoolKind::Nightshade, 200);
+    fx(ThornLash, 200, |f| matches!(f, FxKind::Strike { style: 2, .. }));
+    proj(ThornRoots, PKind::Vine, 200);
+    foes(ThornRoots, 200, |e| e.held > 0.0, "held nothing fast");
+
+    // None of the newer weapons fights like its twin any more.
+    for k in ASH_WEAPONS.iter().chain(ABBEY_WEAPONS.iter()).chain(GARDEN_WEAPONS.iter()) {
+        assert!(k.own_mechanic() && k.mechanic() == *k, "{:?}", k);
+    }
+}
+
+#[test]
+fn the_nine_new_weapons_each_fight_their_own_way() {
+    // Spark sling: embers that burst into sparks.
+    let mut sparks = false;
+    weapon_trial(WeaponKind::AshSling, 240, |w| sparks |= w.projs.iter().any(|p| p.kind == PKind::Spark));
+    assert!(sparks, "the sling's ember never burst into sparks");
+    // Bark shield: plates circle and catch bullets.
+    let mut w = weapon_trial(WeaponKind::AshShield, 30, |_| {});
+    let plates = w.heroes[0].shield_positions();
+    assert!(plates.len() >= 2);
+    let at = plates[0].0;
+    w.ebullets.push(EBullet { pos: at, vel: Vec2::ZERO, r: 6.0, dmg: 5.0, life: 3.0, homing: 0.0, hp: 1e6, hit_cd: 0.0 });
+    w.update(1.0 / 60.0);
+    assert!(w.ebullets.iter().all(|b| b.pos.distance(at) > 5.0), "the bark shield let a bullet through");
+    // Ash sickle: a burning trail.
+    let mut cinders = false;
+    weapon_trial(WeaponKind::AshSickle, 200, |w| cinders |= w.pools.iter().any(|p| p.kind == PoolKind::Cinders));
+    assert!(cinders, "the sickle left no burning trail");
+    // Frost rosary: beads freeze what they touch.
+    let mut frozen = false;
+    weapon_trial(WeaponKind::IceRosary, 240, |w| frozen |= w.enemies.iter().any(|e| e.freeze > 0.0));
+    assert!(frozen, "the rosary froze nothing");
+    // Ice lance: spikes along its path.
+    let mut spikes = false;
+    weapon_trial(WeaponKind::IceLance, 200, |w| spikes |= w.pools.iter().any(|p| p.kind == PoolKind::IceSpike));
+    assert!(spikes, "the lance left no ice spikes");
+    // Snowburn: a cone that slows.
+    let mut breath = false;
+    weapon_trial(WeaponKind::IceBreath, 120, |w| breath |= w.fx.iter().any(|f| matches!(f.kind, FxKind::Breath { .. })));
+    assert!(breath, "no breath of frost");
+    // Thorn whip: thorns that bleed.
+    let mut bleeding = false;
+    weapon_trial(WeaponKind::ThornWhip, 200, |w| bleeding |= w.enemies.iter().any(|e| e.bleed > 0.0));
+    assert!(bleeding, "the whip left no thorns");
+    // Bloom cannon: seeds become poison flowers.
+    let mut bloom = false;
+    weapon_trial(WeaponKind::ThornBloom, 300, |w| bloom |= w.pools.iter().any(|p| p.kind == PoolKind::Bloom));
+    assert!(bloom, "no seed ever bloomed");
+    // Mirror pond: a foe's bullet in the pond comes back as ours.
+    let mut w = weapon_trial(WeaponKind::ThornMirror, 10, |_| {});
+    let p = w.heroes[0].p.pos;
+    w.ebullets.push(EBullet { pos: p + vec2(30.0, 0.0), vel: vec2(-120.0, 0.0), r: 6.0, dmg: 5.0, life: 3.0, homing: 0.0, hp: 1e6, hit_cd: 0.0 });
+    w.update(1.0 / 60.0);
+    assert!(w.projs.iter().any(|pr| pr.kind == PKind::Mirror && pr.vel.x > 0.0), "the pond threw nothing back");
 }

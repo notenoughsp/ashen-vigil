@@ -1072,6 +1072,16 @@ impl World {
         if e.burn > 0.0 {
             draw_circle(p.x, p.y, r + 3.0, rgba(255, 110, 30, 50));
         }
+        if e.freeze > 0.0 {
+            draw_rectangle(p.x - r * 1.1, p.y - r * 1.4, r * 2.2, r * 2.4, Color::new(0.65, 0.85, 1.0, 0.35));
+            draw_rectangle_lines(p.x - r * 1.1, p.y - r * 1.4, r * 2.2, r * 2.4, 1.5, Color::new(0.9, 0.97, 1.0, 0.7));
+            draw_line(p.x - r * 0.8, p.y - r * 1.2, p.x - r * 0.3, p.y - r * 0.4, 1.2, Color::new(1.0, 1.0, 1.0, 0.7));
+        }
+        if e.bleed > 0.0 {
+            let drip = (t * 3.0).fract();
+            draw_circle(p.x + r * 0.4, p.y - r * 0.2 + drip * r, 1.8, Color::new(0.75, 0.05, 0.1, 1.0 - drip));
+            draw_line(p.x - r * 0.5, p.y - r * 0.6, p.x - r * 0.2, p.y - r * 0.9, 1.5, rgba(120, 160, 80, 255));
+        }
         if e.affix != Affix::None {
             // A small coloured mark over the head says which trait this elite has.
             let c = e.affix.color();

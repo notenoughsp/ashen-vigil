@@ -294,8 +294,8 @@ impl World {
         }
     }
 
-    /// Teleport runes: a ring of glyphs on the floor that glows when ready, and a faint mark
-    /// where it throws to.
+    /// Teleport runes: a ring of glyphs on the floor that glows when ready, and an arrow beside
+    /// it pointing at the rune it throws to.
     fn draw_runes(&self, t: f32) {
         let teal = Color::new(0.43, 0.9, 0.86, 1.0);
         for r in &self.runes {
@@ -313,8 +313,17 @@ impl World {
             draw_poly_lines(p.x, p.y, 3, 7.0, t * 40.0, 1.5, with_alpha(teal, k));
             if !r.ready() {
                 draw_arc(p.x, p.y, 32, RUNE_RADIUS + 6.0, -90.0, 3.0, 360.0 * (1.0 - r.rest / RUNE_REST), with_alpha(teal, 0.5));
-            } else {
-                draw_circle_lines(r.to.x, r.to.y, 18.0 + 4.0 * pulse, 1.5, with_alpha(teal, 0.25));
+            }
+            // The arrow: chevrons running out toward the far rune.
+            let d = (r.to - p).normalize_or_zero();
+            let side = vec2(-d.y, d.x);
+            let run = (t * 0.8).fract();
+            for c in 0..3 {
+                let f = (c as f32 + run) / 3.0;
+                let tip = p + d * (RUNE_RADIUS + 22.0 + f * 70.0);
+                let fade = k.max(0.4) * (1.0 - f) * 0.9;
+                draw_line(tip.x, tip.y, tip.x - d.x * 12.0 + side.x * 10.0, tip.y - d.y * 12.0 + side.y * 10.0, 3.0, with_alpha(teal, fade));
+                draw_line(tip.x, tip.y, tip.x - d.x * 12.0 - side.x * 10.0, tip.y - d.y * 12.0 - side.y * 10.0, 3.0, with_alpha(teal, fade));
             }
         }
     }
