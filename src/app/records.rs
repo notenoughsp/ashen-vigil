@@ -15,9 +15,26 @@ const SAMPLE: f32 = 15.0;
 /// Achievements on one page of the records screen: three columns of ten.
 const ACH_PER_PAGE: usize = 30;
 
-/// The leaderboard plus as many achievement pages as needed.
+/// The leaderboard, as many achievement pages as needed, and the bestiary.
 fn record_pages() -> usize {
-    1 + ALL_ACHIEVEMENTS.len().div_ceil(ACH_PER_PAGE)
+    2 + ALL_ACHIEVEMENTS.len().div_ceil(ACH_PER_PAGE)
+}
+
+/// Text that fits in `max` wide: a smaller size first (down to 10), then cut short.
+fn fit(ui: &Ui, text: &str, max: f32, size: f32) -> (String, f32) {
+    let w = ui.width(text, size);
+    if w <= max {
+        return (text.to_string(), size);
+    }
+    let smaller = (size * max / w).max(10.0);
+    if ui.width(text, smaller) <= max {
+        return (text.to_string(), smaller);
+    }
+    let mut s: String = text.to_string();
+    while !s.is_empty() && ui.width(&format!("{}...", s), smaller) > max {
+        s.pop();
+    }
+    (format!("{}...", s.trim_end()), smaller)
 }
 
 /// The verdict on a finished vigil.
@@ -39,7 +56,7 @@ impl App {
 
     /// Earns an achievement once, pays its marks and shows a popup.
     pub(super) fn unlock(&mut self, ach: Achievement) {
-        if self.save.achievements & ach.bit() != 0 || self.save.readonly && self.auto.is_none() {
+        if self.save.achievements & ach.bit() != 0 || self.save.readonly && self.auto.is_none() || self.spectating() {
             return;
         }
         self.save.achievements |= ach.bit();
@@ -53,7 +70,7 @@ impl App {
     /// Samples the run for the summary and checks achievements that can happen mid-vigil.
     pub(super) fn track_run(&mut self) {
         let Some(w) = &self.world else { return };
-        if w.heroes.is_empty() {
+        if w.heroes.is_empty() || w.spectating {
             return;
         }
         let me = w.me();
@@ -152,6 +169,12 @@ impl App {
             return;
         }
         let me = w.me();
+        // Every foe the party felled goes into the bestiary, once.
+        for i in 0..BEASTS.len() {
+            let add = w.felled[i].saturating_sub(self.beasts_added[i]);
+            self.save.beasts[i].0 = self.save.beasts[i].0.saturating_add(add);
+        }
+        self.beasts_added = w.felled;
         // The last stretch counts too, however short.
         if self.run_log.samples.last().is_some_and(|s| s.0 < w.time) {
             self.run_log.samples.push((w.time, w.kills, me.dmg_total));
@@ -283,6 +306,8 @@ impl App {
             (true, _) if self.save.settings.cute => ("WHAT A LOVELY NIGHT", GOLD),
             (false, true) if self.save.settings.cute => ("NAP TIME FOR EVERYONE", BLOOD),
             (false, false) if self.save.settings.cute => ("YOU NEED A NAP", BLOOD),
+            (false, true) if w.withdrew => ("THE PARTY LEFT THE NIGHT", TEAL),
+            (false, false) if w.withdrew => ("YOU LEFT THE NIGHT", TEAL),
             (true, _) if w.boss_rush => ("THE LORDS HAVE FALLEN", GOLD),
             (true, _) => ("THE VIGIL IS KEPT", GOLD),
             (false, true) => ("ALL HAVE FALLEN", BLOOD),
@@ -443,15 +468,63 @@ impl App {
         }
     }
 
+    /// Every foe and lord: how many fell, how often it felled you, and its lore once met;
+    /// unmet ones stay a mystery. Below, what the marks over elites mean.
+    fn draw_bestiary(&self, ui: &Ui) {
+        let (sw, sh) = (ui_w(), ui_h());
+        let cx = sw * 0.5;
+        let met = self.save.beasts.iter().filter(|(f, b)| *f > 0 || *b > 0).count();
+        ui.text_c(&format!("{} of {} met", met, BEASTS.len()), cx, 128.0, 16.0, DIM);
+        let wide = (sw - 40.0).min(1180.0);
+        let x = cx - wide * 0.5;
+        let col_w = wide / 3.0;
+        let rows = BEASTS.len().div_ceil(3);
+        let row_h = ((sh - 360.0) / rows as f32).clamp(30.0, 44.0);
+        for (i, kind) in BEASTS.iter().enumerate() {
+            let (felled, by) = self.save.beasts[i];
+            let known = felled > 0 || by > 0;
+            let cx0 = x + (i % 3) as f32 * col_w;
+            let y = 140.0 + (i / 3) as f32 * row_h;
+            ui.row(cx0, y, col_w - 8.0, row_h - 4.0, false);
+            let lord = matches!(kind, EnemyKind::Boss(_));
+            let mark = if lord { BLOOD } else { EMBER };
+            draw_poly(cx0 + 16.0, y + 15.0, if lord { 4 } else { 3 }, 8.0, 90.0, if known { mark } else { Color::new(0.2, 0.18, 0.16, 1.0) });
+            if known {
+                let counts = format!("felled {}   felled you {}", short(felled as f64), by);
+                let counts_w = ui.width(&counts, 12.0);
+                ui.text_r(&counts, cx0 + col_w - 18.0, y + 17.0, 12.0, DIM);
+                let (name, size) = fit(ui, beast_name(*kind), col_w - 60.0 - counts_w, 16.0);
+                ui.text(&name, cx0 + 32.0, y + 17.0, size, if lord { GOLD } else { PALE });
+                if row_h >= 38.0 {
+                    let (lore, size) = fit(ui, beast_lore(*kind), col_w - 50.0, 12.0);
+                    ui.text(&lore, cx0 + 32.0, y + 32.0, size, Color::new(0.75, 0.7, 0.62, 1.0));
+                }
+            } else {
+                ui.text("???", cx0 + 32.0, y + 17.0, 16.0, DIM);
+            }
+        }
+        // What the marks over elites mean, three to a line.
+        let ly = 140.0 + rows as f32 * row_h + 12.0;
+        ui.text("The mark over an elite says what it does:", x, ly, 13.0, DIM);
+        for (i, a) in ALL_AFFIXES.iter().enumerate() {
+            let (lx, y) = (x + (i % 3) as f32 * col_w, ly + 18.0 + (i / 3) as f32 * 17.0);
+            draw_circle(lx + 6.0, y - 4.0, 5.5, a.color());
+            let line = format!("{}: {}", a.name(), a.desc());
+            let (line, size) = fit(ui, &line, col_w - 24.0, 12.0);
+            ui.text(&line, lx + 16.0, y, size, PALE);
+        }
+    }
+
     pub(super) fn draw_records(&self, ui: &Ui) {
         let (sw, sh) = (ui_w(), ui_h());
         let cx = sw * 0.5;
         ui.spaced_c("RECORDS", cx, 54.0, 40.0, 8.0, PALE);
         let mut tabs = vec!["Leaderboard".to_string()];
-        let ach_pages = record_pages() - 1;
+        let ach_pages = record_pages() - 2;
         for k in 0..ach_pages {
             tabs.push(format!("Achievements {}", ["I", "II", "III", "IV", "V"][k.min(4)]));
         }
+        tabs.push("Bestiary".to_string());
         let x0 = cx - (tabs.len() as f32 * 200.0 - 20.0) * 0.5;
         for (i, name) in tabs.iter().enumerate() {
             let x = x0 + i as f32 * 200.0;
@@ -517,6 +590,8 @@ impl App {
                 16.0,
                 GOLD,
             );
+        } else if self.records_page == record_pages() - 1 {
+            self.draw_bestiary(ui);
         } else {
             let done = ALL_ACHIEVEMENTS.iter().filter(|a| self.save.achievements & a.bit() != 0).count();
             ui.text_c(&format!("{} of {} earned", done, ALL_ACHIEVEMENTS.len()), cx, 128.0, 16.0, DIM);

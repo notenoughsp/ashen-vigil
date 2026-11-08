@@ -11,7 +11,7 @@ const HOMING_RANGE: f32 = 450.0;
 impl World {
     pub(crate) fn update_weapons(&mut self, dt: f32) {
         for h in 0..self.heroes.len() {
-            if self.heroes[h].downed {
+            if self.heroes[h].downed || self.heroes[h].possessing {
                 continue;
             }
             self.update_aim(h);

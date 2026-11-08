@@ -6,9 +6,22 @@
 mod boss;
 mod braziers;
 mod combat;
+mod duos;
+pub use duos::*;
+mod mutators;
+pub use mutators::*;
+mod bestiary;
 mod events;
 mod fx;
 mod hero;
+pub use bestiary::*;
+mod passages;
+mod pings;
+mod usurper;
+pub use pings::*;
+mod props;
+pub use passages::*;
+pub use props::*;
 mod pickups;
 mod quests;
 pub use quests::*;
@@ -42,6 +55,11 @@ pub const ENEMY_GROWTH: f32 = 1.09;
 /// The most of a lord's health that can go in one second: every lord fight lasts at least
 /// twenty seconds, however strong the heroes.
 pub const BOSS_SECOND_CAP: f32 = 0.05;
+/// The chance that a lord (from the second on) comes with a twin, the share of health each
+/// of the two has, and what of a blow reaches one while the other still stands.
+pub const TWIN_CHANCE: f32 = 0.2;
+pub const TWIN_HP: f32 = 0.7;
+pub const TWIN_GUARD: f32 = 0.75;
 /// The fog ring round a lord, and how much wider it grows for each other lord, champion or
 /// Sven in the fight.
 pub const ARENA_RADIUS: f32 = 560.0;
@@ -92,6 +110,9 @@ pub const MIN_RESUME_DELAY: f32 = 0.7;
 const RESUME_SHRINK: f32 = 0.95;
 pub const MAX_HEROES: usize = 4;
 pub const REVIVE_TIME: f32 = 3.0;
+/// How far a fallen hero's ghost may drift from its body, and how fast.
+pub const GHOST_LEASH: f32 = 240.0;
+pub const GHOST_SPEED: f32 = 190.0;
 /// Seconds before a spent ember can rekindle the same hero again.
 pub const EMBER_COOLDOWN: f32 = 30.0;
 const MAX_DECALS: usize = 900;
@@ -315,6 +336,12 @@ pub enum EnemyKind {
     Champion,
     /// A dark hero who hunts whoever has gone too long without a wound.
     Rival,
+    /// A coffer with teeth: it lies still like any coffer until a hero comes near (false),
+    /// then hops after them and bites (true). It spills a hoard when it falls.
+    Mimic(bool),
+    /// A breakable thing on the field (see `props`), variant 0 to 2; what it looks like
+    /// depends on the field.
+    Prop(u8),
     Boss(BossKind),
 }
 
@@ -337,6 +364,8 @@ impl EnemyKind {
             EnemyKind::Courier => 23,
             EnemyKind::Champion => 24,
             EnemyKind::Rival => 25,
+            EnemyKind::Mimic(awake) => 26 + awake as u8,
+            EnemyKind::Prop(v) => 28 + v.min(2),
             // The first four lords keep their old numbers.
             EnemyKind::Boss(b) if (b as u8) < 4 => 7 + b as u8,
             EnemyKind::Boss(b) => 10 + b as u8,
@@ -361,6 +390,9 @@ impl EnemyKind {
             23 => EnemyKind::Courier,
             24 => EnemyKind::Champion,
             25 => EnemyKind::Rival,
+            26 => EnemyKind::Mimic(false),
+            27 => EnemyKind::Mimic(true),
+            28..=30 => EnemyKind::Prop(v - 28),
             7..=10 => EnemyKind::Boss(BossKind::from_u8(v - 7)),
             14..=19 => EnemyKind::Boss(BossKind::from_u8(v - 10)),
             _ => EnemyKind::Hollow,
@@ -386,6 +418,8 @@ impl EnemyKind {
             EnemyKind::Courier => 10.0,
             EnemyKind::Champion => 18.0,
             EnemyKind::Rival => 13.0,
+            EnemyKind::Mimic(_) => 15.0,
+            EnemyKind::Prop(_) => 14.0,
             EnemyKind::Boss(BossKind::Gravewarden) => 44.0,
             EnemyKind::Boss(BossKind::Matriarch) => 38.0,
             EnemyKind::Boss(BossKind::Hermit) => 34.0,
@@ -460,6 +494,78 @@ pub struct Enemy {
     pub hunt: Option<usize>,
     /// Seconds until it leaves the field by itself (the courier, the rival).
     pub life_left: f32,
+    /// An elite's trait, see `Affix`; ordinary foes have none.
+    pub affix: Affix,
+}
+
+/// What makes an elite more than big: each elite gets one, shown by a coloured mark above its
+/// head.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Affix {
+    #[default]
+    None,
+    /// Yellow: far faster.
+    Swift,
+    /// Orange: bursts into a ring of bullets when it falls.
+    Volatile,
+    /// Green: mends the foes around it.
+    Mender,
+    /// Blue: shrugs off much of every blow.
+    Warded,
+    /// Violet: steps through the air toward its prey now and then.
+    Blinker,
+}
+
+pub const ALL_AFFIXES: [Affix; 5] = [Affix::Swift, Affix::Volatile, Affix::Mender, Affix::Warded, Affix::Blinker];
+
+impl Affix {
+    pub fn name(self) -> &'static str {
+        match self {
+            Affix::None => "",
+            Affix::Swift => "Swift",
+            Affix::Volatile => "Volatile",
+            Affix::Mender => "Mender",
+            Affix::Warded => "Warded",
+            Affix::Blinker => "Blinker",
+        }
+    }
+
+    pub fn desc(self) -> &'static str {
+        match self {
+            Affix::None => "",
+            Affix::Swift => "60% faster",
+            Affix::Volatile => "bursts into a ring of bullets when it falls",
+            Affix::Mender => "mends the foes around it",
+            Affix::Warded => "takes 40% less from every blow",
+            Affix::Blinker => "steps through the air toward you",
+        }
+    }
+
+    pub fn color(self) -> Color {
+        match self {
+            Affix::None => WHITE,
+            Affix::Swift => Color::from_rgba(255, 225, 60, 255),
+            Affix::Volatile => Color::from_rgba(255, 130, 30, 255),
+            Affix::Mender => Color::from_rgba(90, 230, 110, 255),
+            Affix::Warded => Color::from_rgba(80, 160, 255, 255),
+            Affix::Blinker => Color::from_rgba(200, 110, 255, 255),
+        }
+    }
+
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Affix::None => 0,
+            Affix::Swift => 1,
+            Affix::Volatile => 2,
+            Affix::Mender => 3,
+            Affix::Warded => 4,
+            Affix::Blinker => 5,
+        }
+    }
+
+    pub fn from_u8(v: u8) -> Affix {
+        ALL_AFFIXES.get((v as usize).wrapping_sub(1)).copied().unwrap_or(Affix::None)
+    }
 }
 
 /// Who dealt damage with what, for crits, lifesteal and the damage meter.
@@ -927,6 +1033,7 @@ pub struct World {
     courier: Option<u32>,
     next_courier: f32,
     next_cursed: f32,
+    pub(crate) next_mimic: f32,
     /// Seconds of mist left while a champion hunts.
     pub mist: f32,
     champion: Option<u32>,
@@ -944,6 +1051,8 @@ pub struct World {
     pub boss: Option<BossAi>,
     /// Lords that came while another still stood; the first takes over when that one falls.
     pub more_bosses: Vec<BossAi>,
+    /// Two lords who came together, by id: while both stand, each shields the other.
+    pub twins: Option<(u32, u32)>,
     /// The smaller health bars: other lords (their `BossKind` code), the mist's champion
     /// (`BAR_CHAMPION`) and Sven (`BAR_RIVAL`), with health and its most.
     pub bars: Vec<(u8, f32, f32)>,
@@ -995,6 +1104,8 @@ pub struct World {
     pub particle_mult: f32,
     pub fog: bool,
     pub shake_mult: f32,
+    /// The colour foes' projectiles are drawn in (see `save::COLOR_MODES`).
+    pub bullet_color: Color,
     pub boss_bar_lag: f32,
     /// When the current boss arrived, for the quick-kill achievement.
     pub boss_started: f32,
@@ -1003,6 +1114,37 @@ pub struct World {
     pub screen: Vec2,
     pub dead: bool,
     pub won: bool,
+    /// The party left through the ash gate: the vigil is over, every carried soul banked.
+    pub withdrew: bool,
+    pub gate: Option<AshGate>,
+    pub rift: Option<Rift>,
+    /// The chamber's guardians, by id.
+    pub guards: Vec<u32>,
+    pub(crate) next_rift: f32,
+    pub portal: Option<Portal>,
+    /// When this vigil's portal opens, and whether it has.
+    pub(crate) portal_at: f32,
+    portal_done: bool,
+    pub chambers_won: u32,
+    /// Charges between heroes who keep close, toward a duo strike.
+    pub bonds: Vec<Bond>,
+    pub duo_strikes: u32,
+    /// Stacks of each endless mutator, by `Mutator as usize`, and when the next comes.
+    pub mutators: [u8; ALL_MUTATORS.len()],
+    pub(crate) next_mutator: f32,
+    pub(crate) prop_timer: f32,
+    pub runes: Vec<TeleRune>,
+    pub props_broken: u32,
+    pub runes_used: u32,
+    /// The player who wears the crown this vigil (a secret), and the lord they hold now.
+    pub usurper: Option<u8>,
+    pub possessed: Option<u32>,
+    /// Foes felled this vigil by kind, in `BEASTS` order.
+    pub felled: [u32; BEASTS.len()],
+    /// Marks players placed for each other, and when each slot last pinged.
+    pub pings: Vec<Ping>,
+    pub(crate) ping_last: [f32; MAX_HEROES],
+    pub portals_crossed: u32,
     /// The vigil was kept and goes on past dawn; it only ends when everyone falls.
     pub endless: bool,
     /// The lost grave gave up its relic this vigil.
@@ -1011,6 +1153,9 @@ pub struct World {
     pub heart_found: bool,
     /// Set on a network client: the world is only displayed, never simulated.
     pub is_client: bool,
+    /// A client that joined the running vigil to watch it: it has no hero of its own and
+    /// follows `local`, someone else's.
+    pub spectating: bool,
     /// Set on a host: record cosmetic events so they can be sent to clients.
     pub record_net: bool,
     pub net_nums: Vec<DmgNum>,
@@ -1097,6 +1242,7 @@ impl World {
             courier: None,
             next_courier: 250.0,
             next_cursed: 130.0,
+            next_mimic: 200.0,
             mist: 0.0,
             champion: None,
             next_mist: 340.0,
@@ -1110,6 +1256,7 @@ impl World {
             cat: Some(Cat { pos: clamp_world(rand_dir() * gen_range(1800.0, 3000.0), 300.0), owner: None, facing: 1.0, sitting: true, meow: gen_range(8.0, 20.0) }),
             boss: None,
             more_bosses: Vec::new(),
+            twins: None,
             bars: Vec::new(),
             bosses_spawned: 0,
             bosses_killed: 0,
@@ -1147,17 +1294,42 @@ impl World {
             particle_mult: 1.0,
             fog: true,
             shake_mult: 1.0,
+            bullet_color: Color::new(0.85, 0.06, 0.05, 1.0),
             boss_bar_lag: 1.0,
             boss_started: 0.0,
             finale_came: false,
             screen: vec2(1280.0, 720.0),
             dead: false,
             won: false,
+            withdrew: false,
+            gate: None,
+            rift: None,
+            guards: Vec::new(),
+            next_rift: gen_range(300.0, 480.0),
+            portal: None,
+            portal_at: gen_range(660.0, 1080.0),
+            portal_done: false,
+            chambers_won: 0,
+            bonds: Vec::new(),
+            duo_strikes: 0,
+            mutators: [0; ALL_MUTATORS.len()],
+            next_mutator: 0.0,
+            prop_timer: 0.0,
+            runes: Vec::new(),
+            props_broken: 0,
+            runes_used: 0,
+            usurper: None,
+            possessed: None,
+            felled: [0; BEASTS.len()],
+            pings: Vec::new(),
+            ping_last: [0.0; MAX_HEROES],
+            portals_crossed: 0,
             endless: false,
             grave_found: false,
             bell_found: false,
             heart_found: false,
             is_client: false,
+            spectating: false,
             record_net: false,
             net_nums: Vec::new(),
             net_deaths: Vec::new(),
@@ -1414,7 +1586,7 @@ impl World {
         hero.picked = true;
         hero.name = format!("{} (left)", hero.name);
         // If everyone still here is already down, nobody is left to revive them.
-        if !self.dead && self.heroes.iter().all(|h| h.downed) {
+        if !self.dead && self.heroes.iter().all(|h| h.downed || h.possessing) {
             self.dead = true;
             self.sfx("death", 1.0);
             self.events.push(Event::Died);
@@ -1517,6 +1689,11 @@ impl World {
         self.update_events(dt);
         self.update_quests(dt);
         self.update_omens(dt);
+        self.update_passages(dt);
+        self.update_duos(dt);
+        self.update_mutators();
+        self.update_props(dt);
+        self.update_pings(dt);
         self.update_burden();
         self.boss_hp = match &self.boss {
             Some(b) => self.enemies.iter().find(|e| e.id == b.id).map(|e| (e.hp, e.max_hp)).unwrap_or((0.0, 1.0)),
@@ -1596,7 +1773,11 @@ impl World {
         if let Pause::Countdown(t) = self.pause {
             self.pause = Pause::Countdown((t - dt).max(0.0));
         }
-        if self.pause == Pause::Running && !self.dead && !self.won {
+        for p in self.pings.iter_mut() {
+            p.life -= dt;
+        }
+        if self.pause == Pause::Running && !self.dead && !self.won && !self.spectating {
+            self.client_rune();
             let arena = self.arena;
             // The wager tile fills under our feet here too; the host decides the bet itself.
             let tiles = self.stone.as_ref().map(|s| [s.tile(0), s.tile(1), s.tile(2)]);
@@ -1609,6 +1790,10 @@ impl World {
                         hero.wager_kindle = 0.0;
                     }
                     None => hero.wager_kindle = 0.0,
+                }
+                if hero.downed {
+                    hero.ghost += hero.input.dir * GHOST_SPEED * dt;
+                    hero.leash_ghost(REVIVE_TIME);
                 }
                 if !hero.downed {
                     rolled = hero.step_movement(dt, arena);

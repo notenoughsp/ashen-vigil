@@ -165,7 +165,8 @@ impl World {
             self.boss_bar_lag = (self.boss_bar_lag - dt * 0.25).max(frac);
         }
         if !self.heroes.is_empty() {
-            let target = self.me().p.pos;
+            let me = self.me();
+            let target = if me.downed && me.ghost != Vec2::ZERO { me.ghost } else { me.p.pos };
             self.cam = self.cam.lerp(target, (10.0 * dt).min(1.0));
         }
     }

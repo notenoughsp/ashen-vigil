@@ -586,6 +586,9 @@ pub struct ClientInput {
     pub view: (u16, u16),
     /// The player has the menu open; when everyone has, the host holds the world.
     pub menu: bool,
+    /// Counts pings; the host places one at `ping_at` when it changes.
+    pub ping_seq: u8,
+    pub ping_at: (f32, f32),
 }
 
 impl ClientInput {
@@ -608,6 +611,9 @@ impl ClientInput {
         w.u16(self.view.0);
         w.u16(self.view.1);
         w.bool(self.menu);
+        w.u8(self.ping_seq);
+        w.f32(self.ping_at.0);
+        w.f32(self.ping_at.1);
     }
 
     pub fn read(r: &mut Reader) -> ClientInput {
@@ -626,6 +632,8 @@ impl ClientInput {
             ack: r.u32(),
             view: (r.u16(), r.u16()),
             menu: r.bool(),
+            ping_seq: r.u8(),
+            ping_at: (r.f32(), r.f32()),
         }
     }
 }
@@ -640,6 +648,8 @@ pub struct Peer {
     pub ping_ms: f32,
     pub input: Option<ClientInput>,
     pub snap: crate::snapshot::Encoder,
+    /// Joined while the vigil was running: watches it, and plays from the next one.
+    pub spectator: bool,
 }
 
 pub struct HostNet {
@@ -665,6 +675,8 @@ pub enum HostEvent {
     Left(String, u8),
     /// A player who dropped out is back in the running vigil.
     Rejoined(String, u8),
+    /// Someone joined the running vigil to watch it; they play from the next one.
+    Spectating(String),
     /// A player's log arrived: name, why it was sent, the text.
     Log(String, String, String),
 }
@@ -703,19 +715,43 @@ impl HostNet {
                             let k = self.left.iter().position(|(n, _)| *n == name).unwrap_or(0);
                             let slot = self.left.remove(k).1;
                             events.push(HostEvent::Rejoined(name.clone(), slot));
-                            self.peers.push(Peer { addr: from, slot, name: name.clone(), class, profile, last_seen: now, ping_ms: 0.0, input: None, snap: Default::default() });
+                            self.peers.push(Peer {
+                                addr: from,
+                                slot,
+                                name: name.clone(),
+                                class,
+                                profile,
+                                last_seen: now,
+                                ping_ms: 0.0,
+                                input: None,
+                                snap: Default::default(),
+                                spectator: false,
+                            });
                             slot
                         }
                         None => {
-                            if self.started || self.peers.len() >= crate::world::MAX_HEROES - 1 {
+                            // A slot no hero of the running vigil holds, nor anyone who left it.
+                            let free = (1..4u8).find(|s| !self.peers.iter().any(|p| p.slot == *s) && !self.left.iter().any(|(_, l)| l == s));
+                            let Some(slot) = free.filter(|_| self.peers.len() < crate::world::MAX_HEROES - 1) else {
                                 let mut w = Writer::packet(PType::Refused);
-                                w.str(if self.started { "The vigil has already begun" } else { "The lobby is full" });
+                                w.str("The lobby is full");
                                 self.sock.send(&w.0, from);
                                 continue;
-                            }
-                            let slot = (1..4u8).find(|s| !self.peers.iter().any(|p| p.slot == *s)).unwrap_or(1);
-                            events.push(HostEvent::Joined(name.clone()));
-                            self.peers.push(Peer { addr: from, slot, name: name.clone(), class, profile, last_seen: now, ping_ms: 0.0, input: None, snap: Default::default() });
+                            };
+                            let spectator = self.started;
+                            events.push(if spectator { HostEvent::Spectating(name.clone()) } else { HostEvent::Joined(name.clone()) });
+                            self.peers.push(Peer {
+                                addr: from,
+                                slot,
+                                name: name.clone(),
+                                class,
+                                profile,
+                                last_seen: now,
+                                ping_ms: 0.0,
+                                input: None,
+                                snap: Default::default(),
+                                spectator,
+                            });
                             slot
                         }
                     };
@@ -726,8 +762,10 @@ impl HostNet {
                         p.profile = profile;
                         p.last_seen = now;
                     }
+                    let spectator = self.peers.iter().any(|p| p.addr == from && p.spectator);
                     let mut w = Writer::packet(PType::Welcome);
                     w.u8(slot);
+                    w.bool(spectator);
                     self.sock.send(&w.0, from);
                 }
                 PType::Input => {
@@ -786,7 +824,8 @@ impl HostNet {
                     if let Some(i) = known {
                         events.push(HostEvent::Left(self.peers[i].name.clone(), self.peers[i].slot));
                         let p = self.peers.remove(i);
-                        if self.started {
+                        // Only a player's hero waits for them; a spectator just goes.
+                        if self.started && !p.spectator {
                             self.left.push((p.name, p.slot));
                         }
                     }
@@ -796,7 +835,7 @@ impl HostNet {
         }
         for p in self.peers.iter().filter(|p| now - p.last_seen >= TIMEOUT) {
             events.push(HostEvent::Left(p.name.clone(), p.slot));
-            if self.started {
+            if self.started && !p.spectator {
                 self.left.push((p.name.clone(), p.slot));
             }
         }
@@ -911,6 +950,8 @@ pub struct ClientNet {
     ping_acc: f32,
     /// HostLeft was reported already; it is said once, not every frame after.
     gone: bool,
+    /// Joined a running vigil: we watch it and play from the next one.
+    pub spectating: bool,
 }
 
 impl ClientNet {
@@ -920,7 +961,7 @@ impl ClientNet {
         if let (Ok(s), Ok(mut up)) = (sock.s.try_clone(), UPLOAD.lock()) {
             *up = Some((s, host));
         }
-        Ok(ClientNet { sock, host, slot: None, last_seen: now, assembler: Assembler::default(), hello_acc: 10.0, ping_acc: 0.0, gone: false })
+        Ok(ClientNet { sock, host, slot: None, last_seen: now, assembler: Assembler::default(), hello_acc: 10.0, ping_acc: 0.0, gone: false, spectating: false })
     }
 
     /// Re-sends the join request until the host answers.
@@ -956,14 +997,20 @@ impl ClientNet {
             match t {
                 PType::Welcome => {
                     let s = r.u8();
+                    let spectator = r.bool();
                     if self.slot.is_none() {
                         out.push(ClientEvent::Welcome);
+                        self.spectating = spectator && r.ok;
                     }
                     self.slot = Some(s);
                 }
                 PType::Refused => out.push(ClientEvent::Refused(r.str())),
                 PType::Lobby => {
                     let started = r.bool();
+                    if !started {
+                        // Back in the lobby: whoever watched plays the next vigil.
+                        self.spectating = false;
+                    }
                     let n = r.u8();
                     let mut players = Vec::new();
                     for _ in 0..n {

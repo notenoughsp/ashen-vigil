@@ -78,7 +78,7 @@ impl World {
         }
         // The fog ring widens for every lord, champion and Sven in the fight, smoothly, and
         // never narrows again while it lasts.
-        if let Some((c, r)) = self.arena {
+        if let Some((c, r)) = self.arena.filter(|_| self.boss.is_some()) {
             let foes = 1 + self.more_bosses.len() + self.enemies.iter().filter(|e| !e.dead && matches!(e.kind, EnemyKind::Champion | EnemyKind::Rival)).count();
             let want = ARENA_RADIUS + ARENA_GROWTH * (foes - 1) as f32;
             if want > r {
@@ -831,6 +831,10 @@ impl World {
             },
         }
 
+        // A lord the crown's wearer holds goes where they steer it.
+        if let Some(p) = self.steer_lord(ai.id, pos, speed, dt) {
+            pos = p;
+        }
         // Bosses stay inside their fog ring.
         if let Some((c, ar)) = self.arena {
             let d = pos - c;

@@ -20,6 +20,10 @@ impl World {
     }
 
     fn cast_skill(&mut self, h: usize) {
+        if self.heroes.get(h).is_some_and(|h| h.possessing) {
+            self.lord_strike(h);
+            return;
+        }
         let Some(hero) = self.heroes.get(h) else { return };
         if hero.downed || hero.skill_cd > 0.0 || self.pause != Pause::Running {
             return;

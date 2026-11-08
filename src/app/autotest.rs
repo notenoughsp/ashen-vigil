@@ -350,7 +350,17 @@ impl App {
             1550 => want.push("achievements"),
             1551 => self.records_page = 3,
             1555 => want.push("achievements3"),
-            1556 => {
+            1553 => {
+                // Most of the bestiary met, a few still unknown.
+                for (i, b) in self.save.beasts.iter_mut().enumerate() {
+                    if i % 6 != 5 {
+                        *b = (((i * 7919) % 5000 + 3) as u32, (i % 4) as u32);
+                    }
+                }
+            }
+            1556 => self.records_page = 4,
+            1559 => want.push("bestiary_page"),
+            1560 => {
                 self.screen = Screen::Wardrobe;
                 self.save.souls = 60_000;
                 self.save.skins = 0b1011_0101;
@@ -508,7 +518,81 @@ impl App {
                 w.heroes[0].wager = Some(crate::world::Wager { tier: 1, stake: 1234, since: None });
             }
             2180 => want.push("omens"),
-            2181 => std::process::exit(0),
+            2181 => {
+                // The passages and the new foes: the ash gate, a rift, a portal, a sleeping and
+                // a waking mimic, and twin lords on their chain.
+                let w = self.world.as_mut().unwrap();
+                w.enemies.clear();
+                w.ebullets.clear();
+                w.altars.clear();
+                w.stone = None;
+                w.vault = None;
+                w.hourglass = None;
+                w.weather = None;
+                w.mist = 0.0;
+                w.pickups.retain(|p| !matches!(p.kind, PickKind::CursedCoffer | PickKind::Key));
+                let p = w.heroes[0].p.pos;
+                w.gate = Some(crate::world::AshGate { pos: p + vec2(-320.0, -60.0), life: 50.0, kindle: 1.2 });
+                w.rift = Some(crate::world::Rift { pos: p + vec2(330.0, -40.0), life: 30.0, kindle: 0.8, sealed: 0.0, wave: 0.0 });
+                w.portal = Some(crate::world::Portal { pos: p + vec2(-60.0, 250.0), life: 40.0, kindle: 0.6, to: crate::world::Biome::Flesh });
+                for (kind, at) in [(EnemyKind::Mimic(false), vec2(150.0, 170.0)), (EnemyKind::Mimic(true), vec2(250.0, 150.0))] {
+                    let mut e = w.make_enemy(kind, p + at);
+                    e.speed = 0.0;
+                    e.hp = 1e9;
+                    w.enemies.push(e);
+                }
+                let mut ids = Vec::new();
+                for (k, at) in [(crate::world::BossKind::Bride, vec2(-170.0, -150.0)), (crate::world::BossKind::Hound, vec2(160.0, -170.0))] {
+                    let mut e = w.make_enemy(EnemyKind::Boss(k), p + at);
+                    e.boss = true;
+                    e.r = EnemyKind::Boss(k).radius(false);
+                    e.speed = 0.0;
+                    e.hp = 1e9;
+                    ids.push(e.id);
+                    w.enemies.push(e);
+                }
+                w.twins = Some((ids[0], ids[1]));
+                w.next_boss = w.time + 60.0;
+            }
+            2190 => want.push("passages"),
+            2191 => {
+                // The field's own things: props and runes, elites with their marks, pings, and
+                // a fallen friend's ghost on its chain.
+                let w = self.world.as_mut().unwrap();
+                w.gate = None;
+                w.rift = None;
+                w.portal = None;
+                w.twins = None;
+                w.enemies.clear();
+                w.banner = None;
+                w.toasts.clear();
+                w.weather = None;
+                let p = w.heroes[0].p.pos;
+                for (k, at) in [(0u8, vec2(-260.0, -120.0)), (1, vec2(-200.0, 150.0)), (2, vec2(400.0, -140.0)), (0, vec2(330.0, -60.0)), (1, vec2(-420.0, -60.0))] {
+                    let e = w.make_enemy(EnemyKind::Prop(k), p + at);
+                    w.enemies.push(e);
+                }
+                for (i, a) in crate::world::ALL_AFFIXES.iter().enumerate() {
+                    let kind = [EnemyKind::Knight, EnemyKind::Wraith, EnemyKind::Bloat, EnemyKind::Hollow, EnemyKind::Gargoyle][i];
+                    let mut e = w.make_enemy(kind, p + vec2(-240.0 + i as f32 * 120.0, -190.0));
+                    e.elite = true;
+                    e.r = kind.radius(true);
+                    e.affix = *a;
+                    e.speed = 0.0;
+                    e.hp = 1e9;
+                    w.enemies.push(e);
+                }
+                w.runes = vec![crate::world::TeleRune { pos: p + vec2(140.0, 60.0), to: p + vec2(1100.0, 300.0), rest: 0.0 }];
+                let ally = w.add_hero(1, "Ally", Class::BellAcolyte, Profile::default(), false);
+                w.heroes[ally].p.pos = p + vec2(-110.0, 60.0);
+                w.heroes[ally].downed = true;
+                w.heroes[ally].revive = 0.8;
+                w.heroes[ally].ghost = p + vec2(-330.0, -10.0);
+                w.time += 1.0;
+                w.add_ping(0, p + vec2(250.0, 40.0));
+            }
+            2200 => want.push("fieldthings"),
+            2201 => std::process::exit(0),
             _ => {}
         }
         want

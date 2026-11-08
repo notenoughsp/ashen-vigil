@@ -33,6 +33,12 @@ impl World {
         if self.weather.is_some_and(|(w, _)| w == Weather::AshRain) && src.weapon.is_fire() {
             dmg *= 1.4;
         }
+        if e.affix == Affix::Warded {
+            dmg *= 0.6;
+        }
+        if self.twins.is_some_and(|(a, b)| e.id == a || e.id == b) {
+            dmg *= TWIN_GUARD;
+        }
         if e.boss || matches!(e.kind, EnemyKind::Rival | EnemyKind::Champion) {
             // No single blow takes more than a sliver of a lord (or of Sven): every fight lasts
             // a while.
@@ -60,7 +66,7 @@ impl World {
         let dealt = dmg.min(e.hp.max(0.0));
         e.hp -= dmg;
         e.flash = 0.1;
-        let resist = if e.boss {
+        let resist = if e.boss || matches!(e.kind, EnemyKind::Prop(_)) {
             0.0
         } else if e.elite || matches!(e.kind, EnemyKind::Knight | EnemyKind::Shieldbearer) {
             0.3
@@ -105,17 +111,30 @@ impl World {
         }
         if killed {
             self.enemies[i].dead = true;
-            self.on_kill(i, src);
+            if matches!(self.enemies[i].kind, EnemyKind::Prop(_)) {
+                self.break_prop(i);
+            } else {
+                self.on_kill(i, src);
+            }
         }
         killed
     }
 
     fn on_kill(&mut self, i: usize, src: Src) {
         self.kills += 1;
-        let (pos, kind, xp, elite, boss, r) = {
+        let kind = self.enemies[i].kind;
+        self.count_beast(kind);
+        let (pos, kind, xp, elite, boss, r, affix) = {
             let e = &self.enemies[i];
-            (e.pos, e.kind, e.xp, e.elite, e.boss, e.r)
+            (e.pos, e.kind, e.xp, e.elite, e.boss, e.r, e.affix)
         };
+        if affix == Affix::Volatile {
+            let dmg = 10.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
+            let off = gen_range(0.0, TAU);
+            for k in 0..10 {
+                self.enemy_bullet(pos, Vec2::from_angle(off + k as f32 * TAU / 10.0) * 150.0, 5.0, dmg, 0.0, 3.0);
+            }
+        }
         self.quest_count(QuestKind::Slay, 1);
         if elite {
             self.quest_count(QuestKind::Elites, 1);
@@ -151,6 +170,20 @@ impl World {
                 _ => None,
             };
             self.boss_second.retain(|s| s.0 != id);
+            self.uncrown(id);
+            // One of twin lords falls: the chain breaks and the other rages.
+            if let Some((a, b)) = self.twins.filter(|(a, b)| *a == id || *b == id) {
+                self.twins = None;
+                let other = if a == id { b } else { a };
+                if let Some(o) = self.enemies.iter_mut().find(|e| e.id == other && !e.dead) {
+                    o.speed *= 1.3;
+                    o.dmg *= 1.25;
+                    let name = if let EnemyKind::Boss(k) = o.kind { k.name() } else { "The other lord" };
+                    let line = format!("the chain breaks: {} rages", name);
+                    self.log_event(&line);
+                    self.banner("THE CHAIN BREAKS", &format!("{} rages over its twin", name), Color::from_rgba(230, 110, 255, 255), 3.5);
+                }
+            }
             if self.boss.as_ref().is_some_and(|b| b.id == id) {
                 // The next lord still standing takes over the fight.
                 self.boss = if self.more_bosses.is_empty() { None } else { Some(self.more_bosses.remove(0)) };
@@ -232,6 +265,17 @@ impl World {
                 self.pickups.push(Pickup::new(pos, PickKind::Key));
                 self.banner("THE COURIER FALLS", "Take its key to the vault", Color::from_rgba(240, 200, 90, 255), 3.0);
             }
+            EnemyKind::Mimic(_) => {
+                self.log_event("a mimic falls");
+                for k in 0..2 {
+                    let off = Vec2::from_angle(k as f32 * std::f32::consts::PI) * 24.0;
+                    self.pickups.push(Pickup::new(pos + off, PickKind::Coffer(false)));
+                }
+                for _ in 0..16 {
+                    self.drop_soul(pos + rand_dir() * gen_range(10.0, 70.0), xp * 0.5);
+                }
+                self.toast("The mimic spills its hoard.");
+            }
             EnemyKind::Rival => {
                 self.log_event("Sven falls");
                 for _ in 0..24 {
@@ -259,6 +303,7 @@ impl World {
     }
 
     pub(crate) fn drop_soul(&mut self, pos: Vec2, v: f32) {
+        let v = v * self.mutated(Mutator::Gilded, 1.25);
         // A full floor makes room by merging old orbs, so new ones still drop where foes fall.
         if self.pickups.len() >= MAX_PICKUPS {
             self.merge_souls();
@@ -328,7 +373,7 @@ impl World {
         }
         let now = self.time;
         let hero = &mut self.heroes[h];
-        if hero.downed || hero.p.iframes > 0.0 || hero.p.roll_t > 0.0 || hero.buff(Buff::Aegis) > 0.0 {
+        if hero.downed || hero.possessing || hero.p.iframes > 0.0 || hero.p.roll_t > 0.0 || hero.buff(Buff::Aegis) > 0.0 {
             return;
         }
         let p = hero.p.pos;
@@ -379,9 +424,10 @@ impl World {
             let name = self.heroes[h].name.clone();
             self.heroes[h].downed = true;
             self.heroes[h].revive = 0.0;
+            self.heroes[h].ghost = self.heroes[h].p.pos;
             self.sfx("death", 0.6);
             self.toast(&format!("{} has fallen. Stand beside them to revive.", name));
-            if self.heroes.iter().all(|x| x.downed) {
+            if self.heroes.iter().all(|x| x.downed || x.possessing) {
                 self.dead = true;
                 self.sfx("death", 1.0);
                 self.events.push(Event::Died);
@@ -408,6 +454,7 @@ impl World {
         e.dead = true;
         let (kind, r) = (e.kind, e.r);
         self.kills += 1;
+        self.count_beast(kind);
         self.death_burst(pos, kind, false, r);
         if self.record_net && self.net_deaths.len() < 80 {
             self.net_deaths.push((pos, kind, false));
@@ -507,7 +554,7 @@ impl World {
         self.grid.query(from, max_dist, &mut q);
         let mut v: Vec<(f32, usize)> = q
             .iter()
-            .filter(|&&i| i < self.enemies.len() && !self.enemies[i].dead)
+            .filter(|&&i| i < self.enemies.len() && !self.enemies[i].dead && !matches!(self.enemies[i].kind, EnemyKind::Prop(_)))
             .map(|&i| (self.enemies[i].pos.distance_squared(from), i))
             .filter(|(d, _)| *d < max_dist * max_dist)
             .collect();
@@ -699,6 +746,9 @@ impl World {
         let mut slams: Vec<Vec2> = Vec::new();
         let mut volleys: Vec<(Vec2, Vec2)> = Vec::new();
         let mut lunges: Vec<(Vec2, Vec2, f32)> = Vec::new();
+        let mut woke: Vec<Vec2> = Vec::new();
+        let mut mends: Vec<Vec2> = Vec::new();
+        let mut blinks: Vec<(Vec2, Vec2)> = Vec::new();
         let (anchor, anchor_facing, anchor_moving) = self.random_hero_pos();
         let sight = self.spawn_ring_dist() * 0.9;
         // Where each hero stands, for a foe that hunts one of them.
@@ -737,7 +787,26 @@ impl World {
             let to = pp - e.pos;
             let d = to.length().max(0.001);
             let dir = to / d;
-            let slow = if e.slow > 0.0 { 0.5 } else { 1.0 };
+            if matches!(e.kind, EnemyKind::Prop(_)) {
+                // Props stand where they stand.
+                e.knock = Vec2::ZERO;
+                continue;
+            }
+            if e.elite && e.affix == Affix::None && !e.boss && !matches!(e.kind, EnemyKind::Champion | EnemyKind::Rival) {
+                e.affix = ALL_AFFIXES[gen_range(0, ALL_AFFIXES.len())];
+            }
+            let tick = |every: f32| (t + e.phase * 3.0).rem_euclid(every) < dt;
+            match e.affix {
+                Affix::Mender if tick(1.0) => mends.push(e.pos),
+                Affix::Blinker if tick(4.0) && d > 120.0 && d < 700.0 => {
+                    let from = e.pos;
+                    e.pos += dir * (d - 90.0).min(240.0);
+                    blinks.push((from, e.pos));
+                }
+                _ => {}
+            }
+            let swift = if e.affix == Affix::Swift { 1.6 } else { 1.0 };
+            let slow = if e.slow > 0.0 { 0.5 } else { 1.0 } * swift;
             let mv = match e.kind {
                 EnemyKind::Cultist => {
                     if e.fuse < 0.0 && d < 60.0 {
@@ -839,6 +908,29 @@ impl World {
                         dir
                     }
                 }
+                EnemyKind::Mimic(false) => {
+                    // Lies still like any coffer, until a hero comes close or strikes it.
+                    if d < 90.0 || e.hp < e.max_hp {
+                        e.kind = EnemyKind::Mimic(true);
+                        e.timer = 0.5;
+                        woke.push(e.pos);
+                    }
+                    Vec2::ZERO
+                }
+                EnemyKind::Mimic(true) => {
+                    // Hops after its prey and now and then leaps to bite.
+                    e.timer -= dt;
+                    if e.fuse > 0.0 {
+                        e.fuse -= dt;
+                        dir * 3.2
+                    } else if e.timer <= 0.0 && d < 380.0 {
+                        e.timer = gen_range(1.3, 1.9);
+                        e.fuse = 0.35;
+                        dir * 3.2
+                    } else {
+                        dir * (0.6 + 0.5 * (t * 9.0 + e.phase).sin().abs())
+                    }
+                }
                 EnemyKind::Rival => {
                     // A dance that can be read: he circles and throws fans of blades; every few
                     // seconds he stops, marks his lunge with a red line, lunges straight along
@@ -894,7 +986,7 @@ impl World {
             };
             e.pos += (mv * e.speed * slow * wade + e.knock) * dt;
             // The courier, the champion and the rival never jump ahead of the heroes.
-            let roams = matches!(e.kind, EnemyKind::Courier | EnemyKind::Champion | EnemyKind::Rival);
+            let roams = matches!(e.kind, EnemyKind::Courier | EnemyKind::Champion | EnemyKind::Rival | EnemyKind::Mimic(_) | EnemyKind::Prop(_));
             if d > far && !roams {
                 // Wrap stragglers around to the front of a hero.
                 let ahead = if anchor_moving { anchor_facing } else { rand_dir() };
@@ -918,6 +1010,22 @@ impl World {
                 }
             }
             e.pos = clamp_world(e.pos, e.r);
+        }
+        for at in mends {
+            for e in self.enemies.iter_mut().filter(|e| !e.dead && !e.boss && e.pos.distance(at) < 200.0) {
+                e.hp = (e.hp + e.max_hp * 0.04).min(e.max_hp);
+            }
+            self.fx.push(Fx { pos: at, life: 0.5, max_life: 0.5, kind: FxKind::Ring { r: 200.0, color: Affix::Mender.color() } });
+        }
+        for (from, to) in blinks {
+            self.fx.push(Fx { pos: from, life: 0.3, max_life: 0.3, kind: FxKind::Ghost });
+            self.fx.push(Fx { pos: to, life: 0.4, max_life: 0.4, kind: FxKind::Ring { r: 40.0, color: Affix::Blinker.color() } });
+        }
+        for pos in woke {
+            self.log_event("a mimic wakes");
+            self.banner("A MIMIC!", "The coffer has teeth", Color::from_rgba(240, 190, 90, 255), 2.5);
+            self.sfx_at("roar", 0.7, pos);
+            self.shake = self.shake.max(6.0);
         }
         for (pos, dir) in arrows {
             let dmg = 8.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
@@ -972,7 +1080,7 @@ impl World {
         // Soft separation so hordes don't collapse into one blob.
         let mut q = std::mem::take(&mut self.qbuf);
         for i in 0..self.enemies.len() {
-            if self.enemies[i].dead || self.enemies[i].boss {
+            if self.enemies[i].dead || self.enemies[i].boss || matches!(self.enemies[i].kind, EnemyKind::Prop(_)) {
                 continue;
             }
             let (p, r) = (self.enemies[i].pos, self.enemies[i].r);

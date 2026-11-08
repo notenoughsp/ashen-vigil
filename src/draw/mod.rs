@@ -26,8 +26,6 @@ fn glow(p: Vec2, r: f32, c: Color, strength: f32) {
     draw_circle(p.x, p.y, r, with_alpha(c, 0.9));
 }
 
-const BULLET_RED: Color = Color::new(0.85, 0.06, 0.05, 1.0);
-
 /// A heart centred on `p`, about `r` across each lobe.
 fn heart(p: Vec2, r: f32, c: Color) {
     // Small lobes need few corners; there can be thousands of hearts on screen.
@@ -179,6 +177,11 @@ impl World {
         let d = (p - self.cam).abs();
         let v = view_size();
         d.x < v.x * 0.5 + r + 60.0 && d.y < v.y * 0.5 + r + 60.0
+    }
+
+    /// The world point under a point in UI space, such as the mouse.
+    pub fn screen_to_world(&self, p: Vec2) -> Vec2 {
+        self.cam + (p - vec2(crate::ui::ui_w(), crate::ui::ui_h()) * 0.5) * (crate::ui::ui_scale() / view_scale())
     }
 
     /// Where a world point lands in UI space.
@@ -655,6 +658,7 @@ impl World {
 
     /// Enemy projectiles: big, red and black-rimmed so they read against everything.
     fn draw_bullets(&self) {
+        let col = self.bullet_color;
         let pulse = 0.85 + 0.15 * (self.time * 12.0).sin();
         for b in self.ebullets.iter().filter(|b| self.on_screen(b.pos, b.r * 2.0)) {
             let p = b.pos;
@@ -668,13 +672,13 @@ impl World {
             }
             // A red glow, a black rim, a red body and a hot core: readable on any ground and
             // through any spell.
-            draw_circle(p.x, p.y, b.r * 2.2, with_alpha(BULLET_RED, 0.2));
+            draw_circle(p.x, p.y, b.r * 2.2, with_alpha(col, 0.2));
             draw_circle(p.x, p.y, b.r * pulse + 2.5, rgba(10, 0, 0, 230));
-            draw_circle(p.x, p.y, b.r * pulse, BULLET_RED);
+            draw_circle(p.x, p.y, b.r * pulse, col);
             draw_circle(p.x, p.y, b.r * 0.5, rgba(255, 190, 120, 255));
             draw_circle(p.x - b.r * 0.15, p.y - b.r * 0.15, b.r * 0.22, rgba(255, 250, 230, 255));
             if b.homing > 0.0 {
-                draw_circle_lines(p.x, p.y, b.r * 1.45, 2.0, with_alpha(BULLET_RED, 0.85));
+                draw_circle_lines(p.x, p.y, b.r * 1.45, 2.0, with_alpha(col, 0.85));
             }
         }
     }
@@ -750,29 +754,7 @@ impl World {
                     draw_line(p.x + 6.0 * spin, p.y - 4.0, p.x + 6.0 * spin, p.y + 1.0, 2.0, gold);
                     draw_line(p.x + 9.0 * spin, p.y - 4.0, p.x + 9.0 * spin, p.y + 0.0, 2.0, gold);
                 }
-                PickKind::Coffer(boss) => {
-                    let g = if boss { rgba(255, 210, 100, 255) } else { rgba(220, 180, 90, 255) };
-                    let beam = 0.5 + 0.5 * (self.time * 3.0).sin();
-                    draw_rectangle(p.x - 6.0, p.y - 200.0, 12.0, 200.0, Color::new(1.0, 0.85, 0.4, 0.06 + 0.04 * beam));
-                    draw_circle(p.x, p.y, 26.0, Color::new(1.0, 0.8, 0.3, 0.1));
-                    draw_ellipse(p.x, p.y + 11.0, 16.0, 4.0, 0.0, rgba(0, 0, 0, 120));
-                    draw_rectangle(p.x - 14.5, p.y - 10.5, 29.0, 21.0, rgba(6, 5, 7, 255));
-                    draw_rectangle(p.x - 13.0, p.y - 3.0, 26.0, 12.0, rgba(84, 54, 32, 255));
-                    // Rounded lid.
-                    draw_rectangle(p.x - 13.0, p.y - 9.0, 26.0, 6.0, rgba(110, 72, 42, 255));
-                    draw_ellipse(p.x, p.y - 9.0, 13.0, 3.5, 0.0, rgba(124, 82, 48, 255));
-                    for x in [-9.0, 0.0, 9.0] {
-                        draw_line(p.x + x, p.y - 12.0, p.x + x, p.y + 9.0, 2.0, rgba(60, 60, 66, 255));
-                    }
-                    draw_line(p.x - 13.0, p.y - 3.0, p.x + 13.0, p.y - 3.0, 1.5, rgba(30, 20, 14, 255));
-                    for (x, y) in [(-12.0, -8.0), (12.0, -8.0), (-12.0, 8.0), (12.0, 8.0)] {
-                        draw_circle(p.x + x, p.y + y, 1.6, rgba(150, 150, 160, 255));
-                    }
-                    draw_rectangle(p.x - 3.0, p.y - 5.0, 6.0, 7.0, g);
-                    draw_circle(p.x, p.y - 2.0, 1.2, rgba(30, 20, 10, 255));
-                    let glint = (self.time * 2.0).sin().max(0.0);
-                    draw_circle(p.x - 1.5, p.y - 4.0, 1.0 + glint, with_alpha(WHITE, 0.6 * glint));
-                }
+                PickKind::Coffer(boss) => draw_coffer(p, boss, self.time),
                 PickKind::Buff(b) => {
                     let c = with_alpha(b.color(), fade);
                     glow(p, 6.0, c, 1.3);
@@ -902,6 +884,72 @@ impl World {
         }
     }
 
+    /// Heroes charging a duo strike: a thread of light between them that thickens and
+    /// brightens as it fills, flickering when nearly full.
+    fn draw_bonds(&self) {
+        for d in &self.bonds {
+            let find = |slot: u8| self.heroes.iter().find(|h| h.slot == slot && !h.downed).map(|h| h.p.pos);
+            let (Some(pa), Some(pb)) = (find(d.a), find(d.b)) else { continue };
+            let k = d.charge.clamp(0.0, 1.0);
+            let flicker = if k > 0.85 { 0.7 + 0.3 * (self.time * 18.0).sin() } else { 1.0 };
+            let c = Color::new(1.0, 0.85, 0.55, (0.15 + 0.6 * k) * flicker);
+            draw_line(pa.x, pa.y, pb.x, pb.y, 1.0 + 4.0 * k, with_alpha(c, c.a * 0.35));
+            draw_line(pa.x, pa.y, pb.x, pb.y, 1.0 + 1.5 * k, c);
+            let mid = (pa + pb) * 0.5;
+            draw_circle(mid.x, mid.y, 3.0 + 5.0 * k, c);
+        }
+    }
+
+    /// Pings: a ring that pulses down onto the spot, a pin, and who placed it and why, in
+    /// their colour.
+    fn draw_pings(&self) {
+        for p in &self.pings {
+            let c = match p.kind {
+                PingKind::Here => slot_color(p.slot),
+                PingKind::Danger => rgba(255, 70, 50, 255),
+                PingKind::Help => rgba(255, 210, 80, 255),
+            };
+            let age = PING_LIFE - p.life;
+            let fade = (p.life / 0.6).min(1.0);
+            let drop = (1.0 - (age / 0.35).min(1.0)) * 60.0;
+            draw_circle_lines(p.pos.x, p.pos.y, 18.0 + drop, 3.0, with_alpha(c, 0.9 * fade));
+            let wave = (age * 1.5).fract();
+            draw_circle_lines(p.pos.x, p.pos.y, 18.0 + wave * 40.0, 2.0, with_alpha(c, 0.5 * (1.0 - wave) * fade));
+            let top = p.pos - vec2(0.0, 46.0);
+            draw_line(p.pos.x, p.pos.y, top.x, top.y, 2.0, with_alpha(c, 0.8 * fade));
+            draw_circle(top.x, top.y, 8.0, with_alpha(c, fade));
+            draw_circle(top.x, top.y, 3.5, Color::new(1.0, 1.0, 1.0, 0.9 * fade));
+            let who = self.heroes.iter().find(|h| h.slot == p.slot).map(|h| h.name.as_str()).unwrap_or("");
+            let line = if self.heroes.len() > 1 { format!("{}: {}", who, p.kind.label()) } else { p.kind.label().to_string() };
+            let w = measure_text(&line, None, 18, 1.0).width;
+            draw_rectangle(top.x - w * 0.5 - 4.0, top.y - 30.0, w + 8.0, 20.0, Color::new(0.0, 0.0, 0.0, 0.55 * fade));
+            draw_text(&line, top.x - w * 0.5, top.y - 15.0, 18.0, with_alpha(c, fade));
+        }
+    }
+
+    /// Twin lords: a chain of glowing links between them, sagging and swaying.
+    fn draw_twin_chain(&self) {
+        let Some((a, b)) = self.twins else { return };
+        let find = |id: u32| self.enemies.iter().find(|e| e.id == id && !e.dead).map(|e| e.pos);
+        let (Some(pa), Some(pb)) = (find(a), find(b)) else { return };
+        let len = pa.distance(pb);
+        let n = ((len / 18.0) as usize).clamp(4, 120);
+        let sag = (len * 0.08).min(60.0) + (self.time * 2.0).sin() * 6.0;
+        let pulse = 0.6 + 0.4 * (self.time * 4.0).sin();
+        let glow = Color::new(0.78, 0.6, 1.0, 0.16 * pulse);
+        let link = Color::new(0.82, 0.72, 0.95, 0.85);
+        for k in 0..n {
+            let f = (k as f32 + 0.5) / n as f32;
+            let p = pa.lerp(pb, f) + vec2(0.0, sag * (1.0 - (2.0 * f - 1.0).powi(2)));
+            draw_circle(p.x, p.y, 9.0, glow);
+            if k % 2 == 0 {
+                draw_ellipse_lines(p.x, p.y, 6.0, 3.5, (pb - pa).to_angle().to_degrees(), 2.0, link);
+            } else {
+                draw_ellipse_lines(p.x, p.y, 3.5, 6.0, (pb - pa).to_angle().to_degrees(), 2.0, link);
+            }
+        }
+    }
+
     fn draw_arena(&self) {
         let Some((c, r)) = self.arena else { return };
         let t = self.time;
@@ -936,7 +984,7 @@ impl World {
             EnemyKind::Cultist => (p + vec2(fx * r * 0.39, -r * 0.8), r * 0.1, rgba(255, 200, 80, 255)),
             EnemyKind::Shieldbearer => (p + vec2(-dir.x * r * 0.15, -r * 0.85) + dir * r * 0.12, r * 0.12, rgba(255, 90, 40, 255)),
             EnemyKind::Necromancer => (p + vec2(fx * r * 0.1, -r * 0.85 + (t * 2.0).sin() * r * 0.15), r * 0.12, rgba(120, 255, 140, 255)),
-            EnemyKind::Leech => return None,
+            EnemyKind::Leech | EnemyKind::Mimic(_) | EnemyKind::Prop(_) => return None,
             EnemyKind::Courier => (p + vec2(fx * r * 0.2, -r * 0.85), r * 0.1, rgba(255, 220, 120, 255)),
             EnemyKind::Champion => (p + vec2(fx * r * 0.18, -r * 1.0), r * 0.1, rgba(210, 230, 255, 255)),
             EnemyKind::Rival => (p + vec2(fx * r * 0.15, -r * 0.95), r * 0.12, rgba(255, 50, 40, 255)),
@@ -1213,6 +1261,9 @@ impl World {
         self.draw_warnings();
         self.draw_bullets();
         self.draw_arena();
+        self.draw_twin_chain();
+        self.draw_bonds();
+        self.draw_pings();
         for n in &self.nums {
             let k = (n.life / 0.7).min(1.0);
             let txt = format!("{:.0}", n.val);
@@ -1236,4 +1287,29 @@ impl World {
         }
         set_default_camera();
     }
+}
+
+/// A coffer on the floor (a lord's is brighter); a sleeping mimic is drawn the same way.
+pub(crate) fn draw_coffer(p: Vec2, boss: bool, time: f32) {
+    let g = if boss { rgba(255, 210, 100, 255) } else { rgba(220, 180, 90, 255) };
+    let beam = 0.5 + 0.5 * (time * 3.0).sin();
+    draw_rectangle(p.x - 6.0, p.y - 200.0, 12.0, 200.0, Color::new(1.0, 0.85, 0.4, 0.06 + 0.04 * beam));
+    draw_circle(p.x, p.y, 26.0, Color::new(1.0, 0.8, 0.3, 0.1));
+    draw_ellipse(p.x, p.y + 11.0, 16.0, 4.0, 0.0, rgba(0, 0, 0, 120));
+    draw_rectangle(p.x - 14.5, p.y - 10.5, 29.0, 21.0, rgba(6, 5, 7, 255));
+    draw_rectangle(p.x - 13.0, p.y - 3.0, 26.0, 12.0, rgba(84, 54, 32, 255));
+    // Rounded lid.
+    draw_rectangle(p.x - 13.0, p.y - 9.0, 26.0, 6.0, rgba(110, 72, 42, 255));
+    draw_ellipse(p.x, p.y - 9.0, 13.0, 3.5, 0.0, rgba(124, 82, 48, 255));
+    for x in [-9.0, 0.0, 9.0] {
+        draw_line(p.x + x, p.y - 12.0, p.x + x, p.y + 9.0, 2.0, rgba(60, 60, 66, 255));
+    }
+    draw_line(p.x - 13.0, p.y - 3.0, p.x + 13.0, p.y - 3.0, 1.5, rgba(30, 20, 14, 255));
+    for (x, y) in [(-12.0, -8.0), (12.0, -8.0), (-12.0, 8.0), (12.0, 8.0)] {
+        draw_circle(p.x + x, p.y + y, 1.6, rgba(150, 150, 160, 255));
+    }
+    draw_rectangle(p.x - 3.0, p.y - 5.0, 6.0, 7.0, g);
+    draw_circle(p.x, p.y - 2.0, 1.2, rgba(30, 20, 10, 255));
+    let glint = (time * 2.0).sin().max(0.0);
+    draw_circle(p.x - 1.5, p.y - 4.0, 1.0 + glint, with_alpha(WHITE, 0.6 * glint));
 }

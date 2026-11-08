@@ -150,6 +150,18 @@ impl World {
         if let Some(g) = &self.hourglass {
             out.push((g.pos, 220.0, Color::new(0.55, 0.72, 1.0, 1.0)));
         }
+        for r in self.runes.iter().filter(|r| r.ready()) {
+            out.push((r.pos, 140.0, Color::new(0.3, 0.8, 0.75, 1.0)));
+        }
+        if let Some(g) = &self.gate {
+            out.push((g.pos - vec2(0.0, 30.0), 260.0, Color::new(0.45, 0.9, 0.8, 1.0)));
+        }
+        if let Some(r) = &self.rift {
+            out.push((r.pos - vec2(0.0, 30.0), if r.sealed > 0.0 { 340.0 } else { 220.0 }, Color::new(0.55, 0.35, 0.95, 1.0)));
+        }
+        if let Some(g) = &self.portal {
+            out.push((g.pos - vec2(0.0, 26.0), 260.0, Color::new(0.95, 0.65, 0.45, 1.0)));
+        }
         for a in &self.altars {
             out.push((a.pos, 230.0 * flicker, Color::new(0.85, 0.12, 0.1, 1.0)));
         }
@@ -195,12 +207,17 @@ impl World {
             }
         }
         for b in self.ebullets.iter().take(250) {
-            out.push((b.pos, b.r * 4.5, Color::new(0.55, 0.04, 0.03, 1.0)));
+            let c = self.bullet_color;
+            out.push((b.pos, b.r * 4.5, Color::new(c.r * 0.65, c.g * 0.65, c.b * 0.65, 1.0)));
         }
         for p in self.pillars.iter().filter(|p| p.delay <= 0.0) {
             out.push((p.pos, p.r * 3.0, tint(Color::new(1.0, 0.4, 0.1, 1.0), (p.after / 0.35).max(0.0))));
         }
         let mut souls = 0;
+        // A sleeping mimic glows like the coffer it pretends to be.
+        for e in self.enemies.iter().filter(|e| e.kind == EnemyKind::Mimic(false)) {
+            out.push((e.pos, 170.0, Color::new(0.8, 0.6, 0.25, 1.0)));
+        }
         for pk in &self.pickups {
             match pk.kind {
                 PickKind::Soul(_) if souls < 160 => {

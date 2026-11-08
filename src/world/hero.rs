@@ -190,6 +190,12 @@ pub struct Hero {
     pub banked: u64,
     pub downed: bool,
     pub revive: f32,
+    /// Where a fallen hero's ghost floats, chained to the body at `p.pos`.
+    pub ghost: Vec2,
+    /// This hero's player holds a lord (the crown's secret): the hero is off the field.
+    pub possessing: bool,
+    /// The last ping count heard from this hero's client.
+    pub ping_seq: u8,
     pub input: Input,
     /// Movement comes from a network client instead of `input`.
     pub remote: bool,
@@ -277,6 +283,9 @@ impl Hero {
             reroll_seq: 0,
             banked: 0,
             downed: false,
+            ghost: Vec2::ZERO,
+            possessing: false,
+            ping_seq: 0,
             revive: 0.0,
             input: Input::default(),
             remote: false,
@@ -316,7 +325,7 @@ impl Hero {
     }
 
     pub fn alive(&self) -> bool {
-        !self.downed
+        !self.downed && !self.possessing
     }
 
     pub fn buff(&self, b: Buff) -> f32 {
@@ -414,6 +423,18 @@ impl Hero {
     pub fn refresh_minute(&mut self, time: f32) {
         let now = time.floor() as i64;
         self.dmg_minute = self.dmg_ring.iter().filter(|(s, _)| now - s < 60).map(|(_, a)| a).sum();
+    }
+
+    /// Keeps a fallen hero's ghost on its chain. The chain shortens as the hero is revived,
+    /// so the ghost is drawn back into its body.
+    pub fn leash_ghost(&mut self, revive_time: f32) {
+        let k = (self.revive / revive_time).clamp(0.0, 1.0);
+        let reach = GHOST_LEASH * (1.0 - k);
+        let d = self.ghost - self.p.pos;
+        if d.length() > reach {
+            self.ghost = self.p.pos + d.normalize_or_zero() * reach;
+        }
+        self.ghost = clamp_world(self.ghost, 24.0);
     }
 
     pub fn heal(&mut self, amount: f32) {
@@ -911,6 +932,12 @@ impl World {
                 *b = (*b - dt).max(0.0);
             }
             if hero.downed {
+                // The ghost drifts where its player steers it, on its chain; the client
+                // steers its own and says where it is.
+                if !hero.remote {
+                    hero.ghost += hero.input.dir * GHOST_SPEED * dt;
+                }
+                hero.leash_ghost(revive_time);
                 continue;
             }
             if !famine {

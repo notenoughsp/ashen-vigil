@@ -5,6 +5,7 @@ use crate::net::{ClientEvent, ClientInput, HostEvent};
 
 impl App {
     fn reset_run_state(&mut self) {
+        self.beasts_added = [0; BEASTS.len()];
         self.last_rolls = 0;
         self.roll_times.clear();
         self.said_404 = false;
@@ -115,6 +116,13 @@ impl App {
         if self.save.settings.boss_rush {
             w.start_boss_rush();
         }
+        // The crown's secret: a companion, by chance, takes every lord that comes alone.
+        if self.usurp && !host.peers.is_empty() && !self.save.settings.boss_rush {
+            let p = &host.peers[gen_range(0, host.peers.len())];
+            w.usurper = Some(p.slot);
+            crate::log!("{} wears the crown", p.name);
+            w.banner(&format!("{} WEARS THE CROWN", p.name.to_uppercase()), "Tonight the lords answer to them", Color::from_rgba(200, 120, 255, 255), 5.0);
+        }
         host.started = true;
         host.left.clear();
         let alone = w.heroes.len() == 1;
@@ -128,6 +136,10 @@ impl App {
         self.reset_run_state();
         let mut w = self.new_world(self.lobby.diff, None);
         w.is_client = true;
+        w.spectating = matches!(&self.net, NetMode::Client(c) if c.spectating);
+        if w.spectating {
+            crate::log!("watching the running vigil");
+        }
         self.begin(w);
     }
 
@@ -153,7 +165,7 @@ impl App {
     /// Adds newly banked souls to the save file as soon as they are banked.
     fn sync_bank(&mut self) {
         let Some(w) = &self.world else { return };
-        if w.heroes.is_empty() {
+        if w.heroes.is_empty() || w.spectating {
             return;
         }
         let b = w.me().banked;
@@ -257,12 +269,26 @@ impl App {
     }
 
     fn on_death(&mut self) {
+        if self.spectating() {
+            self.end_watching(false);
+            return;
+        }
+        if self.world.as_ref().is_some_and(|w| w.withdrew) {
+            self.on_withdraw();
+            return;
+        }
         crate::log!("vigil lost: {}", self.log_status());
         self.log_summary();
         if matches!(self.net, NetMode::Client(_)) {
             crate::net::upload_log("vigil");
         }
         let online = self.online();
+        // The bestiary remembers what felled us.
+        if let Some(w) = self.world.as_ref().filter(|w| !w.heroes.is_empty()) {
+            if let Some(i) = w.killer_of(w.me().slot).and_then(beast_index) {
+                self.save.beasts[i].1 = self.save.beasts[i].1.saturating_add(1);
+            }
+        }
         let marks = self.award_marks(false);
         let w = self.world.as_mut().unwrap();
         let lost = w.me().p.souls;
@@ -276,7 +302,40 @@ impl App {
         self.screen = Screen::Dead { t: 0.0, lost, marks };
     }
 
+    /// The party left through the ash gate: every carried soul is banked, an old remnant
+    /// stays where it lies, and the vigil counts as ended without the dawn.
+    fn on_withdraw(&mut self) {
+        crate::log!("vigil left through the ash gate: {}", self.log_status());
+        self.log_summary();
+        if matches!(self.net, NetMode::Client(_)) {
+            crate::net::upload_log("vigil");
+        }
+        self.sync_bank();
+        let marks = self.award_marks(false);
+        self.finish_run(false, marks);
+        self.save.store();
+        self.audio.music(Music::Silence);
+        self.screen = Screen::Dead { t: 0.0, lost: 0, marks };
+    }
+
+    /// The vigil we watched is over: nothing of it is ours, no souls, marks or records.
+    fn end_watching(&mut self, won: bool) {
+        crate::log!("the watched vigil ended: {}", self.log_status());
+        self.summary = super::records::EndSummary { won, marks: 0, challenge_bonus: false, rank: None, new_bests: Vec::new(), achievements: Vec::new() };
+        self.audio.music(Music::Silence);
+        self.screen = if won { Screen::Victory { t: 0.0, marks: 0 } } else { Screen::Dead { t: 0.0, lost: 0, marks: 0 } };
+    }
+
+    /// We joined a running vigil to watch it.
+    pub(super) fn spectating(&self) -> bool {
+        self.world.as_ref().is_some_and(|w| w.spectating)
+    }
+
     fn on_victory(&mut self) {
+        if self.spectating() {
+            self.end_watching(true);
+            return;
+        }
         crate::log!("vigil kept until dawn: {}", self.log_status());
         self.log_summary();
         if matches!(self.net, NetMode::Client(_)) {
@@ -323,6 +382,7 @@ impl App {
                         self.unlock(Achievement::Executioner);
                     }
                 }
+                Event::RemnantClaimed if self.spectating() => {}
                 Event::RemnantClaimed => {
                     self.save.remnant = None;
                     self.save.store();
@@ -634,12 +694,25 @@ impl App {
         let my_class = class_to_u8(self.class());
         let name = self.player_name();
         let in_menu = self.screen == Screen::Paused || (self.screen == Screen::Options && self.options_in_game);
+        let ping = !choosing && !in_menu && (act_pressed(Action::Ping) || is_mouse_button_pressed(MouseButton::Middle) || pad_pressed(Pad::Ping));
         let Some(w) = self.world.as_mut() else { return };
         w.screen = crate::draw::view_size();
         if !w.heroes.is_empty() {
             let l = w.local;
             w.heroes[l].input = input;
             w.heroes[l].menu_open = in_menu;
+        }
+        // A ping goes where the mouse points, or a little ahead of us on a controller.
+        if ping && !w.heroes.is_empty() && !w.spectating {
+            let me = w.me();
+            let at = if using_pad() { me.p.pos + me.p.facing * 160.0 } else { w.screen_to_world(mouse_ui()) };
+            if w.is_client {
+                self.ping_seq = self.ping_seq.wrapping_add(1);
+                self.ping_at = at;
+            } else {
+                let slot = me.slot;
+                w.add_ping(slot, at);
+            }
         }
         match &mut self.net {
             NetMode::Offline => w.update(dt),
@@ -650,8 +723,14 @@ impl App {
                             crate::log!("{} (slot {}) left the vigil", name, slot);
                             if let Some(h) = w.heroes.iter().position(|h| h.remote && h.connected && h.slot == slot) {
                                 w.disconnect(h);
+                                w.toast(&format!("{} has left the vigil. They can rejoin from the lobby.", name));
+                            } else {
+                                w.toast(&format!("{} stopped watching.", name));
                             }
-                            w.toast(&format!("{} has left the vigil. They can rejoin from the lobby.", name));
+                        }
+                        HostEvent::Spectating(name) => {
+                            crate::log!("{} joined the running vigil to watch", name);
+                            w.toast(&format!("{} is watching, and joins the next vigil.", name));
                         }
                         HostEvent::Rejoined(name, slot) => {
                             crate::log!("{} (slot {}) rejoined the vigil", name, slot);
@@ -689,6 +768,9 @@ impl App {
                                 if let Some(me) = w.heroes.iter_mut().find(|h| h.slot == slot) {
                                     me.profile = self.save.profile;
                                 }
+                                if w.spectating {
+                                    w.local = w.heroes.iter().position(|h| h.slot == self.watch_slot).unwrap_or(0);
+                                }
                             }
                             self.since_snap = 0.0;
                         }
@@ -713,6 +795,15 @@ impl App {
                 if w.heroes.is_empty() {
                     return;
                 }
+                if w.spectating {
+                    // Left and right pick whom to follow.
+                    let step = right(false) as i32 - left(false) as i32;
+                    if step != 0 {
+                        let n = w.heroes.len() as i32;
+                        w.local = (w.local as i32 + step).rem_euclid(n) as usize;
+                    }
+                    self.watch_slot = w.heroes[w.local.min(w.heroes.len() - 1)].slot;
+                }
                 if self.pick_pending.map(|p| p.0 != w.level_round || w.pause != Pause::Choosing).unwrap_or(false) {
                     self.pick_pending = None;
                 }
@@ -731,7 +822,8 @@ impl App {
                     let me = w.me();
                     let (pick_round, pick_idx) = self.pick_pending.unwrap_or((0, 255));
                     client.send_input(&ClientInput {
-                        pos: (me.p.pos.x, me.p.pos.y),
+                        // A fallen hero's body lies still; what moves is its ghost.
+                        pos: if me.downed { (me.ghost.x, me.ghost.y) } else { (me.p.pos.x, me.p.pos.y) },
                         facing: (me.p.facing.x, me.p.facing.y),
                         moving: me.p.moving,
                         roll_t: me.p.roll_t,
@@ -745,6 +837,8 @@ impl App {
                         ack: self.snap_dec.ack,
                         view: (w.screen.x as u16, w.screen.y as u16),
                         menu: in_menu,
+                        ping_seq: self.ping_seq,
+                        ping_at: (self.ping_at.x, self.ping_at.y),
                     });
                 }
             }
@@ -776,14 +870,18 @@ fn apply_settings(w: &mut World, st: &crate::save::Settings) {
     w.detail_high = st.detail_high;
     w.particle_mult = [0.35, 0.65, 1.0][st.particles.min(2) as usize];
     w.fog = st.fog;
-    w.shake_mult = if st.shake { 1.0 } else { 0.0 };
+    w.shake_mult = st.shake as f32 / 100.0;
+    let (r, g, b) = crate::save::COLOR_MODES[st.color_mode as usize % crate::save::COLOR_MODES.len()].1;
+    w.bullet_color = Color::from_rgba(r, g, b, 255);
 }
 
 /// The host takes a client's own movement as truth and forwards its choices.
 fn apply_client_input(w: &mut World, h: usize, inp: &ClientInput) {
     let hero = &mut w.heroes[h];
     hero.menu_open = inp.menu;
-    if !hero.downed {
+    if hero.downed {
+        hero.ghost = vec2(inp.pos.0, inp.pos.1);
+    } else {
         hero.p.pos = vec2(inp.pos.0, inp.pos.1);
         let f = vec2(inp.facing.0, inp.facing.1);
         if f.length_squared() > 0.0 {
@@ -795,6 +893,12 @@ fn apply_client_input(w: &mut World, h: usize, inp: &ClientInput) {
         hero.p.stamina = inp.stamina;
         hero.rolls = inp.rolls;
     }
+    if inp.ping_seq != hero.ping_seq {
+        hero.ping_seq = inp.ping_seq;
+        let slot = hero.slot;
+        w.add_ping(slot, vec2(inp.ping_at.0, inp.ping_at.1));
+    }
+    let hero = &mut w.heroes[h];
     let cast = inp.skill_seq != hero.skill_seq;
     hero.skill_seq = inp.skill_seq;
     if cast {

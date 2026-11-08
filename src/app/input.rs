@@ -194,6 +194,8 @@ pub enum Pad {
     PageNext,
     /// LB
     PagePrev,
+    /// Right stick press
+    Ping,
     Up,
     Down,
     Left,
@@ -212,6 +214,10 @@ struct PadState {
     detail: bool,
     /// The controller was used more recently than the keyboard.
     active: bool,
+    /// The rumble playing now; dropping it stops it.
+    rumble: Option<gilrs::ff::Effect>,
+    /// Rumble strength from the options, 0 to 1.
+    rumble_scale: f32,
 }
 
 thread_local! {
@@ -224,6 +230,8 @@ thread_local! {
         held_dir: [false; 4],
         detail: false,
         active: false,
+        rumble: None,
+        rumble_scale: 0.6,
     })));
 }
 
@@ -284,6 +292,42 @@ pub fn clicked_tab() -> Option<usize> {
 pub fn hovered(rows: &[Rect]) -> Option<usize> {
     let m = mouse_ui();
     rows.iter().position(|r| r.contains(m))
+}
+
+/// Takes the rumble setting (percent); called every frame.
+pub fn set_rumble(percent: u8) {
+    PAD.with(|p| p.borrow_mut().rumble_scale = percent as f32 / 100.0);
+}
+
+/// Shakes every controller that can, at `strength` (0 to 1) for `ms` milliseconds, scaled
+/// by the rumble option. A stronger rumble replaces a weaker one still playing.
+pub fn rumble(strength: f32, ms: u32) {
+    use gilrs::ff::{BaseEffect, BaseEffectType, EffectBuilder, Replay, Ticks};
+    PAD.with(|p| {
+        let mut p = p.borrow_mut();
+        let state = &mut *p;
+        let k = (strength * state.rumble_scale).clamp(0.0, 1.0);
+        if k <= 0.01 || !state.active {
+            return;
+        }
+        let Some(g) = state.gilrs.as_mut() else { return };
+        let pads: Vec<_> = g.gamepads().filter(|(_, gp)| gp.is_ff_supported()).map(|(id, _)| id).collect();
+        if pads.is_empty() {
+            return;
+        }
+        let magnitude = (k * u16::MAX as f32) as u16;
+        let replay = Replay { play_for: Ticks::from_ms(ms), ..Default::default() };
+        let effect = EffectBuilder::new()
+            .add_effect(BaseEffect { kind: BaseEffectType::Strong { magnitude }, scheduling: replay, ..Default::default() })
+            .add_effect(BaseEffect { kind: BaseEffectType::Weak { magnitude }, scheduling: replay, ..Default::default() })
+            .gamepads(&pads)
+            .finish(g);
+        if let Ok(e) = effect {
+            if e.play().is_ok() {
+                state.rumble = Some(e);
+            }
+        }
+    });
 }
 
 /// Reads all gamepad events and the mouse; call once at the start of every frame.
@@ -369,6 +413,7 @@ pub fn pad_pressed(action: Pad) -> bool {
             Pad::Skill => has(Button::West),
             Pad::PageNext => has(Button::RightTrigger),
             Pad::PagePrev => has(Button::LeftTrigger),
+            Pad::Ping => has(Button::RightThumb),
             Pad::Up => p.flick[0],
             Pad::Down => p.flick[1],
             Pad::Left => p.flick[2],

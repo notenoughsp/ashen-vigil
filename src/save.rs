@@ -19,10 +19,23 @@ pub enum Action {
     Weapons,
     Numbers,
     Mute,
+    Ping,
 }
 
-pub const ACTIONS: [Action; 11] =
-    [Action::Up, Action::Down, Action::Left, Action::Right, Action::Roll, Action::Skill, Action::Reroll, Action::Pause, Action::Weapons, Action::Numbers, Action::Mute];
+pub const ACTIONS: [Action; 12] = [
+    Action::Up,
+    Action::Down,
+    Action::Left,
+    Action::Right,
+    Action::Roll,
+    Action::Skill,
+    Action::Reroll,
+    Action::Pause,
+    Action::Weapons,
+    Action::Numbers,
+    Action::Mute,
+    Action::Ping,
+];
 
 impl Action {
     pub fn label(self) -> &'static str {
@@ -38,6 +51,7 @@ impl Action {
             Action::Weapons => "Damage per weapon (hold)",
             Action::Numbers => "Damage numbers on/off",
             Action::Mute => "Mute",
+            Action::Ping => "Ping (or middle mouse)",
         }
     }
 
@@ -54,6 +68,7 @@ impl Action {
             Action::Weapons => KeyCode::Tab,
             Action::Numbers => KeyCode::N,
             Action::Mute => KeyCode::M,
+            Action::Ping => KeyCode::G,
         }
     }
 
@@ -70,6 +85,7 @@ impl Action {
             Action::Weapons => "weapons",
             Action::Numbers => "numbers",
             Action::Mute => "mute",
+            Action::Ping => "ping",
         }
     }
 }
@@ -206,7 +222,8 @@ pub struct Settings {
     pub particles: u8,
     pub fog: bool,
     pub grain: bool,
-    pub shake: bool,
+    /// Screen shake, in percent.
+    pub shake: u8,
     /// Index into `ui::UI_SCALES`; 0 is automatic.
     pub ui_scale: u8,
     /// How far off-screen markers sit inside the screen edge, in percent of the shorter side.
@@ -219,8 +236,14 @@ pub struct Settings {
     pub pause_unfocused: bool,
     /// The sound goes quiet while another window has the focus.
     pub mute_unfocused: bool,
-    /// The screen flashes when the hero is hit.
-    pub hurt_flash: bool,
+    /// How strongly the screen flashes when the hero is hit, in percent.
+    pub hurt_flash: u8,
+    /// Controller rumble, in percent.
+    pub rumble: u8,
+    /// The small map in the top right corner.
+    pub minimap: bool,
+    /// Colours of foes' projectiles for colour vision deficiencies, see `COLOR_MODES`.
+    pub color_mode: u8,
     /// Small health and stamina bars under our own hero.
     pub hero_hp_bar: bool,
     pub hero_stamina_bar: bool,
@@ -275,14 +298,17 @@ impl Default for Settings {
             particles: 2,
             fog: true,
             grain: true,
-            shake: true,
+            shake: 100,
             ui_scale: 0,
             marker_inset: 12,
             boss_rush: false,
             biome: 0,
             pause_unfocused: true,
             mute_unfocused: false,
-            hurt_flash: true,
+            hurt_flash: 100,
+            rumble: 60,
+            minimap: true,
+            color_mode: 0,
             hero_hp_bar: true,
             hero_stamina_bar: true,
             brightness: 100,
@@ -328,6 +354,8 @@ pub struct Save {
     pub won_classes: u16,
     /// Best ten vigils, best first.
     pub runs: Vec<RunRecord>,
+    /// The bestiary: felled and felled-by counts, in `world::BEASTS` order.
+    pub beasts: [(u32, u32); crate::world::BEASTS.len()],
     pub best_kills: u32,
     pub best_level: u32,
     pub best_damage: f64,
@@ -361,6 +389,7 @@ impl Default for Save {
             weapons_refunded: false,
             won_classes: 0,
             runs: Vec::new(),
+            beasts: [(0, 0); crate::world::BEASTS.len()],
             best_kills: 0,
             best_level: 0,
             best_damage: 0.0,
@@ -409,6 +438,18 @@ fn migrate() {
 fn flag(v: &str) -> bool {
     v == "1"
 }
+
+/// A percentage in steps of ten; older saves wrote 1 for on and 0 for off.
+fn percent(v: &str) -> u8 {
+    match v {
+        "1" => 100,
+        _ => v.parse::<u8>().unwrap_or(100).min(100),
+    }
+}
+
+/// The colour modes for foes' projectiles: their name and colour.
+pub const COLOR_MODES: [(&str, (u8, u8, u8)); 4] =
+    [("Normal", (217, 15, 13)), ("Red-green (deuteranopia)", (255, 176, 0)), ("Red-green (protanopia)", (255, 200, 40)), ("Blue-yellow (tritanopia)", (235, 40, 120))];
 
 fn parse_run(v: &str) -> Option<RunRecord> {
     let p: Vec<&str> = v.split(',').collect();
@@ -490,7 +531,10 @@ impl Save {
                 "field" => st.biome = v.parse::<u8>().unwrap_or(0).min(crate::world::ALL_BIOMES.len() as u8 - 1),
                 "pause_unfocused" => st.pause_unfocused = flag(v),
                 "mute_unfocused" => st.mute_unfocused = flag(v),
-                "hurt_flash" => st.hurt_flash = flag(v),
+                "hurt_flash" => st.hurt_flash = percent(v),
+                "rumble" => st.rumble = percent(v),
+                "minimap" => st.minimap = flag(v),
+                "color_mode" => st.color_mode = v.parse::<u8>().unwrap_or(0).min(COLOR_MODES.len() as u8 - 1),
                 "hero_hp_bar" => st.hero_hp_bar = flag(v),
                 "hero_stamina_bar" => st.hero_stamina_bar = flag(v),
                 "brightness" => st.brightness = v.parse::<u8>().unwrap_or(100).clamp(MIN_BRIGHTNESS, MAX_BRIGHTNESS),
@@ -503,6 +547,12 @@ impl Save {
                 "best_damage" => s.best_damage = v.parse().unwrap_or(0.0),
                 "challenges" => s.challenges = v.parse().unwrap_or(0),
                 "curses" => s.curses = v.parse::<u8>().unwrap_or(0) & 63,
+                _ if k.starts_with("beast_") => {
+                    if let Some(i) = crate::world::BEASTS.iter().position(|b| crate::world::beast_key(*b) == k[6..]) {
+                        let (a, b) = v.split_once(',').unwrap_or((v, "0"));
+                        s.beasts[i] = (a.parse().unwrap_or(0), b.parse().unwrap_or(0));
+                    }
+                }
                 "run" => {
                     if let Some(r) = parse_run(v) {
                         s.runs.push(r);
@@ -524,7 +574,7 @@ impl Save {
                 "particles" => st.particles = v.parse::<u8>().unwrap_or(2).min(2),
                 "fog" => st.fog = flag(v),
                 "grain" => st.grain = flag(v),
-                "shake" => st.shake = flag(v),
+                "shake" => st.shake = percent(v),
                 "ui_scale" => st.ui_scale = v.parse::<u8>().unwrap_or(0).min(5),
                 _ if k.starts_with("bind_") => {
                     if let (Some(i), Some(key)) = (ACTIONS.iter().position(|a| a.key() == &k[5..]), key_from_name(v)) {
@@ -635,6 +685,11 @@ impl Save {
             "achievements={}\nbest_kills={}\nbest_level={}\nbest_damage={:.0}\nchallenges={}\n",
             self.achievements, self.best_kills, self.best_level, self.best_damage, self.challenges
         );
+        for (b, (felled, by)) in crate::world::BEASTS.iter().zip(self.beasts) {
+            if felled > 0 || by > 0 {
+                out += &format!("beast_{}={},{}\n", crate::world::beast_key(*b), felled, by);
+            }
+        }
         for r in &self.runs {
             out += &format!("run={:.1},{},{},{},{},{},{},{:.0}\n", r.time, r.kills, r.level, r.players, b(r.won), class_to_u8(r.class), r.difficulty.replace(',', " "), r.damage);
         }
@@ -648,7 +703,7 @@ impl Save {
             "pause_unfocused={}\nmute_unfocused={}\nhurt_flash={}\nbrightness={}\ndiscord={}\ncheck_updates={}\n",
             b(st.pause_unfocused),
             b(st.mute_unfocused),
-            b(st.hurt_flash),
+            st.hurt_flash,
             st.brightness,
             b(st.discord),
             b(st.check_updates)
@@ -683,8 +738,9 @@ impl Save {
             st.particles,
             b(st.fog),
             b(st.grain),
-            b(st.shake)
+            st.shake
         );
+        out += &format!("rumble={}\ncolor_mode={}\nminimap={}\n", st.rumble, st.color_mode, b(st.minimap));
         out += &format!("diff_count={}\ndiff_hp={}\ndiff_dmg={}\ndiff_speed={}\ndiff_boss={}\n", st.diff.count, st.diff.hp, st.diff.dmg, st.diff.speed, st.diff.boss_hp);
         out += &format!("diff_boost={},{},{}\n", st.diff.boost[0], st.diff.boost[1], st.diff.boost[2]);
         for (i, m) in META.iter().enumerate() {

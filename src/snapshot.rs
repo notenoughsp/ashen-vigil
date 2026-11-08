@@ -311,7 +311,12 @@ fn write_hero_fast(w: &mut Writer, h: &Hero, viewer: bool) {
         | (h.picked as u8) << 3
         | (h.rested as u8) << 4
         | ((h.first_hurt < f32::MAX) as u8) << 5
-        | (h.pact as u8) << 6);
+        | (h.pact as u8) << 6
+        | (h.possessing as u8) << 7);
+    if h.downed {
+        w.f32(h.ghost.x);
+        w.f32(h.ghost.y);
+    }
     w.u64(h.p.souls);
     for b in h.buffs {
         w.f32(b);
@@ -358,6 +363,14 @@ fn read_hero_fast(r: &mut Reader, h: &mut Hero, predicted: bool) {
     h.picked = bits & 8 != 0;
     h.rested = bits & 16 != 0;
     h.pact = bits & 64 != 0;
+    h.possessing = bits & 128 != 0;
+    if h.downed {
+        let ghost = vec2(r.f32(), r.f32());
+        // Our own ghost moves here; it only snaps back when it has just appeared.
+        if !predicted || !was_downed || h.ghost == Vec2::ZERO {
+            h.ghost = ghost;
+        }
+    }
     // Only whether the hero has been hit matters to clients, not when.
     if bits & 32 != 0 {
         h.first_hurt = h.first_hurt.min(0.0);
@@ -485,7 +498,8 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         | (w.grave_found as u8) << 3
         | (w.boss_rush as u8) << 4
         | (w.bell_found as u8) << 5
-        | (w.heart_found as u8) << 6);
+        | (w.heart_found as u8) << 6
+        | (w.withdrew as u8) << 7);
     e.w.u8(w.biome as u8);
     e.w.u8(w.curses);
     e.w.u16(w.bosses_killed as u16);
@@ -554,6 +568,9 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         }
         if en.kind.has_alpha() {
             e.w.u8(frac(en.alpha, 255.0));
+        }
+        if en.elite {
+            e.w.u8(en.affix.to_u8());
         }
         next.enemies.insert(id, (code, x, y));
     }
@@ -858,6 +875,68 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         }
         None => e.w.bool(false),
     }
+    // Passages: the ash gate, the rift and its chamber, the portal.
+    match &w.gate {
+        Some(g) => {
+            e.w.bool(true);
+            e.pos(g.pos);
+            e.w.u8((g.kindle / GATE_KINDLE * 255.0).clamp(0.0, 255.0) as u8);
+            e.w.u8(g.life.clamp(0.0, 255.0).ceil() as u8);
+        }
+        None => e.w.bool(false),
+    }
+    match &w.rift {
+        Some(r) => {
+            e.w.bool(true);
+            e.pos(r.pos);
+            e.w.u8((r.kindle / RIFT_KINDLE * 255.0).clamp(0.0, 255.0) as u8);
+            e.w.u8(r.sealed.clamp(0.0, 255.0).ceil() as u8);
+        }
+        None => e.w.bool(false),
+    }
+    match &w.portal {
+        Some(p) => {
+            e.w.bool(true);
+            e.pos(p.pos);
+            e.w.u8((p.kindle / PORTAL_KINDLE * 255.0).clamp(0.0, 255.0) as u8);
+            e.w.u8(p.to as u8);
+        }
+        None => e.w.bool(false),
+    }
+    for n in w.mutators {
+        e.w.u8(n);
+    }
+    for n in w.felled {
+        e.w.varint(n);
+    }
+    e.w.u8(w.pings.len().min(12) as u8);
+    for p in w.pings.iter().take(12) {
+        e.pos(p.pos);
+        e.w.u8(p.slot);
+        e.w.u8(p.kind.to_u8());
+        e.w.u8((p.life * 40.0).clamp(0.0, 255.0) as u8);
+    }
+    e.w.u8(w.runes.len().min(8) as u8);
+    for r in w.runes.iter().take(8) {
+        e.pos(r.pos);
+        e.pos(r.to);
+        e.w.u8(r.rest.clamp(0.0, 255.0).ceil() as u8);
+    }
+    e.w.u8(w.bonds.len().min(6) as u8);
+    for d in w.bonds.iter().take(6) {
+        e.w.u8(d.a);
+        e.w.u8(d.b);
+        e.w.u8((d.charge * 255.0).clamp(0.0, 255.0) as u8);
+    }
+    // Enemy ids travel as 16 bits.
+    match w.twins {
+        Some((a, b)) => {
+            e.w.bool(true);
+            e.w.u16(a as u16);
+            e.w.u16(b as u16);
+        }
+        None => e.w.bool(false),
+    }
     match w.boss_kind {
         Some(k) => {
             e.w.bool(true);
@@ -954,6 +1033,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.grave_found = flags & 8 != 0;
     w.bell_found = flags & 32 != 0;
     w.heart_found = flags & 64 != 0;
+    w.withdrew = flags & 128 != 0;
     w.boss_rush = flags & 16 != 0;
     // The field shrinks when a boss rush is learned of; braziers must match the host's.
     w.fit_field();
@@ -1033,6 +1113,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
         let elite = code & 32 != 0;
         let pos = vec2(x as f32, y as f32);
         let alpha = if kind.has_alpha() { d.r.u8() as f32 / 255.0 } else { 1.0 };
+        let affix = if elite { Affix::from_u8(d.r.u8()) } else { Affix::None };
         let id = id as u32;
         let vel = prev.get(&id).map(|p| ((pos - *p) / since).clamp_length_max(700.0)).unwrap_or(Vec2::ZERO);
         next_prev.insert(id, pos);
@@ -1066,6 +1147,7 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
             net_vel: vel,
             step: 0,
             lunge: Vec2::ZERO,
+            affix,
         });
     }
     *prev = next_prev;
@@ -1271,6 +1353,59 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     } else {
         None
     };
+    w.gate = if d.r.bool() {
+        let pos = d.pos();
+        let kindle = d.r.u8() as f32 / 255.0 * GATE_KINDLE;
+        let life = d.r.u8() as f32;
+        Some(AshGate { pos, life, kindle })
+    } else {
+        None
+    };
+    w.rift = if d.r.bool() {
+        let pos = d.pos();
+        let kindle = d.r.u8() as f32 / 255.0 * RIFT_KINDLE;
+        let sealed = d.r.u8() as f32;
+        Some(Rift { pos, life: 10.0, kindle, sealed, wave: 0.0 })
+    } else {
+        None
+    };
+    w.portal = if d.r.bool() {
+        let pos = d.pos();
+        let kindle = d.r.u8() as f32 / 255.0 * PORTAL_KINDLE;
+        let to = Biome::from_u8(d.r.u8());
+        Some(Portal { pos, life: 10.0, kindle, to })
+    } else {
+        None
+    };
+    for n in w.mutators.iter_mut() {
+        *n = d.r.u8();
+    }
+    for n in w.felled.iter_mut() {
+        *n = d.r.varint();
+    }
+    w.pings.clear();
+    for _ in 0..d.r.u8().min(12) {
+        let pos = d.pos();
+        let (slot, kind, life) = (d.r.u8(), PingKind::from_u8(d.r.u8()), d.r.u8() as f32 / 40.0);
+        w.pings.push(Ping { pos, slot, kind, life });
+    }
+    // Runes the client itself has just used stay resting until the host agrees.
+    let used: Vec<Vec2> = w.runes.iter().filter(|r| !r.ready()).map(|r| r.pos).collect();
+    w.runes.clear();
+    for _ in 0..d.r.u8().min(8) {
+        let (pos, to) = (d.pos(), d.pos());
+        let mut rest = d.r.u8() as f32;
+        if rest <= 0.0 && used.iter().any(|p| p.distance(pos) < 1.0) {
+            rest = 1.0;
+        }
+        w.runes.push(TeleRune { pos, to, rest });
+    }
+    w.bonds.clear();
+    for _ in 0..d.r.u8().min(6) {
+        let (a, b, charge) = (d.r.u8(), d.r.u8(), d.r.u8() as f32 / 255.0);
+        w.bonds.push(Bond { a, b, charge });
+    }
+    w.twins = if d.r.bool() { Some((d.r.u16() as u32, d.r.u16() as u32)) } else { None };
     w.boss_kind = if d.r.bool() {
         let k = BossKind::from_u8(d.r.u8());
         w.boss_hp = (d.r.f32(), d.r.f32());

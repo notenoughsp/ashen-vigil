@@ -3,6 +3,7 @@
 //! - Blood altars: stand on one to give a quarter of your life for more might until the next
 //!   lord falls. The health bar shows the part given away.
 //! - Cursed coffers: better loot, but opening one calls a wave of elites.
+//! - Mimics: a coffer that wakes and bites when a hero comes near, and spills a hoard.
 //! - The courier: a runner who flees with a key; catch it, and the key opens a sealed vault.
 //! - The mist: a sudden fog in which a champion hunts.
 //! - Weather for a few minutes: ash rain (fire burns hotter) or grave mist (foes wade slower,
@@ -182,6 +183,21 @@ impl World {
             let pos = clamp_world(at + rand_dir() * gen_range(320.0, 520.0), 150.0);
             self.pickups.push(Pickup::new(pos, PickKind::CursedCoffer));
             self.toast("A cursed coffer lies nearby. Its treasure is richer, but something guards it.");
+        }
+
+        // Mimics lie in wait like any other coffer.
+        if t >= self.next_mimic {
+            self.next_mimic = t + gen_range(200.0, 300.0);
+            let (at, _, _) = self.random_hero_pos();
+            let pos = clamp_world(at + rand_dir() * gen_range(340.0, 560.0), 150.0);
+            let mut e = self.make_enemy(EnemyKind::Mimic(false), pos);
+            let coop = 1.0 + 0.6 * (self.heroes.len().max(1) - 1) as f32;
+            e.hp = 400.0 * (1.0 + t / 300.0).powf(1.5) * self.diff.at(t).hp * coop;
+            e.max_hp = e.hp;
+            e.dmg *= 1.0 + t / 600.0;
+            e.xp *= 1.0 + t / 300.0;
+            self.log_event(&format!("a mimic lies in wait, {:.0} health", e.max_hp));
+            self.enemies.push(e);
         }
 
         // The courier and the vault.

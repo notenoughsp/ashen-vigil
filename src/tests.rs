@@ -63,7 +63,9 @@ fn simulate(w: &mut World, secs: f32, immortal: bool, mut on_frame: impl FnMut(&
         total_ms += ms;
         updates += 1;
         peaks.worst_update_ms = peaks.worst_update_ms.max(ms);
-        peaks.enemies = peaks.enemies.max(w.enemies.len());
+        // Props stand still and never fight; only foes count.
+        let foes = w.enemies.iter().filter(|e| !matches!(e.kind, EnemyKind::Prop(_))).count();
+        peaks.enemies = peaks.enemies.max(foes);
         peaks.particles = peaks.particles.max(w.particles.len());
         peaks.decals = peaks.decals.max(w.decals.len());
         peaks.pickups = peaks.pickups.max(w.pickups.len());
@@ -564,7 +566,8 @@ fn packets_from_another_version_are_noticed() {
     assert_eq!(host.stats.foreign_version, Some(5));
 }
 
-/// Three hours of endless night with four heroes, then absurd numbers, all through snapshots.
+/// An hour and a half of endless night with four heroes (the foes reach their ceiling by
+/// then), then absurd numbers, all through snapshots.
 /// Slow; `cargo test --release huge -- --ignored --nocapture`, ideally with overflow checks on.
 #[test]
 #[ignore]
@@ -578,7 +581,7 @@ fn huge_numbers_and_endless_hours() {
     let mut dec = snapshot::Decoder::default();
     let mut tick = 0;
     let mut max_bytes = 0;
-    let peaks = simulate(&mut host, 3.0 * 3600.0, true, |w, f| {
+    let peaks = simulate(&mut host, 1.5 * 3600.0, true, |w, f| {
         if f % 30 == 0 {
             tick += 1;
             let ev = snapshot::begin_round(w);
@@ -596,12 +599,12 @@ fn huge_numbers_and_endless_hours() {
         }
     });
     println!(
-        "3 h endless: t={:.0}s level={} kills={} bosses={} souls={} max snapshot {} B {:?}",
+        "1.5 h endless: t={:.0}s level={} kills={} bosses={} souls={} max snapshot {} B {:?}",
         host.time, host.level, host.kills, host.bosses_killed, host.heroes[1].p.souls, max_bytes, peaks
     );
     assert_bounded(&peaks);
-    // Level-up pauses use up frames without game time, so a little less than three hours pass.
-    assert!(host.time >= 2.5 * 3600.0, "the vigil stopped at {}", host.time);
+    // Level-up pauses use up frames without game time, so a little less than that passes.
+    assert!(host.time >= 1.25 * 3600.0, "the vigil stopped at {}", host.time);
 
     // Absurd values must arrive as they are, not cut off.
     let h = &mut host.heroes[1];
@@ -2217,4 +2220,362 @@ fn the_flesh_pits_have_their_own_arsenal_and_every_weapon_in_it_hurts() {
         }
         assert!(w.heroes[0].dmg_weapon[k.idx()] > 0.0, "{:?} dealt no damage", k);
     }
+}
+
+// ---------------------------------------------------------------- 0.6 additions
+
+#[test]
+fn a_mimic_sleeps_like_a_coffer_wakes_near_a_hero_and_spills_two_coffers() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = 9999.0;
+    w.next_mimic = 9999.0;
+    let at = w.heroes[0].p.pos + vec2(900.0, 0.0);
+    let e = w.make_enemy(EnemyKind::Mimic(false), at);
+    let id = e.id;
+    w.enemies.push(e);
+    w.update(1.0 / 30.0);
+    let i = w.enemies.iter().position(|e| e.id == id).expect("the mimic is gone");
+    assert_eq!(w.enemies[i].kind, EnemyKind::Mimic(false), "woke with nobody near");
+    assert_eq!(w.enemies[i].pos, at, "a sleeping mimic moved");
+    w.enemies[i].pos = w.heroes[0].p.pos + vec2(60.0, 0.0);
+    w.update(1.0 / 30.0);
+    let i = w.enemies.iter().position(|e| e.id == id).expect("the mimic is gone");
+    assert_eq!(w.enemies[i].kind, EnemyKind::Mimic(true), "did not wake beside a hero");
+    let coffers = |w: &World| w.pickups.iter().filter(|p| matches!(p.kind, PickKind::Coffer(_))).count();
+    let before = coffers(&w);
+    w.enemies[i].hp = 1.0;
+    w.grid.rebuild(&w.enemies);
+    w.hit(i, 100.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Blade }, false);
+    assert_eq!(coffers(&w), before + 2, "a fallen mimic spills two coffers");
+}
+
+#[test]
+fn twin_lords_come_bound_and_the_survivor_rages() {
+    let mut found = None;
+    for _ in 0..300 {
+        let mut w = world_with(1, PRESETS[1].1);
+        w.time = 599.0;
+        w.bosses_spawned = 1;
+        w.next_boss = 599.5;
+        simulate(&mut w, 1.0, true, |_, _| {});
+        if w.twins.is_some() {
+            found = Some(w);
+            break;
+        }
+    }
+    let mut w = found.expect("no twin lords in 300 tries");
+    let (a, b) = w.twins.unwrap();
+    assert_eq!(w.more_bosses.len(), 1, "twins are two lords at once");
+    // Some lords stand still, so the rage shows in the blows.
+    let dmg_b = w.enemies.iter().find(|e| e.id == b).unwrap().dmg;
+    let i = w.enemies.iter().position(|e| e.id == a).unwrap();
+    w.enemies[i].hp = 1.0;
+    w.time += 1.0;
+    w.hit(i, 10.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Blade }, false);
+    assert!(w.twins.is_none(), "the chain did not break");
+    let other = w.enemies.iter().find(|e| e.id == b).unwrap();
+    assert!(other.dmg > dmg_b, "the survivor does not rage");
+}
+
+#[test]
+fn the_ash_gate_banks_every_carried_soul_and_ends_the_vigil() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = 9999.0;
+    w.time = 749.5;
+    w.heroes[0].p.souls = 500;
+    simulate(&mut w, 1.0, true, |_, _| {});
+    let pos = w.gate.as_ref().expect("no ash gate at 12:30").pos;
+    let banked = w.heroes[0].banked;
+    let carried = w.heroes[0].p.souls;
+    simulate(&mut w, 5.0, true, |w, _| w.heroes[0].p.pos = pos);
+    assert!(w.dead && w.withdrew, "the party did not leave");
+    assert_eq!(w.heroes[0].p.souls, 0);
+    assert!(w.heroes[0].banked >= banked + carried, "the carried souls were not banked");
+}
+
+#[test]
+fn the_rift_seals_a_chamber_and_yields_its_hoard() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = 9999.0;
+    w.time = 400.0;
+    w.next_rift = 400.0;
+    simulate(&mut w, 0.2, true, |_, _| {});
+    let pos = w.rift.as_ref().expect("no rift").pos;
+    simulate(&mut w, 2.5, true, |w, _| w.heroes[0].p.pos = pos);
+    assert!(w.rift.as_ref().is_some_and(|r| r.sealed > 0.0), "the rift did not seal");
+    assert!(w.arena.is_some(), "no fog round the chamber");
+    assert!(!w.guards.is_empty(), "no guardians came");
+    // Off to the side, so the hero does not pick the hoard up before it is counted.
+    simulate(&mut w, CHAMBER_TIME + 1.0, true, |w, _| w.heroes[0].p.pos = pos + vec2(200.0, 0.0));
+    assert!(w.rift.is_none() && w.arena.is_none(), "the chamber did not open");
+    assert_eq!(w.chambers_won, 1);
+    let coffers = w.pickups.iter().filter(|p| matches!(p.kind, PickKind::Coffer(_)) && p.pos.distance(pos) < 80.0).count();
+    assert!(coffers >= 4, "only {} coffers in the hoard", coffers);
+}
+
+#[test]
+fn the_portal_takes_the_party_to_another_field() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = 9999.0;
+    w.time = w.portal_at - 0.1;
+    let from = w.biome;
+    simulate(&mut w, 0.5, true, |_, _| {});
+    let (pos, to) = w.portal.as_ref().map(|p| (p.pos, p.to)).expect("no portal");
+    assert_ne!(to, from);
+    simulate(&mut w, 3.0, true, |w, _| w.heroes[0].p.pos = pos);
+    assert_eq!(w.biome, to, "the party did not cross");
+    assert!(w.portal.is_none());
+}
+
+#[test]
+fn two_heroes_side_by_side_charge_a_duo_strike() {
+    let mut w = world_with(2, PRESETS[1].1);
+    w.next_boss = 9999.0;
+    simulate(&mut w, DUO_CHARGE + 1.5, true, |w, _| {
+        let p = w.heroes[0].p.pos;
+        w.heroes[1].p.pos = p + vec2(40.0, 0.0);
+    });
+    assert!(w.duo_strikes >= 1, "no duo strike after {} s together", DUO_CHARGE);
+    // Alone, there is nobody to strike with.
+    let mut solo = world_with(1, PRESETS[1].1);
+    simulate(&mut solo, DUO_CHARGE + 1.5, true, |_, _| {});
+    assert_eq!(solo.duo_strikes, 0);
+}
+
+#[test]
+fn accessibility_options_keep_old_switches_and_new_strengths() {
+    let old = Save::from_text("shake=1\nhurt_flash=0\n");
+    assert_eq!(old.settings.shake, 100);
+    assert_eq!(old.settings.hurt_flash, 0);
+    let mut s = Save::from_text("");
+    s.settings.shake = 40;
+    s.settings.hurt_flash = 70;
+    s.settings.rumble = 30;
+    s.settings.color_mode = 2;
+    let back = Save::from_text(&s.to_text());
+    assert_eq!((back.settings.shake, back.settings.hurt_flash, back.settings.rumble, back.settings.color_mode), (40, 70, 30, 2));
+}
+
+#[test]
+fn clients_see_passages_twins_bonds_and_a_sleeping_mimic() {
+    let mut host = world_with(2, PRESETS[1].1);
+    let p = host.heroes[0].p.pos;
+    host.gate = Some(AshGate { pos: p + vec2(100.0, 0.0), life: 30.0, kindle: 1.5 });
+    host.rift = Some(Rift { pos: p + vec2(-100.0, 0.0), life: 20.0, kindle: 0.0, sealed: 12.0, wave: 1.0 });
+    host.portal = Some(Portal { pos: p + vec2(0.0, 120.0), life: 20.0, kindle: 1.0, to: Biome::Flesh });
+    host.bonds.push(Bond { a: 0, b: 1, charge: 0.5 });
+    host.withdrew = true;
+    let mimic = host.make_enemy(EnemyKind::Mimic(false), p + vec2(200.0, 0.0));
+    let a = host.make_enemy(EnemyKind::Boss(BossKind::Bride), p + vec2(0.0, -200.0));
+    let b = host.make_enemy(EnemyKind::Boss(BossKind::Hound), p + vec2(60.0, -200.0));
+    host.twins = Some((a.id, b.id));
+    host.enemies.extend([mimic, a, b]);
+    let mut client = World::new(host.diff, None);
+    client.is_client = true;
+    let mut enc = snapshot::Encoder::default();
+    let mut dec = snapshot::Decoder::default();
+    let ev = snapshot::begin_round(&mut host);
+    let view = snapshot::View::of(&host, 1, vec2(1920.0, 1080.0));
+    let data = enc.encode(&host, &ev, &view, 1, 0);
+    assert!(dec.decode(&mut client, &data, 1, 0.0));
+    let g = client.gate.as_ref().expect("no gate");
+    assert!(g.pos.distance(p + vec2(100.0, 0.0)) < 2.0 && (g.kindle - 1.5).abs() < 0.05);
+    assert!(client.rift.as_ref().is_some_and(|r| (r.sealed - 12.0).abs() < 1.0));
+    assert_eq!(client.portal.as_ref().map(|p| p.to), Some(Biome::Flesh));
+    assert_eq!(client.bonds.len(), 1);
+    assert!(client.withdrew);
+    assert!(client.enemies.iter().any(|e| e.kind == EnemyKind::Mimic(false)));
+    let (ca, cb) = client.twins.expect("no twins");
+    assert!(client.enemies.iter().any(|e| e.id == ca) && client.enemies.iter().any(|e| e.id == cb), "twin ids do not match the client's foes");
+}
+
+#[test]
+fn every_elite_gets_a_trait_that_works_and_travels() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = 9999.0;
+    let p = w.heroes[0].p.pos;
+    let mut e = w.make_enemy(EnemyKind::Knight, p + vec2(400.0, 0.0));
+    e.elite = true;
+    let id = e.id;
+    w.enemies.push(e);
+    w.update(1.0 / 30.0);
+    let e = w.enemies.iter().find(|e| e.id == id).unwrap();
+    assert_ne!(e.affix, Affix::None, "an elite without a trait");
+    // Warded takes less from the same blow.
+    let i = w.enemies.iter().position(|e| e.id == id).unwrap();
+    w.enemies[i].affix = Affix::Warded;
+    w.enemies[i].hp = 1e6;
+    w.enemies[i].max_hp = 1e6;
+    w.hit(i, 1000.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Blade }, false);
+    assert!(1e6 - w.enemies[i].hp < 1000.0 * 2.0 * 0.6 * 1.1 + 1.0, "warded took too much");
+    // Volatile bursts into bullets.
+    w.ebullets.clear();
+    w.enemies[i].affix = Affix::Volatile;
+    w.enemies[i].hp = 1.0;
+    w.hit(i, 50.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Blade }, false);
+    assert!(w.ebullets.len() >= 10, "a volatile elite fell quietly");
+    // Clients learn each elite's trait.
+    let mut host = world_with(2, PRESETS[1].1);
+    let mut e = host.make_enemy(EnemyKind::Wraith, host.heroes[1].p.pos + vec2(120.0, 0.0));
+    e.elite = true;
+    e.affix = Affix::Blinker;
+    host.enemies.push(e);
+    let mut client = World::new(host.diff, None);
+    client.is_client = true;
+    let ev = snapshot::begin_round(&mut host);
+    let data = snapshot::Encoder::default().encode(&host, &ev, &snapshot::View::of(&host, 1, vec2(1920.0, 1080.0)), 1, 0);
+    assert!(snapshot::Decoder::default().decode(&mut client, &data, 1, 0.0));
+    assert!(client.enemies.iter().any(|e| e.affix == Affix::Blinker));
+}
+
+#[test]
+fn endless_mutators_come_every_two_and_a_half_minutes_and_stack() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.endless = true;
+    w.time = 1800.0;
+    w.next_boss = 99999.0;
+    simulate(&mut w, MUTATOR_EVERY * 4.0 + 5.0, true, |_, _| {});
+    let total: u32 = w.mutators.iter().map(|n| *n as u32).sum();
+    assert!(total >= 4, "only {} mutators in ten minutes", total);
+    // A stack of ironhide toughens new foes.
+    let before = w.hp_scale();
+    w.mutators[Mutator::Ironhide as usize] += 1;
+    assert!(w.hp_scale() > before * 1.29);
+    // Not before dawn.
+    let mut early = world_with(1, PRESETS[1].1);
+    simulate(&mut early, 300.0, true, |_, _| {});
+    assert!(early.mutators.iter().all(|n| *n == 0));
+}
+
+#[test]
+fn props_break_into_souls_and_runes_throw_heroes_clear() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = 9999.0;
+    simulate(&mut w, 5.0, true, |_, _| {});
+    let props = w.enemies.iter().filter(|e| matches!(e.kind, EnemyKind::Prop(_))).count();
+    assert!(props > 5, "only {} props round the hero", props);
+    assert!(!w.runes.is_empty(), "no rune round the hero");
+    // Breaking one: souls, no kill counted.
+    let i = w.enemies.iter().position(|e| matches!(e.kind, EnemyKind::Prop(_))).unwrap();
+    let (kills, souls) = (w.kills, w.pickups.iter().filter(|p| matches!(p.kind, PickKind::Soul(_))).count());
+    w.enemies[i].hp = 1.0;
+    w.hit(i, 50.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Blade }, false);
+    assert_eq!(w.kills, kills, "a prop counted as felled");
+    assert!(w.pickups.iter().filter(|p| matches!(p.kind, PickKind::Soul(_))).count() > souls);
+    // Props are never aimed at.
+    let at = w.enemies.iter().find(|e| matches!(e.kind, EnemyKind::Prop(_)) && !e.dead).unwrap().pos;
+    w.grid.rebuild(&w.enemies);
+    let near = w.nearest_enemies(at, 30.0, 5);
+    assert!(near.iter().all(|&k| !matches!(w.enemies[k].kind, EnemyKind::Prop(_))));
+    // A rune throws.
+    let (rp, to) = (w.runes[0].pos, w.runes[0].to);
+    w.heroes[0].p.pos = rp;
+    w.update(1.0 / 30.0);
+    assert!(w.heroes[0].p.pos.distance(to) < 20.0, "the rune did not throw");
+    assert!(!w.runes[0].ready());
+}
+
+#[test]
+fn a_fallen_ghost_drifts_on_its_chain_and_is_drawn_home() {
+    let mut w = world_with(2, PRESETS[1].1);
+    w.next_boss = 9999.0;
+    w.enemies.clear();
+    w.heroes[1].p.pos = w.heroes[0].p.pos + vec2(800.0, 0.0);
+    w.heroes[0].p.hp = 1.0;
+    w.heroes[0].p.iframes = 0.0;
+    w.hurt_hero(0, 100.0);
+    assert!(w.heroes[0].downed);
+    let body = w.heroes[0].p.pos;
+    for _ in 0..120 {
+        w.heroes[0].input = Input { dir: vec2(1.0, 0.0), roll: false, skill: false };
+        w.heroes[1].p.pos = body + vec2(800.0, 0.0);
+        w.update(1.0 / 30.0);
+    }
+    let reach = w.heroes[0].ghost.distance(body);
+    assert!(reach > GHOST_LEASH * 0.9 && reach <= GHOST_LEASH + 1.0, "the ghost drifted {}", reach);
+    assert_eq!(w.heroes[0].p.pos, body, "the body moved");
+    // A friend at the body draws the ghost home.
+    for _ in 0..45 {
+        w.heroes[0].input = Input { dir: vec2(1.0, 0.0), roll: false, skill: false };
+        w.heroes[1].p.pos = body + vec2(20.0, 0.0);
+        w.update(1.0 / 30.0);
+    }
+    assert!(w.heroes[0].downed, "revived too soon");
+    assert!(w.heroes[0].ghost.distance(body) < reach * 0.7, "the chain did not shorten");
+}
+
+#[test]
+fn pings_say_here_danger_or_help_and_reach_clients() {
+    let mut w = world_with(2, PRESETS[1].1);
+    w.next_boss = 9999.0;
+    w.enemies.clear();
+    let p = w.heroes[0].p.pos;
+    w.time = 10.0;
+    w.add_ping(0, p + vec2(300.0, 0.0));
+    assert_eq!(w.pings.last().map(|p| p.kind), Some(PingKind::Here));
+    let mut e = w.make_enemy(EnemyKind::Knight, p + vec2(-300.0, 0.0));
+    e.elite = true;
+    w.enemies.push(e);
+    w.time += 1.0;
+    w.add_ping(1, p + vec2(-290.0, 0.0));
+    assert_eq!(w.pings.last().map(|p| p.kind), Some(PingKind::Danger));
+    w.heroes[0].p.hp = 1.0;
+    w.time += 1.0;
+    w.add_ping(0, p);
+    assert_eq!(w.pings.last().map(|p| p.kind), Some(PingKind::Help));
+    // Too fast: ignored.
+    let n = w.pings.len();
+    w.add_ping(0, p);
+    assert_eq!(w.pings.len(), n);
+    let mut client = World::new(w.diff, None);
+    client.is_client = true;
+    let ev = snapshot::begin_round(&mut w);
+    let data = snapshot::Encoder::default().encode(&w, &ev, &snapshot::View::of(&w, 1, vec2(1920.0, 1080.0)), 1, 0);
+    assert!(snapshot::Decoder::default().decode(&mut client, &data, 1, 0.0));
+    assert_eq!(client.pings.len(), 3);
+}
+
+#[test]
+fn the_bestiary_counts_by_kind_and_survives_the_save() {
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = 9999.0;
+    let p = w.heroes[0].p.pos;
+    let e = w.make_enemy(EnemyKind::Ghoul, p + vec2(200.0, 0.0));
+    w.enemies.push(e);
+    let i = w.enemies.len() - 1;
+    w.enemies[i].hp = 1.0;
+    w.hit(i, 10.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Blade }, false);
+    assert_eq!(w.felled[beast_index(EnemyKind::Ghoul).unwrap()], 1);
+    assert_eq!(beast_index(EnemyKind::Prop(1)), None);
+    assert_eq!(beast_index(EnemyKind::Mimic(false)), beast_index(EnemyKind::Mimic(true)));
+    let mut s = Save::from_text("");
+    s.beasts[beast_index(EnemyKind::Boss(BossKind::Bride)).unwrap()] = (3, 2);
+    s.beasts[0] = (12345, 0);
+    let back = Save::from_text(&s.to_text());
+    assert_eq!(back.beasts, s.beasts);
+}
+
+#[test]
+fn the_crowned_player_steers_the_lord_and_returns_when_it_falls() {
+    let mut w = world_with(2, PRESETS[1].1);
+    w.usurper = Some(1);
+    w.time = 299.0;
+    w.next_boss = 299.5;
+    simulate(&mut w, 1.0, true, |_, _| {});
+    let id = w.possessed.expect("nobody took the lord");
+    assert!(w.heroes[1].possessing && !w.heroes[1].alive());
+    // The lord follows its wearer.
+    let target = w.heroes[1].p.pos + vec2(200.0, 0.0);
+    let before = w.enemies.iter().find(|e| e.id == id).unwrap().pos;
+    for _ in 0..30 {
+        w.heroes[1].p.pos = target;
+        w.update(1.0 / 30.0);
+    }
+    let after = w.enemies.iter().find(|e| e.id == id).unwrap().pos;
+    assert!(after.distance(target) < before.distance(target), "the lord did not follow");
+    let i = w.enemies.iter().position(|e| e.id == id).unwrap();
+    w.enemies[i].hp = 1.0;
+    w.time += 1.0;
+    w.hit(i, 10.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Blade }, false);
+    assert!(w.possessed.is_none() && !w.heroes[1].possessing, "the wearer did not return");
 }

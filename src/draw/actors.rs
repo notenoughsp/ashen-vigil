@@ -118,6 +118,38 @@ impl World {
 
     // ---------------------------------------------------------------- heroes
 
+    /// A fallen hero's ghost: a pale, floating shape of the hero, chained to its body. The
+    /// chain glows warmer as the hero is revived and the ghost is drawn home.
+    fn draw_ghost(&self, hero: &Hero, body: Color) {
+        let (p, g) = (hero.p.pos, hero.ghost);
+        if g == Vec2::ZERO || g.distance(p) < 2.0 {
+            return;
+        }
+        let k = (hero.revive / REVIVE_TIME).clamp(0.0, 1.0);
+        let t = self.time;
+        let bob = (t * 2.4 + hero.slot as f32).sin() * 3.0;
+        let g = g + vec2(0.0, -14.0 + bob);
+        // The chain: links from the body to the ghost, sagging a little.
+        let len = p.distance(g);
+        let n = ((len / 14.0) as usize).clamp(2, 40);
+        let ang = (g - p).to_angle().to_degrees();
+        let link = Color::new(0.75 + 0.25 * k, 0.75, 0.8 - 0.4 * k, 0.75);
+        for i in 0..n {
+            let f = (i as f32 + 0.5) / n as f32;
+            let q = p.lerp(g, f) + vec2(0.0, (len * 0.06).min(18.0) * (1.0 - (2.0 * f - 1.0).powi(2)));
+            let (w, h) = if i % 2 == 0 { (5.0, 3.0) } else { (3.0, 5.0) };
+            draw_ellipse_lines(q.x, q.y, w, h, ang, 1.6, link);
+        }
+        // The ghost: a pale glow, a hooded body fading into a wisp, two dim eyes.
+        let pale = Color::new(0.8 + body.r * 0.2, 0.85 + body.g * 0.15, 0.95, 0.55);
+        draw_circle(g.x, g.y, 26.0, Color::new(0.7, 0.8, 1.0, 0.08));
+        draw_triangle(g + vec2(-10.0, 0.0), g + vec2(10.0, 0.0), g + vec2((t * 3.0).sin() * 4.0, 22.0), pale);
+        draw_circle(g.x, g.y - 2.0, 10.0, pale);
+        draw_circle(g.x, g.y - 12.0, 7.5, pale);
+        draw_circle(g.x - 2.5, g.y - 12.5, 1.5, Color::new(0.1, 0.1, 0.2, 0.8));
+        draw_circle(g.x + 2.5, g.y - 12.5, 1.5, Color::new(0.1, 0.1, 0.2, 0.8));
+    }
+
     pub(super) fn draw_hero(&self, hero: &Hero, _others: bool) {
         let pl = &hero.p;
         let p = pl.pos;
@@ -126,6 +158,10 @@ impl World {
         let tint = |c: (u8, u8, u8)| rgba(c.0, c.1, c.2, 255);
         // A skin wins over the class look; the scarf keeps the player's colour.
         let body = skin.map(|s| tint(s.body)).unwrap_or(slot_color(hero.slot));
+        if hero.possessing {
+            // Off the field: their lord carries their name instead.
+            return;
+        }
         if hero.downed {
             draw_ellipse(p.x + 4.0, p.y + 6.0, 20.0, 9.0, 0.2, rgba(70, 4, 6, 170));
             blob(p + vec2(0.0, 3.0), 13.0, 6.0, 0.15, shade(body, 0.8), hi);
@@ -136,6 +172,7 @@ impl World {
             if k > 0.0 {
                 draw_arc(p.x, p.y, 40, 44.0, -90.0, 3.0, 360.0 * k, rgba(255, 190, 110, 255));
             }
+            self.draw_ghost(hero, body);
             return;
         }
         // Blessings from map relics.
@@ -879,9 +916,121 @@ impl World {
 
     // ---------------------------------------------------------------- enemies
 
+    /// A breakable prop that fits the field; struck, it flashes and shakes.
+    fn draw_prop(&self, e: &Enemy, v: u8) {
+        let shake = if e.flash > 0.0 { (self.time * 60.0).sin() * 2.0 } else { 0.0 };
+        let p = e.pos + vec2(shake, 0.0);
+        let lit = |c: Color| if e.flash > 0.0 { Color::new((c.r + 0.4).min(1.0), (c.g + 0.4).min(1.0), (c.b + 0.4).min(1.0), c.a) } else { c };
+        let crack = (1.0 - e.hp / e.max_hp.max(1.0)).clamp(0.0, 1.0);
+        draw_ellipse(p.x, p.y + 12.0, 16.0, 5.0, 0.0, rgba(0, 0, 0, 110));
+        match (self.biome, v % 3) {
+            (Biome::Graveyard, 0) => {
+                // A leaning tombstone with a cross cut in it.
+                draw_rectangle(p.x - 11.0, p.y - 16.0, 22.0, 28.0, lit(rgba(96, 94, 92, 255)));
+                draw_circle(p.x, p.y - 16.0, 11.0, lit(rgba(96, 94, 92, 255)));
+                draw_rectangle(p.x - 11.0, p.y - 16.0, 5.0, 28.0, lit(rgba(120, 118, 114, 255)));
+                draw_line(p.x, p.y - 20.0, p.x, p.y - 4.0, 2.0, rgba(50, 48, 46, 255));
+                draw_line(p.x - 5.0, p.y - 15.0, p.x + 5.0, p.y - 15.0, 2.0, rgba(50, 48, 46, 255));
+                draw_rectangle(p.x - 14.0, p.y + 9.0, 28.0, 4.0, lit(rgba(70, 64, 54, 255)));
+            }
+            (Biome::Graveyard, 1) => {
+                // A burial urn with a lid.
+                draw_circle(p.x, p.y, 10.0, lit(rgba(110, 92, 72, 255)));
+                draw_rectangle(p.x - 6.0, p.y - 14.0, 12.0, 6.0, lit(rgba(96, 80, 62, 255)));
+                draw_rectangle(p.x - 8.0, p.y - 16.0, 16.0, 3.0, lit(rgba(130, 110, 86, 255)));
+                draw_line(p.x - 9.0, p.y - 2.0, p.x + 9.0, p.y - 2.0, 1.5, rgba(60, 48, 36, 255));
+            }
+            (Biome::Graveyard, _) => {
+                // An old coffin on its side.
+                let pts = [vec2(-8.0, -16.0), vec2(8.0, -16.0), vec2(12.0, -6.0), vec2(8.0, 12.0), vec2(-8.0, 12.0), vec2(-12.0, -6.0)];
+                for k in 0..pts.len() {
+                    let (a, b) = (p + pts[k], p + pts[(k + 1) % pts.len()]);
+                    draw_triangle(p, a, b, lit(rgba(76, 52, 34, 255)));
+                }
+                draw_line(p.x, p.y - 12.0, p.x, p.y + 8.0, 1.5, rgba(40, 28, 18, 255));
+                draw_line(p.x - 5.0, p.y - 6.0, p.x + 5.0, p.y - 6.0, 1.5, rgba(40, 28, 18, 255));
+            }
+            (Biome::Cathedral, 0) => {
+                // A standing candelabrum, three flames.
+                draw_rectangle(p.x - 1.5, p.y - 18.0, 3.0, 28.0, lit(rgba(170, 140, 70, 255)));
+                draw_rectangle(p.x - 8.0, p.y + 8.0, 16.0, 4.0, lit(rgba(150, 120, 60, 255)));
+                draw_line(p.x - 10.0, p.y - 18.0, p.x + 10.0, p.y - 18.0, 2.0, lit(rgba(170, 140, 70, 255)));
+                for x in [-10.0, 0.0, 10.0] {
+                    let fl = 0.8 + 0.2 * (self.time * 12.0 + x).sin();
+                    draw_rectangle(p.x + x - 1.5, p.y - 24.0, 3.0, 6.0, rgba(235, 225, 200, 255));
+                    draw_circle(p.x + x, p.y - 27.0, 2.5 * fl, rgba(255, 190, 90, 255));
+                }
+            }
+            (Biome::Cathedral, 1) => {
+                // A gilded reliquary box.
+                draw_rectangle(p.x - 12.0, p.y - 8.0, 24.0, 18.0, lit(rgba(120, 84, 40, 255)));
+                draw_triangle(p + vec2(-13.0, -8.0), p + vec2(13.0, -8.0), p + vec2(0.0, -17.0), lit(rgba(170, 130, 60, 255)));
+                draw_rectangle_lines(p.x - 12.0, p.y - 8.0, 24.0, 18.0, 1.5, rgba(220, 180, 90, 255));
+                draw_line(p.x, p.y - 4.0, p.x, p.y + 6.0, 1.5, rgba(220, 180, 90, 255));
+                draw_line(p.x - 3.0, p.y - 1.0, p.x + 3.0, p.y - 1.0, 1.5, rgba(220, 180, 90, 255));
+            }
+            (Biome::Cathedral, _) => {
+                // A broken pew.
+                draw_rectangle(p.x - 16.0, p.y - 4.0, 32.0, 7.0, lit(rgba(92, 60, 36, 255)));
+                draw_rectangle(p.x - 16.0, p.y - 14.0, 32.0, 6.0, lit(rgba(106, 70, 42, 255)));
+                for x in [-14.0, 12.0] {
+                    draw_rectangle(p.x + x, p.y - 14.0, 3.0, 26.0, lit(rgba(70, 46, 28, 255)));
+                }
+                draw_line(p.x + 2.0, p.y - 14.0, p.x + 7.0, p.y - 4.0, 1.5, rgba(30, 20, 12, 255));
+            }
+            (Biome::Flesh, 0) => {
+                // A translucent egg sac, something moving inside.
+                let pulse = 1.0 + 0.06 * (self.time * 3.0 + e.phase).sin();
+                draw_ellipse(p.x, p.y - 2.0, 12.0 * pulse, 14.0 * pulse, 0.0, lit(Color::new(0.75, 0.6, 0.5, 0.85)));
+                draw_circle(p.x + (self.time * 2.0).sin() * 3.0, p.y, 4.0, rgba(90, 30, 40, 200));
+                draw_ellipse_lines(p.x, p.y - 2.0, 12.0 * pulse, 14.0 * pulse, 0.0, 1.5, rgba(150, 70, 70, 255));
+            }
+            (Biome::Flesh, 1) => {
+                // A heap of bones, a skull on top.
+                for k in 0..5 {
+                    let a = k as f32 * 1.3 + e.phase;
+                    let o = vec2(a.cos() * 8.0, a.sin() * 4.0 + 4.0);
+                    draw_line(p.x + o.x - 7.0, p.y + o.y, p.x + o.x + 7.0, p.y + o.y - 3.0, 3.0, lit(rgba(214, 204, 180, 255)));
+                }
+                draw_circle(p.x, p.y - 6.0, 6.5, lit(rgba(226, 218, 196, 255)));
+                draw_circle(p.x - 2.5, p.y - 6.5, 1.6, rgba(30, 24, 20, 255));
+                draw_circle(p.x + 2.5, p.y - 6.5, 1.6, rgba(30, 24, 20, 255));
+            }
+            (Biome::Flesh, _) => {
+                // A pod of raw flesh, veined, breathing.
+                let pulse = 1.0 + 0.08 * (self.time * 2.2 + e.phase).sin();
+                draw_circle(p.x, p.y - 2.0, 12.0 * pulse, lit(rgba(150, 50, 60, 255)));
+                draw_circle(p.x - 3.0, p.y - 6.0, 4.0, rgba(190, 90, 100, 255));
+                for k in 0..4 {
+                    let a = k as f32 * 1.6;
+                    draw_line(p.x, p.y - 2.0, p.x + a.cos() * 11.0, p.y - 2.0 + a.sin() * 11.0, 1.2, rgba(90, 20, 30, 255));
+                }
+            }
+        }
+        // Cracks as it weakens.
+        if crack > 0.25 {
+            draw_line(p.x - 6.0, p.y - 10.0, p.x + 1.0, p.y - 2.0, 1.5, rgba(20, 16, 14, 230));
+        }
+        if crack > 0.6 {
+            draw_line(p.x + 1.0, p.y - 2.0, p.x + 6.0, p.y + 6.0, 1.5, rgba(20, 16, 14, 230));
+        }
+    }
+
     pub(super) fn draw_enemy(&self, e: &Enemy, crowded: bool) {
         if let EnemyKind::Boss(k) = e.kind {
             self.draw_boss(e, k);
+            return;
+        }
+        if let EnemyKind::Prop(v) = e.kind {
+            self.draw_prop(e, v);
+            return;
+        }
+        if e.kind == EnemyKind::Mimic(false) {
+            // Asleep it is a coffer like any other; only a struck one flashes.
+            super::draw_coffer(e.pos, false, self.time);
+            if e.flash > 0.0 {
+                draw_circle(e.pos.x, e.pos.y, 16.0, Color::new(1.0, 1.0, 1.0, 0.35));
+            }
             return;
         }
         let p = e.pos;
@@ -917,6 +1066,15 @@ impl World {
         }
         if e.burn > 0.0 {
             draw_circle(p.x, p.y, r + 3.0, rgba(255, 110, 30, 50));
+        }
+        if e.affix != Affix::None {
+            // A small coloured mark over the head says which trait this elite has.
+            let c = e.affix.color();
+            let m = p - vec2(0.0, r * 1.25 + 14.0 + (t * 3.0).sin() * 1.5);
+            draw_circle(m.x, m.y, 9.0, Color::new(c.r, c.g, c.b, 0.25));
+            draw_circle(m.x, m.y, 6.5, rgba(10, 8, 12, 230));
+            draw_circle(m.x, m.y, 5.0, c);
+            draw_circle(m.x - 1.5, m.y - 1.5, 1.6, Color::new(1.0, 1.0, 1.0, 0.7));
         }
         if !hi {
             self.draw_enemy_simple(e, fx);
@@ -1325,6 +1483,40 @@ impl World {
                 let wail = 0.12 + 0.05 * (t * 9.0).sin();
                 draw_ellipse(head.x, head.y + r * 0.2, r * 0.1, r * wail, 0.0, Color::new(0.05, 0.05, 0.1, a));
             }
+            // Props are drawn before this, by `draw_prop`.
+            EnemyKind::Prop(_) => {}
+            EnemyKind::Mimic(_) => {
+                // A coffer that hops on stubby legs, its lid gaping on rows of teeth and a long
+                // tongue, its eyes burning inside.
+                let hop = (t * 9.0).sin().abs() * r * 0.35;
+                let p = p - vec2(0.0, hop);
+                for side in [-1.0, 1.0] {
+                    limb(p + vec2(side * r * 0.55, r * 0.4), p + vec2(side * r * 0.75, r * 0.6 + hop), r * 0.18, c(rgba(60, 40, 26, 255)), true);
+                }
+                let wood = c(rgba(84, 54, 32, 255));
+                draw_rectangle(p.x - r - 1.5, p.y - r * 0.2 - 1.5, r * 2.0 + 3.0, r * 0.95 + 3.0, c(rgba(6, 5, 7, 255)));
+                draw_rectangle(p.x - r, p.y - r * 0.2, r * 2.0, r * 0.95, wood);
+                for x in [-0.6, 0.0, 0.6] {
+                    draw_line(p.x + x * r, p.y - r * 0.2, p.x + x * r, p.y + r * 0.75, 2.0, c(rgba(60, 60, 66, 255)));
+                }
+                // The mouth: dark inside, teeth along both jaws, a tongue lolling out.
+                let gape = r * (0.55 + 0.25 * (t * 6.0).sin().abs()) + if e.flash > 0.0 { r * 0.2 } else { 0.0 };
+                draw_rectangle(p.x - r * 0.9, p.y - r * 0.2 - gape, r * 1.8, gape, c(rgba(40, 6, 10, 255)));
+                let tongue = p + vec2(fx * r * 0.9, r * 0.1 + (t * 5.0).sin() * r * 0.15);
+                draw_line(p.x, p.y - r * 0.25, tongue.x, tongue.y, r * 0.22, c(rgba(190, 70, 90, 255)));
+                for k in 0..5 {
+                    let x = p.x - r * 0.8 + k as f32 * r * 0.4;
+                    let top = p.y - r * 0.2 - gape;
+                    draw_triangle(vec2(x, top), vec2(x + r * 0.32, top), vec2(x + r * 0.16, top + r * 0.3), c(rgba(235, 228, 205, 255)));
+                    let low = p.y - r * 0.2;
+                    draw_triangle(vec2(x, low), vec2(x + r * 0.32, low), vec2(x + r * 0.16, low - r * 0.28), c(rgba(235, 228, 205, 255)));
+                }
+                // The lid, flung back.
+                let lid = p.y - r * 0.2 - gape;
+                draw_rectangle(p.x - r, lid - r * 0.4, r * 2.0, r * 0.4, c(rgba(110, 72, 42, 255)));
+                draw_rectangle(p.x - r * 0.2, lid - r * 0.35, r * 0.4, r * 0.3, c(rgba(220, 180, 90, 255)));
+                eyes(p + vec2(fx * r * 0.1, -r * 0.2 - gape * 0.55), r * 0.35, r * 0.12, with_alpha(rgba(255, 200, 60, 255), a));
+            }
             EnemyKind::Courier => {
                 // A small hooded runner, bent low, a golden key bouncing on its back.
                 let s = (t * 14.0).sin() * r * 0.35;
@@ -1406,6 +1598,8 @@ impl World {
             EnemyKind::Gargoyle => rgba(104, 102, 98, 255),
             EnemyKind::Banshee => Color::new(0.8, 0.85, 0.95, 0.6),
             EnemyKind::Courier => rgba(110, 86, 50, 255),
+            EnemyKind::Mimic(_) => rgba(110, 72, 42, 255),
+            EnemyKind::Prop(_) => rgba(100, 96, 90, 255),
             EnemyKind::Champion => rgba(84, 88, 98, 255),
             EnemyKind::Rival => rgba(36, 32, 40, 255),
             _ => rgba(66, 70, 82, 255),

@@ -30,6 +30,9 @@ enum Opt {
     Overlay,
     Shake,
     UiScale,
+    Rumble,
+    ColorMode,
+    Minimap,
     Cute,
     Bind(u8),
     ResetBinds,
@@ -75,9 +78,12 @@ impl Opt {
             Opt::BossMusic => "Boss music",
             Opt::Sfx => "Effects volume",
             Opt::Numbers => "Damage numbers",
-            Opt::Meter => "Damage meter",
+            Opt::Meter => "Damage meter and DPS",
+            Opt::Minimap => "Minimap",
             Opt::Overlay => "FPS and network overlay",
             Opt::Shake => "Screen shake",
+            Opt::Rumble => "Controller rumble",
+            Opt::ColorMode => "Foe projectile colours",
             Opt::UiScale => "Interface size",
             Opt::Cute => "Cute mode",
             Opt::Bind(i) => ACTIONS[i as usize].label(),
@@ -122,7 +128,12 @@ impl Opt {
             Opt::Markers => "How far inside the screen edge the arrows to things off screen sit.",
             Opt::PauseUnfocused => "A single-player vigil pauses when you switch to another window. Online the world never waits.",
             Opt::MuteUnfocused => "No sound while another window has the focus.",
-            Opt::HurtFlash => "The screen edge flashes red when your hero is hit.",
+            Opt::HurtFlash => "How strongly the screen flashes red when your hero is hit.",
+            Opt::Shake => "How much the screen shakes at blows, blasts and lords.",
+            Opt::Meter => "Damage per weapon (or per player online) and your damage per second, in the bottom right corner above your souls.",
+            Opt::Minimap => "A small map in the top right corner: friends, lords, elites, shrines, the merchant, passages, runes, coffers and pings.",
+            Opt::Rumble => "How strongly the controller rumbles when you are hit and when the ground quakes.",
+            Opt::ColorMode => "Colours foes' projectiles so they stand out for red-green or blue-yellow colour blindness.",
             Opt::HeroHp => "A small health bar right under your hero, so you need not look to the corner.",
             Opt::HeroStamina => "A small stamina bar under your hero: how many rolls are left.",
             Opt::BossSongOut => "Once the lords have fallen, a recorded boss song plays to its end before the field's music comes back. Off: it fades out at once.",
@@ -149,7 +160,7 @@ impl Opt {
     }
 }
 
-const PAGES: [(&str, &[Opt]); 5] = [
+const PAGES: [(&str, &[Opt]); 6] = [
     (
         "Controls",
         &[
@@ -164,29 +175,14 @@ const PAGES: [(&str, &[Opt]); 5] = [
             Opt::Bind(8),
             Opt::Bind(9),
             Opt::Bind(10),
+            Opt::Bind(11),
             Opt::ResetBinds,
             Opt::Back,
         ],
     ),
     (
         "General",
-        &[
-            Opt::Name,
-            Opt::Numbers,
-            Opt::Meter,
-            Opt::Overlay,
-            Opt::Shake,
-            Opt::HurtFlash,
-            Opt::HeroHp,
-            Opt::HeroStamina,
-            Opt::UiScale,
-            Opt::Markers,
-            Opt::PauseUnfocused,
-            Opt::Discord,
-            Opt::Updates,
-            Opt::Cute,
-            Opt::Back,
-        ],
+        &[Opt::Name, Opt::Numbers, Opt::Meter, Opt::Minimap, Opt::Overlay, Opt::HeroHp, Opt::HeroStamina, Opt::PauseUnfocused, Opt::Discord, Opt::Updates, Opt::Cute, Opt::Back],
     ),
     ("Sound", &[Opt::Music, Opt::BossMusic, Opt::Sfx, Opt::Vol(0), Opt::Vol(1), Opt::BossSongOut, Opt::MuteUnfocused, Opt::Back]),
     (
@@ -209,6 +205,7 @@ const PAGES: [(&str, &[Opt]); 5] = [
             Opt::Back,
         ],
     ),
+    ("Accessibility", &[Opt::Shake, Opt::HurtFlash, Opt::Rumble, Opt::ColorMode, Opt::UiScale, Opt::Markers, Opt::FxAlpha, Opt::Back]),
     ("Difficulty", &[Opt::Preset, Opt::Count, Opt::Hp, Opt::Dmg, Opt::Speed, Opt::BossHp, Opt::Back]),
 ];
 
@@ -235,16 +232,18 @@ fn update_notice() -> Rect {
 }
 
 /// What is new in this version, in a few words each, shown once after an update.
-const WHATS_NEW: [&str; 9] = [
-    "Recorded songs for every field, the boss rush and each lord.",
-    "A lord's song begins ten seconds before the lord arrives.",
-    "New option: Boss music, its own volume.",
-    "New option: Boss song plays out after the fight.",
-    "Weapons, hits and pickups now follow the sound effects volume.",
-    "The lords no longer speak aloud; their words still show.",
-    "A new secret word waits in the main menu.",
-    "Updates let you pick the build with songs or the small synth one.",
-    "Fixed: the lords' adds no longer pile up in long endless nights.",
+const WHATS_NEW: [&str; 11] = [
+    "Elites carry a coloured mark: swift, volatile, mender, warded or blinker.",
+    "Twin lords: now and then two come at once, bound by a chain.",
+    "Mimics, rifts into a hidden chamber, a portal to another field.",
+    "The ash gate: leave the night early and keep your souls.",
+    "Breakable props on every field, and teleport runes to escape.",
+    "Endless night: a new mutator every 2.5 minutes, and they stack.",
+    "Online: pings, duo strikes, and late joiners watch until next vigil.",
+    "Fallen heroes become a ghost on a chain to their body.",
+    "A minimap, and the damage meter with DPS moved above your souls.",
+    "The bestiary under Records.",
+    "Options: a new Accessibility page.",
 ];
 
 /// The button on the left of the main menu that folds out what is new.
@@ -384,6 +383,12 @@ impl App {
                 let msg = if self.party { "The embers put on their party hats." } else { "The party winds down. Someone has to clean up." };
                 self.set_note(msg, 4.0);
                 self.unlock(Achievement::Partygoer);
+            } else if self.typed.ends_with("usurp") {
+                self.typed.clear();
+                self.usurp = !self.usurp;
+                self.audio.play(if self.usurp { "roar" } else { "bell" }, 0.6);
+                let msg = if self.usurp { "A crown waits. In the next vigil you host, one of your companions will wear it." } else { "The crown is put away." };
+                self.set_note(msg, 5.0);
             } else if self.typed.ends_with("encore") {
                 self.typed.clear();
                 if self.audio.play_secret() {
@@ -756,14 +761,17 @@ impl App {
             Opt::Numbers => st.numbers = !st.numbers,
             Opt::Meter => st.meter = !st.meter,
             Opt::Overlay => st.overlay = !st.overlay,
-            Opt::Shake => st.shake = !st.shake,
+            Opt::Shake => st.shake = (st.shake as i32 + dir * 10).clamp(0, 100) as u8,
+            Opt::Rumble => st.rumble = (st.rumble as i32 + dir * 10).clamp(0, 100) as u8,
+            Opt::Minimap => st.minimap = !st.minimap,
+            Opt::ColorMode => st.color_mode = cycle_u8(st.color_mode, crate::save::COLOR_MODES.len() as u8),
             Opt::ResetBinds => st.binds = ACTIONS.map(Action::default_key),
             Opt::Bind(_) => {}
             Opt::UiScale => st.ui_scale = (st.ui_scale as i32 + dir).rem_euclid(UI_SCALES.len() as i32) as u8,
             Opt::Markers => st.marker_inset = (st.marker_inset as i32 + dir).clamp(0, crate::save::MAX_MARKER_INSET as i32) as u8,
             Opt::PauseUnfocused => st.pause_unfocused = !st.pause_unfocused,
             Opt::MuteUnfocused => st.mute_unfocused = !st.mute_unfocused,
-            Opt::HurtFlash => st.hurt_flash = !st.hurt_flash,
+            Opt::HurtFlash => st.hurt_flash = (st.hurt_flash as i32 + dir * 10).clamp(0, 100) as u8,
             Opt::HeroHp => st.hero_hp_bar = !st.hero_hp_bar,
             Opt::HeroStamina => st.hero_stamina_bar = !st.hero_stamina_bar,
             Opt::BossSongOut => st.boss_song_out = !st.boss_song_out,
@@ -853,14 +861,17 @@ impl App {
             Opt::Numbers => onoff(st.numbers),
             Opt::Meter => onoff(st.meter),
             Opt::Overlay => onoff(st.overlay),
-            Opt::Shake => onoff(st.shake),
+            Opt::Shake => format!("{}%", st.shake),
+            Opt::Rumble => format!("{}%", st.rumble),
+            Opt::Minimap => onoff(st.minimap),
+            Opt::ColorMode => crate::save::COLOR_MODES[st.color_mode as usize % crate::save::COLOR_MODES.len()].0.to_string(),
             Opt::UiScale => match UI_SCALES[st.ui_scale as usize % UI_SCALES.len()] {
                 0.0 => format!("Auto ({:.0}%)", crate::ui::ui_scale() * 100.0),
                 s => format!("{:.0}%", s * 100.0),
             },
             Opt::PauseUnfocused => onoff(st.pause_unfocused),
             Opt::MuteUnfocused => onoff(st.mute_unfocused),
-            Opt::HurtFlash => onoff(st.hurt_flash),
+            Opt::HurtFlash => format!("{}%", st.hurt_flash),
             Opt::HeroHp => onoff(st.hero_hp_bar),
             Opt::HeroStamina => onoff(st.hero_stamina_bar),
             Opt::BossSongOut => onoff(st.boss_song_out),

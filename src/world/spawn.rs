@@ -12,13 +12,15 @@ impl World {
         // Past the first lord foes toughen by `ENEMY_GROWTH` a minute on top, or heroes outgrow
         // them and everything falls to a glance by the tenth minute.
         let grown = ENEMY_GROWTH.powf((m - 5.0).max(0.0));
-        (1.0 + m * 0.2 + (m / 10.0).powi(2) * 0.6) * grown * self.diff.at(self.time).hp * coop * dark * if cursed { 1.3 } else { 1.0 }
+        (1.0 + m * 0.2 + (m / 10.0).powi(2) * 0.6) * grown * self.diff.at(self.time).hp * coop * dark * if cursed { 1.3 } else { 1.0 } * self.mutated(Mutator::Ironhide, 1.3)
     }
 
     pub(crate) fn make_enemy(&mut self, kind: EnemyKind, pos: Vec2) -> Enemy {
         let m = self.time / 60.0;
         let hp_scale = self.hp_scale();
-        let dmg_scale = (1.0 + m * 0.06 + (m - 10.0).max(0.0) * 0.03) * self.diff.at(self.time).dmg * if self.blood_moon > 0.0 { 1.25 } else { 1.0 };
+        let dmg_scale =
+            (1.0 + m * 0.06 + (m - 10.0).max(0.0) * 0.03) * self.diff.at(self.time).dmg * if self.blood_moon > 0.0 { 1.25 } else { 1.0 } * self.mutated(Mutator::Sharpened, 1.2);
+        let hasted = self.mutated(Mutator::Hasted, 1.1);
         let (hp, speed, dmg, xp) = match kind {
             EnemyKind::Hollow => (10.0, 55.0, 8.0, 1.0),
             EnemyKind::Ghoul => (8.0, 95.0, 6.0, 1.0),
@@ -36,6 +38,8 @@ impl World {
             EnemyKind::Courier => (45.0, 175.0, 0.0, 6.0),
             EnemyKind::Champion => (900.0, 75.0, 30.0, 60.0),
             EnemyKind::Rival => (500.0, 165.0, 22.0, 30.0),
+            EnemyKind::Mimic(_) => (300.0, 150.0, 20.0, 25.0),
+            EnemyKind::Prop(_) => (30.0, 0.0, 0.0, 0.0),
             EnemyKind::Boss(_) => (1000.0, 80.0, 25.0, 0.0),
         };
         let r = kind.radius(false);
@@ -48,7 +52,7 @@ impl World {
             knock: Vec2::ZERO,
             hp: hp * hp_scale,
             max_hp: hp * hp_scale,
-            speed: speed * gen_range(0.9, 1.1) * self.diff.at(self.time).speed * if self.cursed_by(Curse::Frenzy) { 1.25 } else { 1.0 },
+            speed: speed * gen_range(0.9, 1.1) * self.diff.at(self.time).speed * if self.cursed_by(Curse::Frenzy) { 1.25 } else { 1.0 } * hasted,
             dmg: dmg * dmg_scale,
             r,
             xp,
@@ -69,6 +73,7 @@ impl World {
             net_vel: Vec2::ZERO,
             step: 0,
             lunge: Vec2::ZERO,
+            affix: Affix::None,
             hunt: None,
             life_left: f32::INFINITY,
         }
@@ -210,7 +215,7 @@ impl World {
         }
 
         if self.time >= self.next_elite {
-            self.next_elite = self.time + if self.cursed_by(Curse::EliteTide) { 24.0 } else { 70.0 };
+            self.next_elite = self.time + if self.cursed_by(Curse::EliteTide) { 24.0 } else { 70.0 } * self.mutated(Mutator::EliteTide, 0.7);
             let kind = match m as u32 {
                 0..=3 => EnemyKind::Hollow,
                 4..=7 => EnemyKind::Bloat,
@@ -308,8 +313,27 @@ impl World {
         let finale = self.is_finale(self.time);
         let kind = self.lord_at(n, self.time);
         self.finale_came |= finale;
-        let lap = if finale { 1.5 } else { (n / 5) as f32 };
         self.bosses_spawned += 1;
+        // Now and then, from the second lord on, another comes along with it: two lords bound
+        // by a chain, each with less health, shielding each other while both stand.
+        let twin = !finale && !self.boss_rush && n >= 1 && self.boss.is_none() && chance(TWIN_CHANCE);
+        let share = if twin { TWIN_HP } else { 1.0 };
+        let first = self.spawn_lord(kind, n, finale, share);
+        self.crown_lord(first);
+        if twin {
+            let others: Vec<BossKind> = ALL_LORDS.iter().copied().filter(|k| *k != kind && *k != BossKind::Sovereign).collect();
+            let other = others[gen_range(0, others.len())];
+            let second = self.spawn_lord(other, n, false, share);
+            self.twins = Some((first, second));
+            self.log_event(&format!("twin lords: {} and {}", kind.name(), other.name()));
+            self.banner("TWIN LORDS", &format!("{} and {}, bound by one chain", kind.name(), other.name()), Color::from_rgba(200, 160, 255, 255), 4.5);
+        }
+    }
+
+    /// Brings a lord onto the field as the `n`th of the vigil, with `share` of the health it
+    /// would have alone; returns its id.
+    fn spawn_lord(&mut self, kind: BossKind, n: u32, finale: bool, share: f32) -> u32 {
+        let lap = if finale { 1.5 } else { (n / 5) as f32 };
         let (speed, dmg) = match kind {
             BossKind::Gravewarden => (85.0, 25.0),
             BossKind::Matriarch => (160.0, 20.0),
@@ -345,7 +369,7 @@ impl World {
         } else {
             hp * BOSS_GROWTH.powf((self.time / 60.0 - 5.0).max(0.0))
         };
-        e.hp = grown * if finale { 1.25 } else { 1.0 } * self.diff.at(self.time).boss_hp * coop;
+        e.hp = grown * if finale { 1.25 } else { 1.0 } * self.diff.at(self.time).boss_hp * coop * share;
         e.max_hp = e.hp;
         e.r = r;
         e.speed = speed * self.diff.at(self.time).speed;
@@ -380,6 +404,7 @@ impl World {
         self.sfx("roar", 1.0);
         self.shake = 12.0;
         self.events.push(Event::BossStart);
+        id
     }
 }
 

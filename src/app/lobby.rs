@@ -119,6 +119,9 @@ impl App {
             NetMode::Host(h) => {
                 h.started = false;
                 h.left.clear();
+                for p in h.peers.iter_mut() {
+                    p.spectator = false;
+                }
                 self.lobby.state = LobbyState::Hosting;
                 self.lobby.started = false;
                 self.lobby.msg = Some(("Back in the lobby. Pick your hero and begin again when everyone is ready.".into(), TEAL));
@@ -161,6 +164,7 @@ impl App {
                             self.lobby.msg = Some((format!("{} joined the lobby.", n), TEAL));
                             self.audio.play("bell", 0.4);
                         }
+                        HostEvent::Spectating(_) => {}
                         HostEvent::Left(n, _) => {
                             crate::log!("{} left the lobby", n);
                             self.lobby.msg = Some((format!("{} left the lobby.", n), DIM));

@@ -22,7 +22,7 @@ thread_local! {
     static UI_SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
     /// Off-screen markers sit this share of the shorter screen side inside the edge.
     static MARKER_INSET: std::cell::Cell<f32> = const { std::cell::Cell::new(0.12) };
-    static HURT_FLASH: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+    static HURT_FLASH: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
     /// The small health and stamina bars under our hero.
     static HERO_BARS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((true, true)) };
 }
@@ -32,9 +32,9 @@ pub fn set_hero_bars(hp: bool, stamina: bool) {
     HERO_BARS.with(|b| b.set((hp, stamina)));
 }
 
-/// Takes the hurt flash setting; called every frame.
-pub fn set_hurt_flash(on: bool) {
-    HURT_FLASH.with(|h| h.set(on));
+/// Takes the hurt flash setting (percent); called every frame.
+pub fn set_hurt_flash(percent: u8) {
+    HURT_FLASH.with(|h| h.set(percent as f32 / 100.0));
 }
 
 /// Takes the marker setting (percent); called every frame.
@@ -69,6 +69,11 @@ pub fn register_tab(r: Rect) {
 
 /// UI scale choices; 0 means automatic (grows with the window above 1080 lines).
 pub const UI_SCALES: [f32; 6] = [0.0, 1.0, 1.25, 1.5, 1.75, 2.0];
+
+/// The minimap's top edge and size in UI units, and how far it sees from its middle.
+pub const MINIMAP_TOP: f32 = 80.0;
+pub const MINIMAP_SIZE: f32 = 180.0;
+const MINIMAP_RANGE: f32 = 1500.0;
 
 /// Sets the UI scale for this frame from the setting (an index into `UI_SCALES`).
 pub fn set_ui_scale(choice: u8) {
@@ -496,6 +501,114 @@ impl<'a> Ui<'a> {
         }
     }
 
+    /// A small map of the field around us in the top right corner. Foes are faint dots, and
+    /// everything worth walking to has its colour.
+    pub fn minimap(&self, w: &World) {
+        let sw = ui_w();
+        let (x0, y0, s) = (sw - 20.0 - MINIMAP_SIZE, MINIMAP_TOP, MINIMAP_SIZE);
+        let me = w.me();
+        let center = if me.downed && me.ghost != Vec2::ZERO { me.ghost } else { me.p.pos };
+        let k = s / (MINIMAP_RANGE * 2.0);
+        let mid = vec2(x0 + s * 0.5, y0 + s * 0.5);
+        let to = |p: Vec2| mid + (p - center) * k;
+        let inside = |q: Vec2| q.x >= x0 && q.x <= x0 + s && q.y >= y0 && q.y <= y0 + s;
+        draw_rectangle(x0, y0, s, s, Color::new(0.02, 0.02, 0.03, 0.62));
+        // The walls, where they come into view.
+        let half = crate::world::field_half();
+        let (a, b) = (to(vec2(-half, -half)), to(vec2(half, half)));
+        let (l, t, r, btm) = (a.x.max(x0), a.y.max(y0), b.x.min(x0 + s), b.y.min(y0 + s));
+        if r > l && btm > t {
+            draw_rectangle_lines(l, t, r - l, btm - t, 1.5, Color::new(0.5, 0.45, 0.4, 0.6));
+        }
+        let dot = |p: Vec2, r: f32, c: Color| {
+            let q = to(p);
+            if inside(q) {
+                draw_circle(q.x, q.y, r, c);
+            }
+        };
+        if let Some((c, r)) = w.arena {
+            let q = to(c);
+            if inside(q) {
+                draw_circle_lines(q.x, q.y, r * k, 1.0, Color::new(0.8, 0.8, 0.85, 0.5));
+            }
+        }
+        // Ordinary foes: a faint sense of the horde.
+        for e in w.enemies.iter().filter(|e| !e.dead && !e.elite && !e.boss).step_by((w.enemies.len() / 500).clamp(1, 8)) {
+            match e.kind {
+                EnemyKind::Prop(_) | EnemyKind::Mimic(false) => {}
+                _ => dot(e.pos, 1.2, Color::new(0.75, 0.2, 0.18, 0.55)),
+            }
+        }
+        for s in w.shrines.iter().filter(|s| !s.used) {
+            dot(s.pos, 3.0, Color::new(1.0, 0.6, 0.25, 0.95));
+        }
+        if let Some(c) = w.cursed.as_ref().filter(|c| !c.accepted) {
+            dot(c.pos, 3.0, Color::new(0.75, 0.4, 1.0, 0.95));
+        }
+        if let Some(m) = &w.merchant {
+            dot(m.pos, 3.5, Color::new(0.6, 0.8, 1.0, 1.0));
+        }
+        for p in w.pickups.iter().filter(|p| matches!(p.kind, PickKind::Coffer(_))) {
+            dot(p.pos, 2.5, GOLD);
+        }
+        for e in w.enemies.iter().filter(|e| e.kind == EnemyKind::Mimic(false)) {
+            dot(e.pos, 2.5, GOLD);
+        }
+        for r in w.runes.iter().filter(|r| r.ready()) {
+            dot(r.pos, 2.5, Color::new(0.4, 0.9, 0.85, 1.0));
+        }
+        if let Some(g) = &w.gate {
+            dot(g.pos, 4.0, Color::new(0.55, 0.95, 0.85, 1.0));
+        }
+        if let Some(r) = &w.rift {
+            dot(r.pos, 4.0, Color::new(0.75, 0.6, 1.0, 1.0));
+        }
+        if let Some(p) = &w.portal {
+            dot(p.pos, 4.0, Color::new(1.0, 0.7, 0.5, 1.0));
+        }
+        for e in w.enemies.iter().filter(|e| !e.dead && (e.elite || matches!(e.kind, EnemyKind::Champion | EnemyKind::Rival | EnemyKind::Courier)) && !e.boss) {
+            let c = if e.affix != Affix::None { e.affix.color() } else { Color::new(1.0, 0.55, 0.2, 1.0) };
+            dot(e.pos, 2.5, c);
+        }
+        for e in w.enemies.iter().filter(|e| e.boss && !e.dead) {
+            dot(e.pos, 5.0, Color::new(0.95, 0.15, 0.1, 1.0));
+            dot(e.pos, 2.0, WHITE);
+        }
+        let blink = 0.6 + 0.4 * (w.time * 8.0).sin();
+        for p in &w.pings {
+            let c = match p.kind {
+                PingKind::Here => slot_color(p.slot),
+                PingKind::Danger => Color::new(1.0, 0.3, 0.2, 1.0),
+                PingKind::Help => Color::new(1.0, 0.82, 0.3, 1.0),
+            };
+            let q = to(p.pos);
+            if inside(q) {
+                draw_circle_lines(q.x, q.y, 5.0 + 2.0 * blink, 1.5, c);
+            }
+        }
+        for h in &w.heroes {
+            let c = if h.downed { Color::new(1.0, 0.3, 0.25, blink) } else { slot_color(h.slot) };
+            dot(h.p.pos, if h.slot == me.slot { 4.0 } else { 3.2 }, c);
+        }
+        // Which way we face.
+        let f = mid + me.p.facing * 9.0;
+        draw_line(mid.x, mid.y, f.x, f.y, 1.5, WHITE);
+        draw_rectangle_lines(x0, y0, s, s, 1.5, Color::new(0.55, 0.5, 0.45, 0.8));
+    }
+
+    /// The endless night's mutators, one line each with its stacks.
+    fn mutator_list(&self, w: &World, x: f32, mut y: f32) {
+        for m in ALL_MUTATORS {
+            let n = w.stacks(m);
+            if n == 0 {
+                continue;
+            }
+            let line = if n > 1 { format!("{} x{}", m.name(), n) } else { m.name().to_string() };
+            self.text(&line, x, y, 15.0, m.color());
+            y += 17.0;
+        }
+    }
+
     pub fn hud(&self, w: &World) {
         let (sw, sh) = (ui_w(), ui_h());
         let me = w.me();
@@ -577,12 +690,20 @@ impl<'a> Ui<'a> {
 
         let secs = w.time as u32;
         self.text_c(&format!("{:02}:{:02}", secs / 60, secs % 60), sw * 0.5, 38.0, 32.0, PALE);
+        if me.possessing {
+            let key = if using_pad() { "X" } else { key_label(Action::Skill) };
+            let line = format!("YOU WEAR THE CROWN: move to steer the lord, [{}] to strike", key);
+            self.text_c(&line, sw * 0.5, sh * 0.82, 22.0, Color::new(0.85, 0.6, 1.0, 1.0));
+        }
         self.text(&format!("Felled {}", w.kills), sw - 150.0, 50.0, 16.0, DIM);
         if pl.revives > 0 {
             let wait = (me.ember_ready_at - w.time).max(0.0);
             let (text, c) = if wait > 0.0 { (format!("Embers {} ({:.0}s)", pl.revives, wait.ceil()), DIM) } else { (format!("Embers {}", pl.revives), EMBER) };
             self.text(&text, sw - 150.0, 68.0, 16.0, c);
         }
+
+        // Under the minimap's corner.
+        self.mutator_list(w, sw - 200.0, MINIMAP_TOP + MINIMAP_SIZE + 22.0);
 
         let souls = format!("{}", pl.souls);
         let sx = sw - 40.0 - self.width(&souls, 28.0);
@@ -653,6 +774,15 @@ impl<'a> Ui<'a> {
         if let Some(s) = &w.stone {
             marks.push((s.pos, Color::new(0.55, 0.85, 1.0, 0.9), "Wager stone".into()));
         }
+        if let Some(g) = &w.gate {
+            marks.push((g.pos, Color::new(0.55, 0.95, 0.85, 0.95), "Ash gate".into()));
+        }
+        if let Some(r) = w.rift.as_ref().filter(|r| r.sealed <= 0.0) {
+            marks.push((r.pos, Color::new(0.75, 0.6, 1.0, 0.95), "Rift".into()));
+        }
+        if let Some(g) = &w.portal {
+            marks.push((g.pos, Color::new(1.0, 0.7, 0.5, 0.95), "Portal".into()));
+        }
         if let Some(g) = &w.hourglass {
             marks.push((g.pos, Color::new(0.7, 0.85, 1.0, 0.9), "Hourglass".into()));
         }
@@ -686,12 +816,25 @@ impl<'a> Ui<'a> {
         if let Some(r) = &w.remnant {
             marks.push((r.pos, TEAL, "Remnant".into()));
         }
+        // A sleeping mimic gets a coffer's marker: nothing gives it away.
+        for e in w.enemies.iter().filter(|e| e.kind == EnemyKind::Mimic(false)) {
+            marks.push((e.pos, GOLD, "Coffer".into()));
+        }
         for p in &w.pickups {
             if let PickKind::Coffer(_) = p.kind {
                 marks.push((p.pos, GOLD, "Coffer".into()));
             } else if p.is_relic() {
                 marks.push((p.pos, Color::new(0.9, 0.35, 0.3, 0.85), "Relic".into()));
             }
+        }
+        for p in &w.pings {
+            let who = w.heroes.iter().find(|h| h.slot == p.slot).map(|h| h.name.as_str()).unwrap_or("Ping");
+            let c = match p.kind {
+                PingKind::Here => slot_color(p.slot),
+                PingKind::Danger => Color::new(1.0, 0.3, 0.2, 1.0),
+                PingKind::Help => Color::new(1.0, 0.82, 0.3, 1.0),
+            };
+            marks.push((p.pos, c, format!("{}: {}", who, p.kind.label())));
         }
         for h in w.heroes.iter().filter(|h| h.slot != me.slot) {
             if h.downed {
@@ -822,8 +965,9 @@ impl<'a> Ui<'a> {
                 DrawTextureParams { dest_size: Some(vec2(sw, sh)), ..Default::default() },
             );
         }
-        if HURT_FLASH.with(|h| h.get()) && me.p.iframes > 0.3 && me.p.roll_t <= 0.0 && !me.downed {
-            draw_rectangle(0.0, 0.0, sw, sh, Color::new(hurt.0 * 0.8, hurt.1, hurt.2, 0.12));
+        let flash = HURT_FLASH.with(|h| h.get());
+        if flash > 0.0 && me.p.iframes > 0.3 && me.p.roll_t <= 0.0 && !me.downed {
+            draw_rectangle(0.0, 0.0, sw, sh, Color::new(hurt.0 * 0.8, hurt.1, hurt.2, 0.12 * flash));
         }
     }
 
@@ -911,9 +1055,8 @@ impl<'a> Ui<'a> {
 
     /// Who dealt how much: this vigil and the last minute. Tab shows our weapons.
     pub fn damage_meter(&self, w: &World, detailed: bool) {
-        let sw = ui_w();
+        let (sw, sh) = (ui_w(), ui_h());
         let x = sw - 250.0;
-        let mut y = 84.0;
         let me = w.me();
         let rows: Vec<(String, f64, f32, Color)> = if w.heroes.len() > 1 && !detailed {
             let mut v: Vec<(String, f64, f32, Color)> = w.heroes.iter().map(|h| (h.name.clone(), h.dmg_total, h.dmg_minute, slot_color(h.slot))).collect();
@@ -935,8 +1078,15 @@ impl<'a> Ui<'a> {
         if rows.is_empty() {
             return;
         }
-        let h = 26.0 + rows.len() as f32 * 19.0;
+        let shared = w.heroes.len() > 1 && !detailed;
+        let h = 26.0 + rows.len() as f32 * 19.0 + if shared { 16.0 } else { 0.0 } + 20.0;
+        // Above the souls in the bottom right corner, and above the soul burden's line.
+        let mut y = sh - 104.0 - h;
         draw_rectangle(x - 8.0, y - 4.0, 240.0, h, Color::new(0.0, 0.0, 0.0, 0.45));
+        // Our damage per second over the last minute.
+        let dps = format!("DPS {}", short(me.dmg_minute.max(0.0) as f64 / 60.0));
+        mono(&dps, x, y + 12.0, 17.0, GOLD);
+        y += 20.0;
         let weapons_key = if using_pad() { "LB" } else { key_label(Action::Weapons) };
         let title = if w.heroes.len() > 1 && !detailed { "Damage   vigil / last min".to_string() } else { format!("Damage by weapon   ({})", weapons_key) };
         mono(title, x, y + 10.0, 15.0, a(DIM, 1.0));
@@ -946,7 +1096,7 @@ impl<'a> Ui<'a> {
             let frac = (total / max) as f32;
             draw_rectangle(x, y + 2.0, 224.0 * frac, 15.0, Color::new(c.r, c.g, c.b, 0.35));
             mono(&name, x + 3.0, y + 14.0, 15.0, PALE);
-            let value = if minute.is_nan() { short(total) } else { format!("{} / {}", short(total), short(minute as f64)) };
+            let value = if minute.is_nan() { short(total) } else { format!("{} / {}", short(total), short(minute.max(0.0) as f64)) };
             let tw = mono_width(&value, 15.0);
             mono(&value, x + 224.0 - tw, y + 14.0, 15.0, PALE);
             y += 19.0;

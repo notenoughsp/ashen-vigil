@@ -104,6 +104,17 @@ pub struct App {
     leave_armed: bool,
     /// The sound was turned off by us because the window lost focus.
     muted_away: bool,
+    /// Our hero's health and the world's shake last frame, to rumble on a wound or a quake.
+    rumble_seen: (f32, f32),
+    /// The hero a spectator follows, by slot.
+    watch_slot: u8,
+    /// The crown's secret: the next hosted vigil gives one companion the lords.
+    usurp: bool,
+    /// Felled foes of this vigil already added to the bestiary (an endless night ends twice).
+    beasts_added: [u32; BEASTS.len()],
+    /// Our pings: how many so far (a client sends the count) and where the last went.
+    ping_seq: u8,
+    ping_at: Vec2,
     /// The lord's words last heard and how long they had left, to speak each new line once.
     discord: crate::discord::Discord,
     /// Newer versions on GitHub, offered in the main menu.
@@ -252,6 +263,12 @@ impl App {
             options_in_game: false,
             leave_armed: false,
             muted_away: false,
+            rumble_seen: (0.0, 0.0),
+            watch_slot: 0,
+            usurp: false,
+            beasts_added: [0; BEASTS.len()],
+            ping_seq: 0,
+            ping_at: Vec2::ZERO,
             // The self-test never talks to Discord.
             discord: if auto.is_some() && std::env::var("ASHEN_AUTOTEST_DISCORD").is_err() && !std::env::var("ASHEN_AUTOTEST_ROLE").is_ok_and(|r| r == "menus") {
                 crate::discord::Discord::off()
@@ -415,6 +432,7 @@ impl App {
                 };
                 let details = if online { format!("{}, online", kind) } else { format!("{} on {}", kind, w.biome.name()) };
                 let state = match self.screen {
+                    Screen::Dead { .. } if w.withdrew => format!("Left the night at level {}", w.level),
                     Screen::Dead { .. } => format!("Fell at level {}", w.level),
                     Screen::Victory { .. } if w.boss_rush => "Felled every lord".to_string(),
                     Screen::Victory { .. } => "Kept the vigil until dawn".to_string(),
@@ -445,6 +463,20 @@ impl App {
         let presence = if self.save.settings.discord { Some(self.presence()) } else { None };
         self.discord.set(presence);
         crate::ui::set_hurt_flash(self.save.settings.hurt_flash);
+        set_rumble(self.save.settings.rumble);
+        if let Some(w) = self.world.as_ref().filter(|w| !w.heroes.is_empty()) {
+            let me = w.me();
+            let (hp, shake) = (me.p.hp, w.shake);
+            let (last_hp, last_shake) = self.rumble_seen;
+            if hp < last_hp - 0.5 && !me.downed {
+                let lost = ((last_hp - hp) / me.stats.max_hp.max(1.0)).clamp(0.0, 1.0);
+                rumble(0.35 + lost * 2.0, 140);
+            }
+            if shake > 8.0 && last_shake <= 8.0 && w.pause == Pause::Running {
+                rumble(0.6, 280);
+            }
+            self.rumble_seen = (hp, shake);
+        }
         crate::ui::set_hero_bars(self.save.settings.hero_hp_bar, self.save.settings.hero_stamina_bar);
         crate::draw::set_brightness(self.save.settings.brightness as f32 / 100.0);
         crate::draw::set_effect_alpha(self.save.settings.effect_alpha as f32 / 100.0);
@@ -677,7 +709,19 @@ impl App {
             if self.save.settings.meter {
                 ui.damage_meter(w, act_down(Action::Weapons) || pad_detail());
             }
+            if self.save.settings.minimap {
+                ui.minimap(w);
+            }
+            if w.spectating {
+                // Top left, under the party: clear of the boss bars and the tips.
+                let y = 300.0;
+                draw_rectangle(16.0, y - 24.0, 360.0, 52.0, Color::new(0.0, 0.0, 0.0, 0.5));
+                let line = format!("WATCHING {}", w.me().name.to_uppercase());
+                ui.text(&line, 24.0, y, 20.0, PALE);
+                ui.text("Left/right: someone else. You join the next vigil.", 24.0, y + 20.0, 13.0, DIM);
+            }
             match w.pause {
+                Pause::Choosing if w.spectating => {}
                 Pause::Choosing => ui.level_up(w, self.level_sel),
                 Pause::Countdown(t) => ui.countdown(t),
                 Pause::Running | Pause::Held => {}

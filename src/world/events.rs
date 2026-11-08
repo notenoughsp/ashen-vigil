@@ -110,7 +110,7 @@ impl World {
         if self.cursed.as_ref().map(|c| c.curse > 0.0).unwrap_or(false) {
             k *= 2.0;
         }
-        k
+        k * self.mutated(Mutator::Swarm, 1.25)
     }
 
     pub(crate) fn update_events(&mut self, dt: f32) {

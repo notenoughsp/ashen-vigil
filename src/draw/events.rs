@@ -12,6 +12,10 @@ impl World {
         }
         self.draw_altars(t);
         self.draw_hourglass(t);
+        self.draw_gate(t);
+        self.draw_rift(t);
+        self.draw_portal(t);
+        self.draw_runes(t);
         self.draw_wager_stone(t);
         self.draw_vault(t);
         if let Some(c) = &self.cursed {
@@ -204,6 +208,113 @@ impl World {
         }
     }
 
+    /// The ash gate: two leaning stones and a pale doorway of drifting ash between them.
+    fn draw_gate(&self, t: f32) {
+        let Some(g) = &self.gate else { return };
+        let p = g.pos;
+        let pulse = 0.6 + 0.4 * (t * 2.0).sin();
+        let pale = Color::new(0.6, 0.95, 0.85, 1.0);
+        draw_circle(p.x, p.y, GATE_RADIUS + 20.0, Color::new(0.4, 0.9, 0.8, 0.07 + 0.04 * pulse));
+        draw_circle_lines(p.x, p.y, GATE_RADIUS, 2.0, with_alpha(pale, 0.55));
+        draw_ellipse(p.x, p.y + 12.0, 40.0, 9.0, 0.0, rgba(0, 0, 0, 130));
+        for s in [-1.0, 1.0] {
+            let base = p + vec2(s * 30.0, 10.0);
+            draw_triangle(base + vec2(-9.0, 0.0), base + vec2(9.0, 0.0), base + vec2(-s * 6.0, -86.0), rgba(54, 52, 58, 255));
+            draw_triangle(base + vec2(-5.0 * s, 0.0), base + vec2(9.0 * s, 0.0), base + vec2(-s * 6.0, -86.0), rgba(74, 72, 80, 255));
+        }
+        // The doorway: a column of light with ash rising through it.
+        draw_rectangle(p.x - 18.0, p.y - 70.0, 36.0, 80.0, Color::new(0.65, 1.0, 0.9, 0.18 + 0.1 * pulse));
+        draw_rectangle(p.x - 9.0, p.y - 70.0, 18.0, 80.0, Color::new(0.85, 1.0, 0.95, 0.22 + 0.1 * pulse));
+        for k in 0..10 {
+            let f = (t * 0.35 + k as f32 * 0.1).rem_euclid(1.0);
+            let x = p.x + (k as f32 * 2.3 + t).sin() * 14.0;
+            draw_circle(x, p.y + 8.0 - f * 80.0, 1.6, Color::new(0.9, 1.0, 0.95, 0.8 * (1.0 - f)));
+        }
+        let k = (g.kindle / GATE_KINDLE).clamp(0.0, 1.0);
+        if k > 0.0 {
+            draw_arc(p.x, p.y, 48, GATE_RADIUS + 8.0, -90.0, 5.0, 360.0 * k, pale);
+        }
+    }
+
+    /// The rift: a jagged tear of violet light; sealed, it pulses at the chamber's heart.
+    fn draw_rift(&self, t: f32) {
+        let Some(r) = &self.rift else { return };
+        let p = r.pos;
+        let violet = Color::new(0.75, 0.55, 1.0, 1.0);
+        let sealed = r.sealed > 0.0;
+        let pulse = 0.6 + 0.4 * (t * if sealed { 6.0 } else { 3.0 }).sin();
+        draw_circle(p.x, p.y, 60.0, Color::new(0.5, 0.3, 0.9, 0.08 + 0.06 * pulse));
+        if !sealed {
+            draw_circle_lines(p.x, p.y, 40.0, 2.0, with_alpha(violet, 0.5));
+        }
+        // A zigzag tear standing in the air.
+        let pts: Vec<Vec2> = (0..8).map(|k| p + vec2(((k * 37) % 11) as f32 - 5.0 + (t * 3.0 + k as f32).sin() * 2.0, -70.0 + k as f32 * 11.0)).collect();
+        for w in pts.windows(2) {
+            draw_line(w[0].x, w[0].y, w[1].x, w[1].y, 9.0, Color::new(0.4, 0.2, 0.8, 0.35 * pulse));
+            draw_line(w[0].x, w[0].y, w[1].x, w[1].y, 4.0, violet);
+            draw_line(w[0].x, w[0].y, w[1].x, w[1].y, 1.5, WHITE);
+        }
+        let k = (r.kindle / RIFT_KINDLE).clamp(0.0, 1.0);
+        if k > 0.0 && !sealed {
+            draw_arc(p.x, p.y, 40, 46.0, -90.0, 4.0, 360.0 * k, violet);
+        }
+    }
+
+    /// The wandering portal: a ring of old stone round a swirl of another field's colours.
+    fn draw_portal(&self, t: f32) {
+        let Some(g) = &self.portal else { return };
+        let p = g.pos;
+        let tint = match g.to {
+            Biome::Graveyard => Color::new(0.55, 0.75, 0.6, 1.0),
+            Biome::Cathedral => Color::new(0.95, 0.8, 0.45, 1.0),
+            Biome::Flesh => Color::new(0.9, 0.3, 0.35, 1.0),
+        };
+        draw_circle(p.x, p.y, PORTAL_RADIUS + 24.0, with_alpha(tint, 0.08));
+        draw_ellipse(p.x, p.y + 30.0, 46.0, 10.0, 0.0, rgba(0, 0, 0, 130));
+        let c = p - vec2(0.0, 26.0);
+        draw_circle(c.x, c.y, 42.0, rgba(50, 44, 40, 255));
+        draw_circle(c.x, c.y, 34.0, with_alpha(tint, 0.85));
+        for k in 0..3 {
+            let rr = 30.0 - k as f32 * 9.0;
+            draw_arc(c.x, c.y, 32, rr, (t * (90.0 + k as f32 * 40.0)) % 360.0, 3.0, 220.0, Color::new(1.0, 1.0, 1.0, 0.35));
+        }
+        draw_circle(c.x, c.y, 8.0, Color::new(1.0, 1.0, 1.0, 0.6));
+        for k in 0..8 {
+            let q = c + Vec2::from_angle(k as f32 / 8.0 * TAU) * 38.0;
+            draw_circle(q.x, q.y, 3.0, rgba(90, 82, 74, 255));
+        }
+        draw_circle_lines(p.x, p.y, PORTAL_RADIUS, 2.0, with_alpha(tint, 0.5));
+        let k = (g.kindle / PORTAL_KINDLE).clamp(0.0, 1.0);
+        if k > 0.0 {
+            draw_arc(p.x, p.y, 48, PORTAL_RADIUS + 8.0, -90.0, 5.0, 360.0 * k, tint);
+        }
+    }
+
+    /// Teleport runes: a ring of glyphs on the floor that glows when ready, and a faint mark
+    /// where it throws to.
+    fn draw_runes(&self, t: f32) {
+        let teal = Color::new(0.43, 0.9, 0.86, 1.0);
+        for r in &self.runes {
+            let p = r.pos;
+            let k = if r.ready() { 1.0 } else { 0.25 };
+            let pulse = 0.7 + 0.3 * (t * 3.0 + p.x * 0.01).sin();
+            draw_circle(p.x, p.y, RUNE_RADIUS + 14.0, Color::new(0.3, 0.8, 0.75, 0.07 * k * pulse));
+            draw_circle_lines(p.x, p.y, RUNE_RADIUS, 2.5, with_alpha(teal, 0.85 * k));
+            draw_circle_lines(p.x, p.y, RUNE_RADIUS - 8.0, 1.5, with_alpha(teal, 0.6 * k));
+            for g in 0..6 {
+                let a = g as f32 / 6.0 * TAU + t * 0.6;
+                let q = p + Vec2::from_angle(a) * (RUNE_RADIUS - 4.0);
+                draw_line(q.x - 2.0, q.y - 3.0, q.x + 2.0, q.y + 3.0, 1.5, with_alpha(teal, 0.9 * k));
+            }
+            draw_poly_lines(p.x, p.y, 3, 7.0, t * 40.0, 1.5, with_alpha(teal, k));
+            if !r.ready() {
+                draw_arc(p.x, p.y, 32, RUNE_RADIUS + 6.0, -90.0, 3.0, 360.0 * (1.0 - r.rest / RUNE_REST), with_alpha(teal, 0.5));
+            } else {
+                draw_circle_lines(r.to.x, r.to.y, 18.0 + 4.0 * pulse, 1.5, with_alpha(teal, 0.25));
+            }
+        }
+    }
+
     /// The hourglass shrine: a tall glass of pale sand between two stone plates.
     fn draw_hourglass(&self, t: f32) {
         let Some(g) = &self.hourglass else { return };
@@ -285,6 +396,27 @@ impl World {
             let pale = rgba(225, 235, 250, 255);
             say(&[("HOURGLASS SHRINE", 24.0, rgba(170, 210, 255, 255)), ("Stand here: one to five minutes of the night pass at once", 18.0, pale)], g.pos.x, g.pos.y - 80.0);
         }
+        if let Some(g) = &self.gate {
+            let pale = rgba(220, 245, 238, 255);
+            let who = if self.heroes.len() > 1 { "Everyone standing waits here" } else { "Wait here" };
+            let line = format!("{}: leave the night, keep every carried soul", who);
+            say(&[("ASH GATE", 24.0, rgba(150, 235, 215, 255)), (&line, 18.0, pale), ("no dawn, no victory", 16.0, pale)], g.pos.x, g.pos.y - 112.0);
+        }
+        if let Some(r) = &self.rift {
+            let pale = rgba(232, 222, 250, 255);
+            if r.sealed > 0.0 {
+                let line = format!("THE CHAMBER HOLDS: {:.0} s", r.sealed.ceil());
+                say(&[(&line, 22.0, rgba(200, 170, 255, 255))], r.pos.x, r.pos.y - 96.0);
+            } else {
+                say(&[("RIFT", 24.0, rgba(200, 170, 255, 255)), ("Stand in it: a sealed chamber, guardians, a hoard", 18.0, pale)], r.pos.x, r.pos.y - 96.0);
+            }
+        }
+        if let Some(g) = &self.portal {
+            let pale = rgba(250, 232, 220, 255);
+            let who = if self.heroes.len() > 1 { "Everyone standing steps in" } else { "Step in" };
+            let line = format!("{}: the rest of the night on {}", who, g.to.name());
+            say(&[("WANDERING PORTAL", 24.0, rgba(255, 180, 130, 255)), (&line, 18.0, pale)], g.pos.x, g.pos.y - 112.0);
+        }
         if let Some(v) = &self.vault {
             let label = if v.open {
                 "THE VAULT (OPEN)"
@@ -294,6 +426,14 @@ impl World {
                 "THE VAULT: sealed"
             };
             say(&[(label, 20.0, rgba(245, 205, 95, 255))], v.pos.x, v.pos.y - 64.0);
+        }
+        // The crown's wearer's name over the lord they hold.
+        if let Some(h) = self.heroes.iter().find(|h| h.possessing) {
+            let lord = self.enemies.iter().filter(|e| e.boss && !e.dead).min_by(|a, b| a.pos.distance_squared(h.p.pos).total_cmp(&b.pos.distance_squared(h.p.pos)));
+            if let Some(e) = lord {
+                let line = format!("{} (crowned)", h.name);
+                say(&[(&line, 18.0, rgba(210, 140, 255, 255))], e.pos.x, e.pos.y - e.r * 2.2);
+            }
         }
         for e in self.enemies.iter().filter(|e| e.kind == EnemyKind::Rival && !e.dead) {
             say(&[("SVEN", 18.0, rgba(240, 80, 70, 255))], e.pos.x, e.pos.y - e.r * 2.6);
