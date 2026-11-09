@@ -504,6 +504,7 @@ fn encode_raw(w: &World, ev: &Events, view: &View, tick: u32, base_tick: u32, ba
         | (w.bell_found as u8) << 5
         | (w.heart_found as u8) << 6
         | (w.withdrew as u8) << 7);
+    e.w.u8(w.sapling_found as u8 | (w.abbot_found as u8) << 1 | (w.statue_found as u8) << 2 | (((w.abbot_thaw / ABBOT_THAW).clamp(0.0, 1.0) * 31.0) as u8) << 3);
     e.w.u8(w.biome as u8);
     e.w.u8(w.curses);
     e.w.u16(w.bosses_killed as u16);
@@ -1092,6 +1093,11 @@ fn decode_raw(w: &mut World, r: Reader, base: &Baseline, local_slot: u8, prev: &
     w.heart_found = flags & 64 != 0;
     w.withdrew = flags & 128 != 0;
     w.boss_rush = flags & 16 != 0;
+    let found = d.r.u8();
+    w.sapling_found = found & 1 != 0;
+    w.abbot_found = found & 2 != 0;
+    w.statue_found = found & 4 != 0;
+    w.abbot_thaw = (found >> 3) as f32 / 31.0 * ABBOT_THAW;
     // The field shrinks when a boss rush is learned of; braziers must match the host's.
     w.fit_field();
     w.biome = Biome::from_u8(d.r.u8());

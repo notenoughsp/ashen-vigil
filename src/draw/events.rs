@@ -9,7 +9,9 @@ impl World {
             Biome::Graveyard => self.draw_lost_grave(t),
             Biome::Cathedral => self.draw_fallen_bell(t),
             Biome::Flesh => self.draw_beating_heart(t),
-            Biome::Ashwood | Biome::Abbey | Biome::Garden => {}
+            Biome::Ashwood => self.draw_green_sapling(t),
+            Biome::Abbey => self.draw_frozen_abbot(t),
+            Biome::Garden => self.draw_still_statue(t),
         }
         self.draw_altars(t);
         self.draw_hourglass(t);
@@ -515,6 +517,89 @@ impl World {
         if self.bell_found {
             let glow = 0.6 + 0.4 * (t * 1.5).sin();
             draw_circle(p.x, p.y, 46.0, Color::new(1.0, 0.85, 0.5, 0.07 * glow));
+        }
+    }
+
+    /// A small green sapling in a ring of grey ash: the only living green in the Ashwood.
+    fn draw_green_sapling(&self, t: f32) {
+        let p = GREEN_SAPLING;
+        if !self.on_screen(p, 140.0) {
+            return;
+        }
+        draw_circle(p.x, p.y + 8.0, 34.0, rgba(60, 56, 52, 200));
+        draw_circle(p.x, p.y + 8.0, 22.0, rgba(70, 52, 36, 255));
+        let sway = (t * 1.3).sin() * 2.0;
+        draw_line(p.x, p.y + 8.0, p.x + sway, p.y - 26.0, 3.0, rgba(90, 64, 40, 255));
+        for (dx, dy, r, c) in [
+            (-9.0, -22.0, 9.0, rgba(70, 150, 60, 255)),
+            (9.0, -26.0, 10.0, rgba(90, 175, 70, 255)),
+            (sway, -36.0, 11.0, rgba(110, 195, 85, 255)),
+            (0.0, -16.0, 7.0, rgba(60, 130, 50, 255)),
+        ] {
+            draw_circle(p.x + dx, p.y + dy, r, c);
+        }
+        draw_circle(p.x + sway - 3.0, p.y - 40.0, 3.0, rgba(190, 240, 160, 200));
+        let glow = if self.sapling_found { 0.12 } else { 0.05 };
+        draw_circle(p.x, p.y - 20.0, 60.0, Color::new(0.5, 1.0, 0.4, glow * (0.7 + 0.3 * (t * 2.0).sin())));
+    }
+
+    /// An abbot kneeling in a block of ice that cracks as a hero stands by; thawed, he kneels
+    /// on in a puddle.
+    fn draw_frozen_abbot(&self, t: f32) {
+        let p = FROZEN_ABBOT;
+        if !self.on_screen(p, 140.0) {
+            return;
+        }
+        draw_ellipse(p.x, p.y + 16.0, 34.0, 9.0, 0.0, rgba(0, 0, 0, 120));
+        // The abbot: a dark robe, a pale face bowed over folded hands.
+        draw_triangle(vec2(p.x - 16.0, p.y + 14.0), vec2(p.x + 16.0, p.y + 14.0), vec2(p.x, p.y - 20.0), rgba(40, 36, 48, 255));
+        draw_circle(p.x, p.y - 22.0, 8.0, rgba(40, 36, 48, 255));
+        draw_circle(p.x + 1.0, p.y - 20.0, 5.0, rgba(215, 200, 185, 255));
+        draw_circle(p.x + 3.0, p.y - 6.0, 3.0, rgba(215, 200, 185, 255));
+        if self.abbot_found {
+            draw_ellipse(p.x, p.y + 16.0, 38.0, 8.0, 0.0, Color::new(0.6, 0.8, 1.0, 0.35));
+            draw_circle(p.x, p.y - 10.0, 50.0, Color::new(1.0, 0.95, 0.8, 0.06 + 0.03 * (t * 2.0).sin()));
+            return;
+        }
+        // The ice, cracking as it thaws.
+        let k = (self.abbot_thaw / ABBOT_THAW).clamp(0.0, 1.0);
+        draw_rectangle(p.x - 24.0, p.y - 40.0, 48.0, 58.0, Color::new(0.7, 0.88, 1.0, 0.45 - 0.2 * k));
+        draw_rectangle_lines(p.x - 24.0, p.y - 40.0, 48.0, 58.0, 2.0, Color::new(0.9, 0.97, 1.0, 0.8));
+        draw_line(p.x - 18.0, p.y - 32.0, p.x - 6.0, p.y - 20.0, 1.0, Color::new(1.0, 1.0, 1.0, 0.7));
+        let cracks = (k * 5.0) as usize;
+        for c in 0..cracks {
+            let a = vec2(p.x - 20.0 + c as f32 * 9.0, p.y - 38.0 + (c % 2) as f32 * 20.0);
+            draw_line(a.x, a.y, a.x + 8.0, a.y + 14.0, 1.2, Color::new(1.0, 1.0, 1.0, 0.8));
+            draw_line(a.x + 8.0, a.y + 14.0, a.x + 3.0, a.y + 24.0, 1.2, Color::new(1.0, 1.0, 1.0, 0.8));
+        }
+        if k > 0.0 {
+            draw_arc(p.x, p.y - 10.0, 32, 44.0, -90.0, 3.0, 360.0 * k, Color::new(1.0, 0.75, 0.4, 0.8));
+        }
+    }
+
+    /// A small weathered statue holding up an empty lantern; it is the only one in the garden
+    /// that never moves. Found, its lantern lights.
+    fn draw_still_statue(&self, t: f32) {
+        let p = STILL_STATUE;
+        if !self.on_screen(p, 140.0) {
+            return;
+        }
+        let stone = rgba(150, 146, 156, 255);
+        let dark = rgba(95, 92, 104, 255);
+        draw_ellipse(p.x, p.y + 14.0, 26.0, 8.0, 0.0, rgba(0, 0, 0, 130));
+        draw_rectangle(p.x - 14.0, p.y + 2.0, 28.0, 12.0, dark);
+        draw_triangle(vec2(p.x - 11.0, p.y + 3.0), vec2(p.x + 11.0, p.y + 3.0), vec2(p.x, p.y - 26.0), stone);
+        draw_circle(p.x, p.y - 28.0, 7.0, stone);
+        draw_line(p.x + 5.0, p.y - 18.0, p.x + 15.0, p.y - 34.0, 3.0, stone);
+        let lamp = vec2(p.x + 16.0, p.y - 40.0);
+        draw_rectangle_lines(lamp.x - 4.0, lamp.y - 5.0, 8.0, 10.0, 1.5, dark);
+        // Moss on the shoulders: it has stood here a very long time.
+        draw_circle(p.x - 6.0, p.y - 16.0, 3.0, rgba(90, 120, 70, 255));
+        draw_circle(p.x + 7.0, p.y - 10.0, 2.5, rgba(90, 120, 70, 255));
+        if self.statue_found {
+            let f = 0.8 + 0.2 * (t * 7.0).sin();
+            draw_circle(lamp.x, lamp.y, 10.0 * f, Color::new(1.0, 0.8, 0.4, 0.3));
+            draw_circle(lamp.x, lamp.y, 3.0, Color::new(1.0, 0.9, 0.6, 1.0));
         }
     }
 

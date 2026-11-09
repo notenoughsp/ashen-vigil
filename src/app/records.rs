@@ -100,6 +100,9 @@ impl App {
         check(w.grave_found, Achievement::LastKeeper);
         check(w.bell_found, Achievement::Bellringer);
         check(w.heart_found, Achievement::Heartseeker);
+        check(w.sapling_found, Achievement::Greenkeeper);
+        check(w.abbot_found, Achievement::Thaw);
+        check(w.statue_found, Achievement::Unwatched);
         check(me.rested, Achievement::Fireside);
         check(me.p.souls >= 100_000, Achievement::Hoarder);
         check(w.heroes.len() >= 4 && w.time >= 60.0, Achievement::FullHouse);

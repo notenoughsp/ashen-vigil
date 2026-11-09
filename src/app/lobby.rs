@@ -81,6 +81,17 @@ impl App {
         self.audio.play("select", 0.5);
     }
 
+    /// Empowerment `i` set to `steps`, as a slider drags it.
+    pub(super) fn set_boost(&mut self, i: usize, steps: usize) {
+        let v = steps.min(BOOST_MAX[i] as usize) as u8;
+        if self.save.settings.diff.boost[i] != v {
+            self.save.settings.diff.boost[i] = v;
+            self.lobby.diff = self.save.settings.diff;
+            self.save.store();
+            self.audio.play("select", 0.3);
+        }
+    }
+
     /// One step more or less of empowerment `i`.
     pub(super) fn change_boost(&mut self, i: usize, dir: i32) {
         let st = &mut self.save.settings;
@@ -280,6 +291,11 @@ impl App {
             LobbyState::Browse => self.update_browse(rows, text_row, mouse),
             LobbyState::Hosting => {
                 drain_chars();
+                if let Some((i, stop)) = crate::ui::slider_drag() {
+                    self.lobby.sel = 4 + i;
+                    self.set_boost(i, stop);
+                    return;
+                }
                 let dir = if left(false) || mouse.right {
                     -1
                 } else if right(false) || mouse.left {
@@ -509,8 +525,10 @@ impl App {
                     value_row(3, "Field", &format!("<  {}  >", Biome::from_u8(self.save.settings.biome).name()), &mut y);
                     let d = self.save.settings.diff;
                     for i in 0..3 {
-                        let value = format!("<  +{:.0}%  >   souls and marks x{:.2}", d.boost[i] as f32 * BOOST_STEP[i], d.soul_mult());
+                        let value = format!("+{:.0}%   souls and marks x{:.2}", boost_pct(i, d.boost[i]), d.soul_mult());
+                        let track = Rect::new(x + 200.0, y + 9.0, (w - 200.0 - 260.0).max(100.0), 16.0);
                         value_row(4 + i, BOOST_NAMES[i], &value, &mut y);
+                        ui.slider(track, i, d.boost[i] as usize, BOOST_MAX[i] as usize + 1, self.lobby.sel == 4 + i);
                     }
                     // Challenges and curses as a grid of toggles, three to a line; what each does
                     // shows under the mouse and under the grid for the one selected.

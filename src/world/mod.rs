@@ -74,6 +74,14 @@ pub const LOST_GRAVE: Vec2 = Vec2::new(-WORLD_HALF + 260.0, WORLD_HALF - 240.0);
 pub const FALLEN_BELL: Vec2 = Vec2::new(WORLD_HALF - 250.0, -WORLD_HALF + 260.0);
 /// The flesh pits' secret: a great heart still beating in the far south-east corner.
 pub const BEATING_HEART: Vec2 = Vec2::new(WORLD_HALF - 260.0, WORLD_HALF - 250.0);
+/// The Ashwood's secret: the last green sapling, in the far north-west corner.
+pub const GREEN_SAPLING: Vec2 = Vec2::new(-WORLD_HALF + 260.0, -WORLD_HALF + 260.0);
+/// The abbey's: an abbot frozen in ice in the far south-west corner, who thaws while a hero
+/// stands by him for `ABBOT_THAW` seconds.
+pub const FROZEN_ABBOT: Vec2 = Vec2::new(-WORLD_HALF + 260.0, WORLD_HALF - 250.0);
+pub const ABBOT_THAW: f32 = 3.0;
+/// The garden's: the one statue that never moves, in the far north-east corner.
+pub const STILL_STATUE: Vec2 = Vec2::new(WORLD_HALF - 250.0, -WORLD_HALF + 260.0);
 /// Seconds of standing still, with no foe near, before a hero sits down by a fire.
 pub const REST_AFTER: f32 = 20.0;
 /// Health of an enemy projectile at the start; it grows like the foes' health.
@@ -1422,6 +1430,11 @@ pub struct World {
     pub grave_found: bool,
     pub bell_found: bool,
     pub heart_found: bool,
+    pub sapling_found: bool,
+    pub abbot_found: bool,
+    /// Seconds a hero has stood by the frozen abbot.
+    pub abbot_thaw: f32,
+    pub statue_found: bool,
     /// Set on a network client: the world is only displayed, never simulated.
     pub is_client: bool,
     /// A client that joined the running vigil to watch it: it has no hero of its own and
@@ -1601,6 +1614,10 @@ impl World {
             grave_found: false,
             bell_found: false,
             heart_found: false,
+            sapling_found: false,
+            abbot_found: false,
+            abbot_thaw: 0.0,
+            statue_found: false,
             is_client: false,
             spectating: false,
             record_net: false,

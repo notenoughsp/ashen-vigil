@@ -115,7 +115,7 @@ impl App {
         let (sw, sh) = (ui_w(), ui_h());
         let cx = sw * 0.5;
         ui.spaced_c("THE WARDROBE", cx, 56.0, 40.0, 8.0, PALE);
-        ui.text_c(&format!("Souls  {}", self.save.souls), cx, 88.0, 22.0, GOLD);
+        ui.text_c(&format!("Souls  {}", menus::short_num(self.save.souls)), cx, 88.0, 22.0, GOLD);
         let w = 1100.0f32.min(sw - 40.0);
         let x = cx - w * 0.5;
         // The preview on the left, the skins on the right.

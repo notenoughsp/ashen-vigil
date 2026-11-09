@@ -631,11 +631,6 @@ impl WeaponKind {
         }
     }
 
-    /// The classic partner, for the table in the README and the evolution hints.
-    pub fn fusion_partner(self) -> WeaponKind {
-        self.fusion_partners()[0]
-    }
-
     pub fn color(self) -> Color {
         use WeaponKind::*;
         match self {
@@ -1907,12 +1902,31 @@ pub struct Difficulty {
     pub boost: [u8; 3],
 }
 
-/// The empowerments: their names, the percent each step adds, the most steps, and how much
+/// The empowerments: their names, the percent each small step adds, how far the small steps
+/// go before each step adds `BOOST_BIG`, the most steps (up to +`BOOST_TOP`%), and how much
 /// more each full +100% pays.
 pub const BOOST_NAMES: [&str; 3] = ["Foes' health", "Foes' speed", "Foes' numbers"];
 pub const BOOST_STEP: [f32; 3] = [25.0, 10.0, 25.0];
-pub const BOOST_MAX: [u8; 3] = [12, 10, 8];
+const BOOST_FINE: [f32; 3] = [200.0, 100.0, 200.0];
+const BOOST_BIG: f32 = 50.0;
+const BOOST_TOP: f32 = 1000.0;
+pub const BOOST_MAX: [u8; 3] = [
+    (BOOST_FINE[0] / BOOST_STEP[0] + (BOOST_TOP - BOOST_FINE[0]) / BOOST_BIG) as u8,
+    (BOOST_FINE[1] / BOOST_STEP[1] + (BOOST_TOP - BOOST_FINE[1]) / BOOST_BIG) as u8,
+    (BOOST_FINE[2] / BOOST_STEP[2] + (BOOST_TOP - BOOST_FINE[2]) / BOOST_BIG) as u8,
+];
 const BOOST_PAY: [f32; 3] = [0.35, 1.0, 0.45];
+
+/// The percent `steps` of empowerment `i` add: small steps first, then bigger ones.
+pub fn boost_pct(i: usize, steps: u8) -> f32 {
+    let fine = BOOST_FINE[i] / BOOST_STEP[i];
+    let s = steps.min(BOOST_MAX[i]) as f32;
+    if s <= fine {
+        s * BOOST_STEP[i]
+    } else {
+        BOOST_FINE[i] + (s - fine) * BOOST_BIG
+    }
+}
 
 /// Seconds over which a harder difficulty ramps up to its full strength.
 const DIFF_RAMP: f32 = 180.0;
@@ -1936,7 +1950,7 @@ impl Difficulty {
 
     /// How much empowerment `i` multiplies its value by.
     pub fn boost_mult(&self, i: usize) -> f32 {
-        1.0 + self.boost[i].min(BOOST_MAX[i]) as f32 * BOOST_STEP[i] / 100.0
+        1.0 + boost_pct(i, self.boost[i]) / 100.0
     }
 
     /// What the empowerments pay on top: more souls and marks the stronger the foes.
@@ -1946,8 +1960,7 @@ impl Difficulty {
 
     /// The empowerments in words, or nothing when there are none.
     pub fn boost_text(&self) -> String {
-        let parts: Vec<String> =
-            (0..3).filter(|&i| self.boost[i] > 0).map(|i| format!("{} +{:.0}%", ["health", "speed", "numbers"][i], self.boost[i] as f32 * BOOST_STEP[i])).collect();
+        let parts: Vec<String> = (0..3).filter(|&i| self.boost[i] > 0).map(|i| format!("{} +{:.0}%", ["health", "speed", "numbers"][i], boost_pct(i, self.boost[i]))).collect();
         parts.join(", ")
     }
 
@@ -1957,17 +1970,19 @@ impl Difficulty {
     }
 }
 
-pub const DIFF_COUNT: [f32; 6] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0];
-pub const DIFF_HP: [f32; 7] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0];
-pub const DIFF_DMG: [f32; 6] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0];
-pub const DIFF_SPEED: [f32; 6] = [0.8, 0.9, 1.0, 1.15, 1.3, 1.5];
-pub const DIFF_BOSS: [f32; 6] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0];
+pub const DIFF_COUNT: [f32; 7] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0];
+pub const DIFF_HP: [f32; 8] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0];
+pub const DIFF_DMG: [f32; 7] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0];
+pub const DIFF_SPEED: [f32; 7] = [0.8, 0.9, 1.0, 1.15, 1.3, 1.5, 1.7];
+pub const DIFF_BOSS: [f32; 8] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0];
 
-pub const PRESETS: [(&str, Difficulty); 4] = [
+pub const PRESETS: [(&str, Difficulty); 6] = [
     ("Pilgrim", Difficulty { count: 0.75, hp: 0.75, dmg: 0.5, speed: 0.9, boss_hp: 0.75, boost: [0; 3] }),
     ("Knight", Difficulty { count: 1.0, hp: 1.0, dmg: 1.0, speed: 1.0, boss_hp: 1.0, boost: [0; 3] }),
     ("Lord", Difficulty { count: 1.5, hp: 1.5, dmg: 1.5, speed: 1.15, boss_hp: 1.5, boost: [0; 3] }),
     ("Abyss", Difficulty { count: 2.0, hp: 3.0, dmg: 2.0, speed: 1.3, boss_hp: 3.0, boost: [0; 3] }),
+    ("Eclipse", Difficulty { count: 3.0, hp: 4.0, dmg: 3.0, speed: 1.5, boss_hp: 4.0, boost: [0; 3] }),
+    ("Oblivion", Difficulty { count: 4.0, hp: 6.0, dmg: 4.0, speed: 1.7, boss_hp: 6.0, boost: [0; 3] }),
 ];
 
 impl Default for Difficulty {
@@ -1980,7 +1995,7 @@ impl Difficulty {
     /// Harder settings pay out more souls and marks.
     pub fn soul_mult(&self) -> f32 {
         let m = 1.0 + (self.count - 1.0) * 0.3 + (self.hp - 1.0) * 0.25 + (self.dmg - 1.0) * 0.3 + (self.speed - 1.0) * 0.8 + (self.boss_hp - 1.0) * 0.1;
-        m.clamp(0.4, 4.0) * self.boost_reward()
+        m.clamp(0.4, 6.0) * self.boost_reward()
     }
 
     pub fn preset_name(&self) -> &'static str {
@@ -2160,9 +2175,12 @@ pub enum Achievement {
     Bellringer,
     Heartseeker,
     Encore,
+    Greenkeeper,
+    Thaw,
+    Unwatched,
 }
 
-pub const ALL_ACHIEVEMENTS: [Achievement; 77] = [
+pub const ALL_ACHIEVEMENTS: [Achievement; 80] = [
     Achievement::FirstLight,
     Achievement::Gravebreaker,
     Achievement::Dawnbringer,
@@ -2240,6 +2258,9 @@ pub const ALL_ACHIEVEMENTS: [Achievement; 77] = [
     Achievement::Bellringer,
     Achievement::Heartseeker,
     Achievement::Encore,
+    Achievement::Greenkeeper,
+    Achievement::Thaw,
+    Achievement::Unwatched,
 ];
 
 impl Achievement {
@@ -2326,6 +2347,9 @@ impl Achievement {
             Selfless => "Selfless",
             Bellringer => "The Last Toll",
             Heartseeker => "The Heart of It",
+            Greenkeeper => "Greenkeeper",
+            Thaw => "The Thaw",
+            Unwatched => "Looked At",
             Encore => "Encore",
         }
     }
@@ -2409,6 +2433,9 @@ impl Achievement {
             Selfless => "Offer 1,000 Ashen Marks in the Reliquary.",
             Bellringer => "Find the bell that fell from the cathedral.",
             Heartseeker => "Find the heart that beats beneath the flesh pits.",
+            Greenkeeper => "Find the last green thing in the Ashwood.",
+            Thaw => "Free the abbot frozen in the abbey's ice.",
+            Unwatched => "Find the one statue in the garden that never moves.",
             Encore => "Ask the main menu for another song.",
         }
     }
@@ -2426,7 +2453,7 @@ impl Achievement {
             Purist => 50,
             AbyssWalker => 60,
             Fireside | ColdEmbers | SoftHeart => 10,
-            LastKeeper | Clang | Bellringer | Heartseeker => 15,
+            LastKeeper | Clang | Bellringer | Heartseeker | Greenkeeper | Thaw | Unwatched => 15,
             Untouched | Hoarder | FullHouse | RollModel | Banker => 20,
             GrandFusion | Executioner => 25,
             Centurion => 30,

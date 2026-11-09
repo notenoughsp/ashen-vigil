@@ -736,6 +736,42 @@ fn the_cathedral_hides_a_fallen_bell_and_no_grave() {
 }
 
 #[test]
+fn the_new_fields_hide_their_own_secrets() {
+    // The sapling, found by walking to it, and only in the Ashwood.
+    let mut w = world_with(1, PRESETS[1].1);
+    w.biome = Biome::Garden;
+    w.heroes[0].p.pos = GREEN_SAPLING;
+    w.update_secrets(0.016);
+    assert!(!w.sapling_found, "the sapling is the Ashwood's alone");
+    w.biome = Biome::Ashwood;
+    w.update_secrets(0.016);
+    assert!(w.sapling_found);
+    // The abbot thaws only while a hero stays by him.
+    let mut w = world_with(1, PRESETS[1].1);
+    w.biome = Biome::Abbey;
+    w.heroes[0].p.pos = FROZEN_ABBOT + vec2(20.0, 0.0);
+    for _ in 0..60 {
+        w.update_secrets(0.016);
+    }
+    assert!(!w.abbot_found, "thawed too soon");
+    for _ in 0..200 {
+        w.update_secrets(0.016);
+    }
+    assert!(w.abbot_found, "never thawed");
+    // The still statue.
+    let mut w = world_with(1, PRESETS[1].1);
+    w.biome = Biome::Garden;
+    w.heroes[0].p.pos = STILL_STATUE + vec2(10.0, 0.0);
+    w.update_secrets(0.016);
+    assert!(w.statue_found && w.pickups.iter().any(|p| matches!(p.kind, PickKind::Magnet)));
+    for at in [GREEN_SAPLING, FROZEN_ABBOT, STILL_STATUE] {
+        assert!(inside_world(at, 100.0));
+        // Clear of the corner runes.
+        assert!(crate::world::corner_runes().iter().all(|r| r.pos.distance(at) > 300.0));
+    }
+}
+
+#[test]
 fn the_lost_grave_gives_a_relic_once() {
     let mut w = world_with(1, PRESETS[1].1);
     assert!(inside_world(LOST_GRAVE, 100.0));
@@ -1408,6 +1444,52 @@ fn every_class_skill_fires_and_cools_down() {
         simulate(&mut w, 0.1, true, |_, _| {});
         assert!(w.heroes[0].skill_cd < before, "{:?}: cast again while cooling down", class);
     }
+}
+
+#[test]
+fn souls_show_short() {
+    use crate::ui::souls_short;
+    assert_eq!(souls_short(950), "950");
+    assert_eq!(souls_short(1_000), "1k");
+    assert_eq!(souls_short(1_250), "1.2k");
+    assert_eq!(souls_short(34_999), "34.9k");
+    assert_eq!(souls_short(250_000), "250k");
+    assert_eq!(souls_short(5_600_000), "5.6m");
+    assert_eq!(souls_short(7_800_000_000), "7.8b");
+    assert_eq!(souls_short(1_200_000_000_000), "1.2t");
+}
+
+#[test]
+fn skills_grow_with_the_passives() {
+    // Amount throws more, area reaches further and lasts longer.
+    let cast = |amount: u32, area: f32| {
+        let mut w = World::new(PRESETS[1].1, None);
+        w.screen = vec2(1920.0, 1080.0);
+        w.add_hero(0, "S", Class::Arbalist, Profile { unlocks: u64::MAX, ..Profile::default() }, false);
+        w.heroes[0].stats.amount = amount;
+        w.heroes[0].stats.area = area;
+        w.use_skill(0);
+        w.cast_skills();
+        let quarrels = w.projs.iter().filter(|p| p.kind == PKind::Quarrel && p.evo).count();
+        let life = w.projs.iter().filter(|p| p.kind == PKind::Quarrel && p.evo).map(|p| p.life).fold(0.0, f32::max);
+        (quarrels, life)
+    };
+    let (plain, plain_life) = cast(0, 1.0);
+    let (more, long) = cast(2, 2.0);
+    assert!(more > plain, "amount threw no more: {} vs {}", more, plain);
+    assert!(long > plain_life, "area reached no further");
+    // The hex pool grows with area and lasts longer.
+    let pool = |area: f32| {
+        let mut w = World::new(PRESETS[1].1, None);
+        w.add_hero(0, "S", Class::Hexblade, Profile { unlocks: u64::MAX, ..Profile::default() }, false);
+        w.heroes[0].stats.area = area;
+        w.use_skill(0);
+        w.cast_skills();
+        w.pools.iter().find(|p| p.kind == PoolKind::Hex).map(|p| (p.r, p.max_life)).unwrap()
+    };
+    let (r1, l1) = pool(1.0);
+    let (r2, l2) = pool(2.0);
+    assert!(r2 > r1 && l2 > l1, "the hex did not grow with area");
 }
 
 #[test]
@@ -2845,6 +2927,18 @@ fn the_other_twenty_seven_each_fight_their_own_way() {
     // None of the newer weapons fights like its twin any more.
     for k in ASH_WEAPONS.iter().chain(ABBEY_WEAPONS.iter()).chain(GARDEN_WEAPONS.iter()) {
         assert!(k.own_mechanic() && k.mechanic() == *k, "{:?}", k);
+    }
+}
+
+#[test]
+fn level_up_cards_come_highest_level_first() {
+    let mut w = world_with(1, PRESETS[1].1);
+    let h = &mut w.heroes[0];
+    h.weapons = vec![Weapon { level: 2, ..Weapon::new(WeaponKind::Blade) }, Weapon { level: 6, ..Weapon::new(WeaponKind::Axe) }];
+    for _ in 0..200 {
+        let c = h.roll_choices();
+        let levels: Vec<u32> = c.iter().map(|c| h.choice_level(*c)).collect();
+        assert!(levels.windows(2).all(|p| p[0] >= p[1]), "cards out of order: {:?}", levels);
     }
 }
 

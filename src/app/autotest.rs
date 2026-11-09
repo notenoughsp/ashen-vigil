@@ -3,7 +3,8 @@
 //! ASHEN_AUTOTEST=<dir> runs a single-player script. With ASHEN_AUTOTEST_ROLE=host|client two
 //! processes play together over localhost. ASHEN_WINDOW_POS=x,y moves the window, e.g. onto a
 //! second monitor. Tests run muted and never touch the real save file. ASHEN_AUTOTEST_LORDS
-//! takes a picture of every lord, ASHEN_AUTOTEST_ARMS of the newer fields' weapons at work.
+//! takes a picture of every lord, ASHEN_AUTOTEST_ARMS of the newer fields' weapons at work, ASHEN_AUTOTEST_SECRETS
+//! of their secrets.
 
 use super::*;
 use std::f32::consts::TAU;
@@ -192,6 +193,42 @@ impl App {
             }
             return want;
         }
+        // ASHEN_AUTOTEST_SECRETS: the newer fields' secrets, one picture each.
+        if std::env::var("ASHEN_AUTOTEST_SECRETS").is_ok() {
+            let (i, step) = ((f / 100) as usize, f % 100);
+            let spots = [
+                (Biome::Ashwood, BossKind::BurntOak, crate::world::GREEN_SAPLING),
+                (Biome::Abbey, BossKind::SnowAbbess, crate::world::FROZEN_ABBOT),
+                (Biome::Garden, BossKind::Gardener, crate::world::STILL_STATUE),
+            ];
+            let Some(&(biome, lord, at)) = spots.get(i) else { std::process::exit(0) };
+            match step {
+                2 => {
+                    self.field_showcase(biome, lord);
+                    if let Some(w) = self.world.as_mut() {
+                        w.next_boss = f32::MAX;
+                        w.enemies.clear();
+                        w.heroes[0].weapons.clear();
+                        let p = at + vec2(110.0, 40.0);
+                        w.heroes[0].p.pos = p;
+                        w.cam = p;
+                    }
+                }
+                60 => {
+                    if let Some(w) = self.world.as_mut() {
+                        w.pending_levels = 0;
+                        w.pause = Pause::Running;
+                        // The abbot half thawed, to see his ice crack.
+                        w.abbot_thaw = crate::world::ABBOT_THAW * 0.5;
+                        w.pools.clear();
+                        w.enemies.retain(|e| matches!(e.kind, EnemyKind::Prop(_)));
+                    }
+                }
+                85 => want.push(&*Box::leak(format!("secret_{}", biome.name().to_lowercase().replace(' ', "_")).into_boxed_str())),
+                _ => {}
+            }
+            return want;
+        }
         // ASHEN_AUTOTEST_ARMS: the newer fields' weapons at work, four to a picture.
         if std::env::var("ASHEN_AUTOTEST_ARMS").is_ok() {
             let (i, step) = ((f / 100) as usize, f % 100);
@@ -338,6 +375,16 @@ impl App {
             906 => want.push("boss_faded"),
             907 => self.save.settings.effect_alpha = 100,
             1000 => self.world.as_mut().unwrap().pending_levels += 1,
+            1005 => {
+                // Four cards with the longest texts, to see they stay inside their cards.
+                let w = self.world.as_mut().unwrap();
+                let h = &mut w.heroes[0];
+                if h.weapons.len() > 1 {
+                    let mut cards = vec![Choice::NewWeapon(WeaponKind::AshRoots), Choice::UpWeapon(0), Choice::NewWeapon(WeaponKind::IceScourge), Choice::UpWeapon(1)];
+                    cards.sort_by_key(|c| std::cmp::Reverse(h.choice_level(*c)));
+                    h.choices = cards;
+                }
+            }
             1010 => want.push("levelup"),
             1300 => {
                 let w = self.world.as_mut().unwrap();

@@ -211,11 +211,7 @@ const PAGES: [(&str, &[Opt]); 6] = [
 
 /// A price in a few characters: 950, 12.5K, 1.20M.
 pub(super) fn short_num(v: u64) -> String {
-    match v {
-        0..=9_999 => v.to_string(),
-        10_000..=999_999 => format!("{:.1}K", v as f64 / 1e3),
-        _ => format!("{:.2}M", v as f64 / 1e6),
-    }
+    crate::ui::souls_short(v)
 }
 
 /// A volume one percent up or down.
@@ -232,14 +228,79 @@ fn update_notice() -> Rect {
 }
 
 /// What is new in this version, in a few words each, shown once after an update.
-const WHATS_NEW: [&str; 6] = [
-    "Every weapon of the three new fields now fights in a way all its own.",
-    "Spiralling hatchets, ice walls that stop bullets, shears that snap shut and more.",
-    "Ice needles and meltwater gather cold until a foe freezes; roots hold foes fast.",
-    "Four teleport runes, one near each corner, each throwing you on to the next.",
-    "A used rune and the one it threw you to both rest a while.",
-    "The lord's warning is back at the top, under the clock.",
+/// What each version brought, newest first; the main menu shows all of it after an update.
+const WHATS_NEW: &[(&str, &[&str])] = &[
+    (
+        "0.9.0",
+        &[
+            "Two new difficulties past Abyss: Eclipse and Oblivion.",
+            "Foes' health, speed and numbers now go up to +1000%.",
+            "Every amount in the options and the shrine is a real slider to drag.",
+            "Class skills grow with your passives: area, amount and might.",
+            "Level-up cards come highest level first, and long texts fit the card.",
+            "Souls show short: 1.2k, 3.4m, 5.6b.",
+            "Weapons no longer tell what they fuse with.",
+        ],
+    ),
+    (
+        "0.8.0",
+        &[
+            "Every weapon of the three new fields fights in a way all its own.",
+            "Spiralling hatchets, ice walls that stop bullets, shears that snap shut and more.",
+            "Four teleport runes, one near each corner, each throwing you on to the next.",
+            "The lord's warning is back at the top, under the clock.",
+            "Ashen Vigil on Android phones, with touch controls.",
+        ],
+    ),
+    (
+        "0.7.0",
+        &[
+            "Three new fields: the Ashwood, the Frozen Abbey and the Starless Garden.",
+            "Ten new foes, three new lords and a new weather: the blizzard.",
+            "Each new field has twelve weapons of its own, fire, frost or poison.",
+            "Announcements and timed events sit small at the right edge.",
+        ],
+    ),
+    (
+        "0.6.0",
+        &[
+            "Elites carry a coloured mark: swift, volatile, mender, warded or blinker.",
+            "Twin lords, mimics, rifts, a portal and the ash gate.",
+            "Breakable props on every field, and teleport runes.",
+            "Endless night: a new mutator every 2.5 minutes.",
+            "Online: pings, duo strikes, ghosts on a chain; a minimap and the bestiary.",
+        ],
+    ),
+    (
+        "0.5.0",
+        &[
+            "Recorded songs for every field, the boss rush and each lord.",
+            "Boss music has its own volume, and can play out after the fight.",
+            "Updates let you pick the build with songs or the small synth one.",
+        ],
+    ),
+    ("0.4.x", &["The Flesh Pits and their arsenal, the Hallowed Cathedral, many lords at once.", "The cathedral's own arsenal, two new classes, offerings and empowered foes."]),
+    ("0.3.x", &["Omens, wagers, quests, a richer merchant and an auto-updater.", "Hourglass shrines, Sven the rival, a balance overhaul and tooltips."]),
+    ("0.2.x", &["Ten lords, three fields, class skills, curses and braziers.", "Spoken lords, pause menu buttons, more options and Discord status."]),
+    ("0.1.x", &["The first vigils: fusions to ultra, the Last Flame, skins and cute mode.", "Boss warning, boss rush, music per act, 30 achievements."]),
 ];
+
+/// What is new as lines to draw, with a heading for each version: the panel's width and
+/// each line with whether it is a heading.
+fn whats_new_lines(ui: &Ui) -> (f32, Vec<(String, bool)>) {
+    let w = 320.0;
+    let mut lines = Vec::new();
+    for (k, (version, notes)) in WHATS_NEW.iter().enumerate() {
+        if k > 0 {
+            lines.push((String::new(), false));
+        }
+        lines.push((format!("v{}", version), true));
+        for n in notes.iter() {
+            lines.extend(ui.wrap(&format!("- {}", n), 15.0, w - 28.0).into_iter().map(|l| (l, false)));
+        }
+    }
+    (w, lines)
+}
 
 /// The button on the left of the main menu that folds out what is new.
 fn whats_new_button() -> Rect {
@@ -265,6 +326,16 @@ fn value_row(ui: &Ui, x: f32, y: f32, w: f32, on: bool, label: &str, value: &str
     ui.row(x, y, w, 34.0, on);
     ui.text(label, x + 14.0, y + 23.0, 19.0, PALE);
     ui.text_r(value, x + w - 14.0, y + 23.0, 18.0, if on { GOLD } else { DIM });
+}
+
+/// A row with a slider: the label, the track in the middle and the value at the right.
+#[allow(clippy::too_many_arguments)]
+fn slider_row(ui: &Ui, x: f32, y: f32, w: f32, on: bool, label: &str, value: &str, tag: usize, stop: (usize, usize)) {
+    ui.row(x, y, w, 34.0, on);
+    ui.text(label, x + 14.0, y + 23.0, 19.0, PALE);
+    ui.text_r(value, x + w - 14.0, y + 23.0, 18.0, if on { GOLD } else { DIM });
+    let track = Rect::new(x + w * 0.42, y + 9.0, w * 0.58 - 150.0, 16.0);
+    ui.slider(track, tag, stop.0, stop.1, on);
 }
 
 impl App {
@@ -299,6 +370,15 @@ impl App {
                 self.whats_new = Some(!open);
                 self.audio.play("select", 0.5);
                 return;
+            }
+            // The wheel over the open list scrolls through the older versions.
+            let b = whats_new_button();
+            if open && mouse_ui().x < b.x + 340.0 && mouse_ui().y > b.y + b.h {
+                let wheel = mouse_wheel().1;
+                if wheel != 0.0 {
+                    let step = if wheel > 0.0 { -3 } else { 3 };
+                    self.whats_new_scroll = (self.whats_new_scroll as i32 + step).clamp(0, 400) as usize;
+                }
             }
         }
         // A newer version: pick a build under the notice (or Y with songs, X without on a pad),
@@ -475,7 +555,15 @@ impl App {
         let b = self.save.best_time as u32;
         let cats = if self.save.cats > 0 { format!("    Cats befriended {}", self.save.cats) } else { String::new() };
         ui.text_c(
-            &format!("Souls {}    Ashen Marks {}    Vigils {}    Longest {:02}:{:02}{}", self.save.souls, self.save.marks, self.save.vigils, b / 60, b % 60, cats),
+            &format!(
+                "Souls {}    Ashen Marks {}    Vigils {}    Longest {:02}:{:02}{}",
+                short_num(self.save.souls),
+                short_num(self.save.marks),
+                self.save.vigils,
+                b / 60,
+                b % 60,
+                cats
+            ),
             sw * 0.5,
             sh - 64.0,
             16.0,
@@ -498,15 +586,24 @@ impl App {
         if !open {
             return;
         }
-        // Narrow enough to leave the title free at 1280 wide.
-        let w = 300.0;
-        let lines: Vec<String> = WHATS_NEW.iter().flat_map(|l| ui.wrap(&format!("- {}", l), 15.0, w - 28.0)).collect();
-        let h = 20.0 + lines.len() as f32 * 21.0;
+        // Narrow enough to leave the title free at 1280 wide; as tall as the window allows,
+        // and the wheel scrolls back through the older versions.
+        let (w, lines) = whats_new_lines(ui);
         let (x, y) = (b.x, b.y + b.h + 6.0);
+        let h = (20.0 + lines.len() as f32 * 21.0).min(ui_h() - y - 16.0);
         draw_rectangle(x, y, w, h, Color::new(0.07, 0.06, 0.06, 0.88));
         draw_rectangle_lines(x, y, w, h, 1.5, crate::ui::EMBER);
-        for (i, l) in lines.iter().enumerate() {
-            ui.text(l, x + 14.0, y + 26.0 + i as f32 * 21.0, 15.0, WHITE);
+        let rows = ((h - 20.0) / 21.0).floor().max(1.0) as usize;
+        let first = self.whats_new_scroll.min(lines.len().saturating_sub(rows));
+        for (i, (l, head)) in lines.iter().skip(first).take(rows).enumerate() {
+            let col = if *head { GOLD } else { WHITE };
+            ui.text(l, x + 14.0, y + 26.0 + i as f32 * 21.0, if *head { 16.0 } else { 15.0 }, col);
+        }
+        if lines.len() > rows {
+            // Where in the list we are.
+            let k = rows as f32 / lines.len() as f32;
+            let top = first as f32 / lines.len() as f32;
+            draw_rectangle(x + w - 6.0, y + 6.0 + (h - 12.0) * top, 3.0, (h - 12.0) * k, crate::ui::a(GOLD, 0.6));
         }
     }
 
@@ -675,7 +772,16 @@ impl App {
         if nav(&mut self.opt_sel, rows.len(), on_name) {
             self.audio.play("select", 0.4);
         }
-        let mouse = mouse_rows(&mut self.opt_sel);
+        let mut mouse = mouse_rows(&mut self.opt_sel);
+        if let Some((tag, stop)) = crate::ui::slider_drag() {
+            if let Some(&o) = rows.get(tag) {
+                self.opt_sel = tag;
+                if self.option_stop(o).is_some_and(|(cur, _)| cur != stop) {
+                    self.set_option_stop(o, stop);
+                }
+            }
+            mouse = MouseRow::default();
+        }
         let opt = rows[self.opt_sel.min(rows.len() - 1)];
         if opt == Opt::Name {
             edit_text(&mut self.save.settings.name, 16, name_char);
@@ -735,6 +841,52 @@ impl App {
     pub(super) fn option_is_risky(&self) -> bool {
         let rows = PAGES[self.opt_page.min(self.page_count() - 1)].1;
         matches!(rows.get(self.opt_sel), Some(Opt::Resolution | Opt::Fullscreen | Opt::Vsync | Opt::Msaa | Opt::Bind(_) | Opt::Name))
+    }
+
+    /// Where a slider option stands: its stop and how many stops it has. `None` for options
+    /// that are switches or lists rather than amounts.
+    fn option_stop(&self, opt: Opt) -> Option<(usize, usize)> {
+        let st = &self.save.settings;
+        let pct = |v: f32| ((v * 100.0).round().clamp(0.0, 100.0) as usize, 101);
+        let at = |list: &[f32], v: f32| (list.iter().position(|x| (*x - v).abs() < 0.001).unwrap_or(list.len() / 2), list.len());
+        Some(match opt {
+            Opt::Music => pct(st.music),
+            Opt::BossMusic => pct(st.boss_music),
+            Opt::Sfx => pct(st.sfx),
+            Opt::Vol(i) => pct(st.vols[i as usize]),
+            Opt::Shake => (st.shake as usize / 10, 11),
+            Opt::Rumble => (st.rumble as usize / 10, 11),
+            Opt::HurtFlash => (st.hurt_flash as usize / 10, 11),
+            Opt::FxAlpha => {
+                let min = crate::save::MIN_EFFECT_ALPHA as usize;
+                ((st.effect_alpha as usize).saturating_sub(min) / 5, (100 - min) / 5 + 1)
+            }
+            Opt::Brightness => {
+                let (min, max) = (crate::save::MIN_BRIGHTNESS as usize, crate::save::MAX_BRIGHTNESS as usize);
+                ((st.brightness as usize).saturating_sub(min) / 5, (max - min) / 5 + 1)
+            }
+            Opt::Markers => (st.marker_inset as usize, crate::save::MAX_MARKER_INSET as usize + 1),
+            Opt::UiScale => (st.ui_scale as usize % UI_SCALES.len(), UI_SCALES.len()),
+            Opt::FpsCap => (FPS_CAPS.iter().position(|c| *c == st.fps_cap).unwrap_or(FPS_CAPS.len() - 1), FPS_CAPS.len()),
+            Opt::Count => at(&DIFF_COUNT, st.diff.count),
+            Opt::Hp => at(&DIFF_HP, st.diff.hp),
+            Opt::Dmg => at(&DIFF_DMG, st.diff.dmg),
+            Opt::Speed => at(&DIFF_SPEED, st.diff.speed),
+            Opt::BossHp => at(&DIFF_BOSS, st.diff.boss_hp),
+            _ => return None,
+        })
+    }
+
+    /// Moves a slider option to `stop`, a step at a time, so everything a step sets follows.
+    fn set_option_stop(&mut self, opt: Opt, stop: usize) {
+        for _ in 0..256 {
+            let Some((cur, n)) = self.option_stop(opt) else { return };
+            let to = stop.min(n - 1);
+            if cur == to {
+                return;
+            }
+            self.change_option(opt, if to > cur { 1 } else { -1 });
+        }
     }
 
     fn change_option(&mut self, opt: Opt, dir: i32) {
@@ -839,6 +991,7 @@ impl App {
             Opt::Bind(i) if self.binding == Some(i as usize) => "Press a key...".into(),
             Opt::Bind(i) => key_name(self.save.settings.binds[i as usize]).into(),
             Opt::ResetBinds => String::new(),
+            _ if self.option_stop(opt).is_some() => self.option_value(opt),
             _ => format!("<  {}  >", self.option_value(opt)),
         }
     }
@@ -956,6 +1109,8 @@ impl App {
             if *opt == Opt::Back {
                 ui.row(x, y, w, 34.0, self.opt_sel == i);
                 ui.text_c("Back", cx, y + 23.0, 20.0, EMBER);
+            } else if let Some(stop) = self.option_stop(*opt) {
+                slider_row(ui, x, y, w, self.opt_sel == i, opt.label(), &self.option_text(*opt), i, stop);
             } else {
                 value_row(ui, x, y, w, self.opt_sel == i, opt.label(), &self.option_text(*opt));
             }
@@ -1083,6 +1238,11 @@ impl App {
             return;
         }
         let mouse = mouse_rows(&mut self.hub_sel);
+        if let Some((i, stop)) = crate::ui::slider_drag() {
+            self.hub_sel = HUB_BOOST_ROW + i;
+            self.set_boost(i, stop);
+            return;
+        }
         // Clicking the class row picks a class (right click: the other way); it does not start.
         if self.hub_sel == 0 && (mouse.left || mouse.right) {
             self.cycle_class(if mouse.right { -1 } else { 1 });
@@ -1128,9 +1288,9 @@ impl App {
         let (sw, sh) = (ui_w(), ui_h());
         let cx = sw * 0.5;
         ui.spaced_c("THE ASH SHRINE", cx, 70.0, 40.0, 8.0, PALE);
-        ui.text_c(&format!("Souls  {}", self.save.souls), cx, 104.0, 24.0, GOLD);
+        ui.text_c(&format!("Souls  {}", short_num(self.save.souls)), cx, 104.0, 24.0, GOLD);
         if let Some((_, n)) = self.save.remnant {
-            ui.text_c(&format!("Your remnant of {} souls waits where you last fell.", n), cx, 130.0, 16.0, TEAL);
+            ui.text_c(&format!("Your remnant of {} souls waits where you last fell.", short_num(n)), cx, 130.0, 16.0, TEAL);
         }
         let w = 1100.0f32.min(sw - 40.0);
         let x = cx - w * 0.5;
@@ -1173,7 +1333,8 @@ impl App {
             ui.row(x, y, w, 26.0, self.hub_sel == HUB_BOOST_ROW + i);
             let col = if n > 0 { EMBER } else { DIM };
             ui.text(BOOST_NAMES[i], x + 36.0, y + 19.0, 17.0, if n > 0 { PALE } else { DIM });
-            ui.text(&format!("<  +{:.0}%  >", n as f32 * BOOST_STEP[i]), x + 245.0, y + 19.0, 16.0, col);
+            ui.slider(Rect::new(x + 245.0, y + 5.0, (w - 520.0).max(120.0), 16.0), i, n as usize, BOOST_MAX[i] as usize + 1, self.hub_sel == HUB_BOOST_ROW + i);
+            ui.text(&format!("+{:.0}%", boost_pct(i, n)), x + 255.0 + (w - 520.0).max(120.0), y + 19.0, 16.0, col);
             let pay = (d.boost_mult(i) - 1.0) * [0.35, 1.0, 0.45][i] * 100.0;
             ui.text_r(&format!("+{:.0}% souls and marks", pay), x + w - 14.0, y + 19.0, 15.0, col);
             y += 29.0;
@@ -1380,7 +1541,13 @@ impl App {
         let (sw, sh) = (ui_w(), ui_h());
         let cx = sw * 0.5;
         ui.spaced_c("THE RELIQUARY", cx, 50.0, 40.0, 8.0, PALE);
-        ui.text_c(&format!("Souls  {}        Ashen Marks  {}", self.save.souls, self.save.marks), cx, 80.0, 20.0, if self.relic_page == 0 { GOLD } else { EMBER });
+        ui.text_c(
+            &format!("Souls  {}        Ashen Marks  {}", short_num(self.save.souls), short_num(self.save.marks)),
+            cx,
+            80.0,
+            20.0,
+            if self.relic_page == 0 { GOLD } else { EMBER },
+        );
         // Page tabs.
         let tab_w = 260.0;
         for (i, name) in ["Soul Upgrades", "Relics and Unlocks", "Offerings"].iter().enumerate() {
@@ -1416,15 +1583,15 @@ impl App {
         let rw = 520.0f32.min(w);
         let rx = cx - rw * 0.5;
         let mut y = top + 10.0;
-        ui.text_c(&format!("Offered so far:  {} souls,  {} Ashen Marks", self.save.offered_souls, self.save.offered_marks), cx, y + 18.0, 18.0, PALE);
+        ui.text_c(&format!("Offered so far:  {} souls,  {} Ashen Marks", short_num(self.save.offered_souls), short_num(self.save.offered_marks)), cx, y + 18.0, 18.0, PALE);
         y += 40.0;
         for (i, (souls, amount)) in OFFERINGS.iter().enumerate() {
             let have = if *souls { self.save.souls } else { self.save.marks };
             let give = if *amount == 0 { have } else { *amount };
             let label = match (*souls, *amount) {
-                (true, 0) => format!("Offer all your souls ({})", have),
+                (true, 0) => format!("Offer all your souls ({})", short_num(have)),
                 (false, 0) => format!("Offer all your Ashen Marks ({})", have),
-                (true, n) => format!("Offer {} souls", n),
+                (true, n) => format!("Offer {} souls", short_num(n)),
                 (false, n) => format!("Offer {} Ashen Marks", n),
             };
             let can = give > 0 && have >= give;

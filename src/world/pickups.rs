@@ -312,6 +312,50 @@ impl World {
                 hero.buffs[Buff::Fury as usize] = hero.buffs[Buff::Fury as usize].max(15.0);
             }
         }
+        if !self.sapling_found && self.biome == Biome::Ashwood {
+            if let Some(h) = self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(GREEN_SAPLING) < 44.0) {
+                self.sapling_found = true;
+                self.log_event("the last green sapling is found");
+                self.banner("THE LAST GREEN THING", "\"It grew back once. It will again.\"", Color::from_rgba(140, 220, 110, 255), 5.0);
+                self.sfx_at("chime", 0.9, GREEN_SAPLING);
+                self.fx.push(Fx { pos: GREEN_SAPLING, life: 1.2, max_life: 1.2, kind: FxKind::Ring { r: 240.0, color: Color::from_rgba(150, 230, 120, 255) } });
+                self.grant_relic(h);
+                // Its green mends whoever found it and quickens them.
+                let hero = &mut self.heroes[h];
+                let max = hero.stats.max_hp;
+                hero.heal(max);
+                hero.buffs[Buff::Haste as usize] = hero.buffs[Buff::Haste as usize].max(15.0);
+            }
+        }
+        if !self.abbot_found && self.biome == Biome::Abbey {
+            let by = self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(FROZEN_ABBOT) < 60.0);
+            self.abbot_thaw = if by.is_some() { self.abbot_thaw + dt } else { (self.abbot_thaw - dt).max(0.0) };
+            if let Some(h) = by.filter(|_| self.abbot_thaw >= ABBOT_THAW) {
+                self.abbot_found = true;
+                self.log_event("the frozen abbot is thawed");
+                self.banner("THE ABBOT WHO WAITED", "\"I prayed for a thaw. You were warm enough.\"", Color::from_rgba(180, 225, 255, 255), 5.0);
+                self.sfx_at("bell", 0.8, FROZEN_ABBOT);
+                self.fx.push(Fx { pos: FROZEN_ABBOT, life: 0.5, max_life: 0.5, kind: FxKind::IceSpikes { r: 60.0 } });
+                self.fx.push(Fx { pos: FROZEN_ABBOT, life: 1.2, max_life: 1.2, kind: FxKind::Ring { r: 240.0, color: Color::from_rgba(190, 230, 255, 255) } });
+                self.grant_relic(h);
+                // His blessing wards whoever freed him.
+                let hero = &mut self.heroes[h];
+                hero.buffs[Buff::Aegis as usize] = hero.buffs[Buff::Aegis as usize].max(12.0);
+            }
+        }
+        if !self.statue_found && self.biome == Biome::Garden {
+            if let Some(h) = self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(STILL_STATUE) < 46.0) {
+                self.statue_found = true;
+                self.log_event("the statue that never moved is found");
+                self.banner("THE ONE THAT NEVER MOVED", "\"Some of us only ever wanted to be looked at.\"", Color::from_rgba(210, 200, 230, 255), 5.0);
+                self.sfx_at("chime", 0.7, STILL_STATUE);
+                self.fx.push(Fx { pos: STILL_STATUE, life: 1.2, max_life: 1.2, kind: FxKind::Ring { r: 240.0, color: Color::from_rgba(200, 190, 240, 255) } });
+                self.grant_relic(h);
+                // It gives what it has: everything lying on the field comes to the finder.
+                let at = self.heroes[h].p.pos;
+                self.pickups.push(Pickup::new(at, PickKind::Magnet));
+            }
+        }
         if !self.grave_found && self.biome == Biome::Graveyard {
             if let Some(h) = self.heroes.iter().position(|h| h.alive() && h.p.pos.distance(LOST_GRAVE) < 40.0) {
                 self.grave_found = true;

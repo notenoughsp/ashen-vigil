@@ -46,12 +46,40 @@ thread_local! {
     /// Menu rows and tabs as drawn last frame, in drawing order, for the mouse.
     static ROWS: std::cell::RefCell<Vec<Rect>> = const { std::cell::RefCell::new(Vec::new()) };
     static TABS: std::cell::RefCell<Vec<Rect>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Sliders as drawn last frame: where to grab them, their tag and how many stops.
+    static SLIDERS: std::cell::RefCell<Vec<(Rect, usize, usize)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The slider held by the mouse (or a finger), by tag.
+    static DRAGGED: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
 
-/// Forgets last frame's rows and tabs; called before drawing a frame.
+/// Forgets last frame's rows, tabs and sliders; called before drawing a frame.
 pub fn clear_hit_areas() {
     ROWS.with(|r| r.borrow_mut().clear());
     TABS.with(|t| t.borrow_mut().clear());
+    SLIDERS.with(|s| s.borrow_mut().clear());
+}
+
+/// A slider grabbed or dragged this frame: its tag and the stop under the pointer. A press on
+/// a slider takes it; it stays held while the button is down, even off the track.
+pub fn slider_drag() -> Option<(usize, usize)> {
+    if !is_mouse_button_down(MouseButton::Left) {
+        DRAGGED.with(|d| d.set(None));
+        return None;
+    }
+    let m = crate::app::input::mouse_ui();
+    let sliders = SLIDERS.with(|s| s.borrow().clone());
+    let tag = match DRAGGED.with(|d| d.get()) {
+        Some(t) => t,
+        None if is_mouse_button_pressed(MouseButton::Left) => {
+            let hit = sliders.iter().find(|(r, _, _)| Rect::new(r.x - 10.0, r.y - 12.0, r.w + 20.0, r.h + 24.0).contains(m))?;
+            DRAGGED.with(|d| d.set(Some(hit.1)));
+            hit.1
+        }
+        None => return None,
+    };
+    let &(r, _, n) = sliders.iter().find(|s| s.1 == tag)?;
+    let f = ((m.x - r.x) / r.w.max(1.0)).clamp(0.0, 1.0);
+    Some((tag, (f * (n.max(2) - 1) as f32).round() as usize))
 }
 
 pub fn rows_drawn() -> Vec<Rect> {
@@ -168,8 +196,12 @@ pub fn warm_glyphs(font: Option<&Font>) {
 /// Where the level-up cards sit, for drawing and for the mouse.
 pub fn level_up_cards(n: usize) -> Vec<Rect> {
     let (sw, sh) = (ui_w(), ui_h());
-    let cw = 560.0f32.min(sw - 40.0);
-    (0..n).map(|i| Rect::new((sw - cw) * 0.5, sh * 0.16 + 56.0 + i as f32 * 100.0, cw, 90.0)).collect()
+    let cw = 600.0f32.min(sw - 40.0);
+    // As tall as the window allows, so a long text has room and four cards still fit, with
+    // the line under them.
+    let top = sh * 0.16 + 56.0;
+    let pitch = ((sh - top - 64.0) / n.max(1) as f32).clamp(74.0, 106.0);
+    (0..n).map(|i| Rect::new((sw - cw) * 0.5, top + i as f32 * pitch, cw, pitch - 10.0)).collect()
 }
 
 /// Bytes in KB, or in MB and GB once the numbers grow long.
@@ -181,6 +213,20 @@ pub fn bytes(b: f64) -> String {
     } else {
         format!("{:.1} KB", b / 1024.0)
     }
+}
+
+/// A count of souls (or marks) kept short: 950, 1.2k, 34k, 5.6m, 7.8b, 1.2t.
+pub fn souls_short(v: u64) -> String {
+    let units = [(1e12, "t"), (1e9, "b"), (1e6, "m"), (1e3, "k")];
+    let x = v as f64;
+    for (size, unit) in units {
+        if x >= size {
+            let n = x / size;
+            let s = if n >= 100.0 { format!("{:.0}", n.floor()) } else { format!("{:.1}", (n * 10.0).floor() / 10.0) };
+            return format!("{}{}", s.trim_end_matches(".0"), unit);
+        }
+    }
+    v.to_string()
 }
 
 pub fn short(v: f64) -> String {
@@ -262,6 +308,22 @@ impl<'a> Ui<'a> {
         if on {
             draw_rectangle_lines(x, y, w, h, 2.0, GOLD);
         }
+    }
+
+    /// A slider: a track filled up to stop `index` of `count`, with a knob there. It can be
+    /// grabbed and dragged (see `slider_drag`); keys and the pad still step it.
+    pub fn slider(&self, track: Rect, tag: usize, index: usize, count: usize, on: bool) {
+        SLIDERS.with(|s| s.borrow_mut().push((track, tag, count)));
+        let f = if count > 1 { index.min(count - 1) as f32 / (count - 1) as f32 } else { 0.0 };
+        let held = DRAGGED.with(|d| d.get()) == Some(tag);
+        let cy = track.y + track.h * 0.5;
+        draw_rectangle(track.x, cy - 3.0, track.w, 6.0, Color::new(0.0, 0.0, 0.0, 0.6));
+        draw_rectangle_lines(track.x, cy - 3.0, track.w, 6.0, 1.0, Color::new(0.35, 0.3, 0.27, 1.0));
+        let fill = if on || held { GOLD } else { Color::new(0.6, 0.5, 0.35, 1.0) };
+        draw_rectangle(track.x, cy - 3.0, track.w * f, 6.0, a(fill, 0.85));
+        let kx = track.x + track.w * f;
+        draw_circle(kx, cy, if held { 9.0 } else { 7.5 }, Color::new(0.08, 0.07, 0.06, 1.0));
+        draw_circle_lines(kx, cy, if held { 9.0 } else { 7.5 }, 2.0, fill);
     }
 
     /// A framed bar filled to `frac`; `lag` (above `frac`) shows recent damage in gold.
@@ -389,8 +451,7 @@ impl<'a> Ui<'a> {
                 let names: Vec<&str> = wp.kinds().iter().map(|k| k.name(false)).collect();
                 format!("Weapon, fused from {}.", names.join(", "))
             } else {
-                let partner = wp.kind.fusion_partners();
-                format!("Weapon. {}\nAt its highest level it fuses with {} or {}.", wp.kind.desc(), partner[0].name(false), partner[1].name(false))
+                format!("Weapon. {}", wp.kind.desc())
             };
             tips.push((Rect::new(x, y, s, s + fs), title, body));
             x += s + gap;
@@ -853,7 +914,7 @@ impl<'a> Ui<'a> {
         // Under the minimap's corner.
         self.mutator_list(w, sw - 200.0, MINIMAP_TOP + MINIMAP_SIZE + 22.0);
 
-        let souls = format!("{}", pl.souls);
+        let souls = souls_short(pl.souls);
         let sx = sw - 40.0 - self.width(&souls, 28.0);
         draw_rectangle(sx - 46.0, sh - 54.0, sw - sx + 36.0, 38.0, Color::new(0.0, 0.0, 0.0, 0.55));
         draw_poly(sx - 24.0, sh - 35.0, 4, 9.0, 45.0, Color::new(0.7, 0.85, 1.0, 1.0));
@@ -1067,9 +1128,11 @@ impl<'a> Ui<'a> {
             return;
         }
         self.tooltip(&tips);
+        // Toasts sit under the clock (under a lord's warning, when one is coming); events have
+        // the right edge.
+        let top = if w.boss_warning > 0.0 { 108.0 } else { 66.0 };
         for (i, (t, life)) in w.toasts.iter().enumerate() {
-            // Toasts sit under the clock; events have the right edge.
-            self.text_c(t, sw * 0.5, 66.0 + i as f32 * 22.0, 18.0, a(PALE, life.min(1.0)));
+            self.text_c(t, sw * 0.5, top + i as f32 * 22.0, 18.0, a(PALE, life.min(1.0)));
         }
 
         self.event_rail(w, &rail);
@@ -1124,7 +1187,7 @@ impl<'a> Ui<'a> {
         }
         self.text_c("Choose what the ash grants you", sw * 0.5, sh * 0.16 + 30.0, 18.0, DIM);
         let cards = level_up_cards(me.choices.len());
-        let (cw, ch) = (cards.first().map(|r| r.w).unwrap_or(0.0), 90.0);
+        let (cw, ch) = cards.first().map(|r| (r.w, r.h)).unwrap_or((0.0, 90.0));
         let mut y = sh * 0.16 + 56.0;
         for ((i, c), card) in me.choices.iter().enumerate().zip(&cards) {
             let x = card.x;
@@ -1150,10 +1213,9 @@ impl<'a> Ui<'a> {
                 }
                 _ => draw_rectangle(x + 20.0, y + 23.0, 28.0, 28.0, color),
             }
-            if let Some((hint, hint_col)) = me.choice_hint(*c) {
+            if let Some((_, hint_col)) = me.choice_hint(*c) {
                 // Marks a card that fuses with something already carried.
                 draw_rectangle_lines(x - 3.0, y - 3.0, cw + 6.0, ch + 6.0, 1.5, a(hint_col, 0.5 + 0.3 * (get_time() as f32 * 4.0).sin()));
-                self.text_r(&hint, x + cw - 14.0, y + 56.0, 15.0, hint_col);
             }
             self.text(&format!("{}", i + 1), x + cw - 24.0, y + 22.0, 16.0, DIM);
             // Weapon or passive, said plainly, and what it does when the numbers alone do not tell.
@@ -1162,13 +1224,34 @@ impl<'a> Ui<'a> {
                 let kc = if kind == "WEAPON" { Color::new(1.0, 0.62, 0.4, 0.95) } else { Color::new(0.5, 0.85, 0.95, 0.95) };
                 self.text_r(kind, x + cw - 36.0, y + 22.0, 14.0, kc);
             }
+            // Every line kept inside the card: long ones wrap, and what still does not fit
+            // grows smaller, then is cut short.
+            let tw = cw - 84.0;
             if let Some(d) = detail {
-                self.text(d, x + 70.0, y + 78.0, 15.0, a(PALE, 0.55));
+                let (d, size) = self.fit(d, tw, 14.0);
+                self.text(&d, x + 70.0, y + ch - 9.0, size, a(PALE, 0.55));
             }
-            self.text(&title, x + 70.0, y + 30.0, 22.0, if on { PALE } else { a(PALE, 0.8) });
+            let room_title = tw - 130.0 - self.width(&tag, 16.0);
+            let (title, tsize) = self.fit(&title, room_title.max(80.0), 22.0);
+            self.text(&title, x + 70.0, y + 30.0, tsize, if on { PALE } else { a(PALE, 0.8) });
             let tag_col = if tag == "NEW" { EMBER } else { GOLD };
-            self.text(&tag, x + 78.0 + self.width(&title, 22.0), y + 30.0, 16.0, tag_col);
-            self.text(&desc, x + 70.0, y + 56.0, 16.0, DIM);
+            self.text(&tag, x + 78.0 + self.width(&title, tsize), y + 30.0, 16.0, tag_col);
+            let bottom = y + ch - if detail.is_some() { 24.0 } else { 6.0 };
+            let mut size = 16.0;
+            let mut lines = self.wrap(&desc, size, tw);
+            while size > 12.0 && y + 52.0 + (lines.len() as f32 - 1.0) * (size + 2.0) > bottom {
+                size -= 1.0;
+                lines = self.wrap(&desc, size, tw);
+            }
+            let rows = (((bottom - y - 52.0) / (size + 2.0)).floor() as usize + 1).max(1);
+            if lines.len() > rows {
+                let rest = lines[rows - 1..].join(" ");
+                lines.truncate(rows - 1);
+                lines.push(self.fit(&rest, tw, size).0);
+            }
+            for (k, line) in lines.iter().enumerate() {
+                self.text(line, x + 70.0, y + 52.0 + k as f32 * (size + 2.0), size, DIM);
+            }
         }
         y += ch + 10.0;
         let reroll_key = if using_pad() { "Y" } else { key_label(Action::Reroll) };

@@ -121,6 +121,8 @@ pub struct App {
     updater: crate::update::Updater,
     /// What is new in this version, on the main menu once after an update: folded or open.
     pub(super) whats_new: Option<bool>,
+    /// How far the list of what is new is scrolled, in lines.
+    pub(super) whats_new_scroll: usize,
     /// Unix seconds when the current vigil began, for Discord's clock.
     vigil_since: i64,
     /// A tiny world for drawing heroes in the wardrobe.
@@ -279,6 +281,7 @@ impl App {
             // The self-test never asks GitHub; the player may turn the check off.
             updater: if auto.is_some() || !check_updates { crate::update::Updater::off() } else { crate::update::Updater::start() },
             whats_new,
+            whats_new_scroll: 0,
             vigil_since: 0,
             preview: None,
             class_card_until: 0.0,

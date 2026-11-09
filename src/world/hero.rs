@@ -861,7 +861,19 @@ impl Hero {
             out.push(Choice::Draught);
             out.push(Choice::Souls);
         }
+        // The highest level a card brings goes on top; new things (level 1) below upgrades.
+        out.sort_by_key(|c| std::cmp::Reverse(self.choice_level(*c)));
         out
+    }
+
+    /// The level a card brings its weapon or item to: 1 for something new, 0 for the rest.
+    pub fn choice_level(&self, c: Choice) -> u32 {
+        match c {
+            Choice::UpWeapon(i) => self.weapons.get(i).map_or(0, |w| w.level + 1),
+            Choice::UpItem(i) => self.items.get(i).map_or(0, |it| it.level + 1),
+            Choice::NewWeapon(_) | Choice::NewItem(_) => 1,
+            Choice::Draught | Choice::Souls => 0,
+        }
     }
 
     pub fn apply_choice(&mut self, c: Choice) {
@@ -900,11 +912,7 @@ impl Hero {
             Choice::NewWeapon(k) => (k.name(false).into(), k.desc().into(), k.color(), "NEW".into()),
             Choice::UpWeapon(i) => {
                 let Some(w) = self.weapons.get(i) else { return ("?".into(), String::new(), WHITE, String::new()) };
-                let mut d = w.kind.level_desc(w.level + 1);
-                if w.level + 1 == WEAPON_MAX_LEVEL {
-                    let partner = w.kind.fusion_partner();
-                    d += &format!(". Max: fuses with {}", partner.name(false));
-                }
+                let d = w.kind.level_desc(w.level + 1);
                 (w.kind.name(false).into(), d, w.kind.color(), format!("Lv {}", w.level + 1))
             }
             Choice::NewItem(k) => (k.name().into(), k.desc().into(), k.color(), "NEW".into()),
