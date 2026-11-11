@@ -46,7 +46,10 @@ impl World {
         self.pickups.retain(|p| p.life > 0.0);
 
         let rich = if self.weather.is_some_and(|(w, _)| w == Weather::GraveMist) { 1.25 } else { 1.0 };
-        let soul_mult = self.diff.soul_mult() * if self.blood_moon > 0.0 { 2.0 } else { 1.0 } * rich;
+        // The more has fallen this night, the less each soul is worth: late kills come in
+        // thousands.
+        let taper = SOUL_START / (1.0 + self.kills as f32 / (SOUL_TAPER_KILLS * self.heroes.len().max(1) as f32));
+        let soul_mult = self.diff.soul_mult() * if self.blood_moon > 0.0 { 2.0 } else { 1.0 } * rich * taper;
         let mut gained_xp = 0.0;
         let mut picked_at = None;
         for (kind, h, pos) in got {

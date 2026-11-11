@@ -231,6 +231,19 @@ fn update_notice() -> Rect {
 /// What each version brought, newest first; the main menu shows all of it after an update.
 const WHATS_NEW: &[(&str, &[&str])] = &[
     (
+        "1.0.0",
+        &[
+            "The whole game rebalanced from measured nights, not guesses.",
+            "Weapons: the strongest held back, the weakest lifted, into one band.",
+            "Lords hit harder one after another, and follow the difficulty at last.",
+            "The late night bites: foes toughen faster, weapon healing has a limit.",
+            "The six fields and the classes stand closer to one another.",
+            "Curses and challenges pay by what they cost; Twin Sigil stops at 2.",
+            "Souls and Ashen Marks no longer explode with late kills; fairer prices.",
+            "Boss rush: thinner hordes, lords that climb; wagers of 40, 70, 100 s.",
+        ],
+    ),
+    (
         "0.9.0",
         &[
             "Two new difficulties past Abyss: Eclipse and Oblivion.",
@@ -1348,7 +1361,7 @@ impl App {
             }
             ui.text(ch.name(), x + 36.0, y + 20.0, 17.0, if on { PALE } else { DIM });
             ui.text(ch.desc(), x + 245.0, y + 20.0, 15.0, DIM);
-            ui.text_r("+25% marks", x + w - 14.0, y + 20.0, 15.0, if on { EMBER } else { DIM });
+            ui.text_r(&format!("+{:.0}% marks", ch.reward() * 100.0), x + w - 14.0, y + 20.0, 15.0, if on { EMBER } else { DIM });
             y += 29.0;
         }
         for (i, cu) in ALL_CURSES.iter().enumerate() {
@@ -1361,7 +1374,7 @@ impl App {
             }
             ui.text(&format!("Curse: {}", cu.name()), x + 36.0, y + 20.0, 17.0, if on { PALE } else { DIM });
             ui.text(cu.desc(), x + 245.0, y + 20.0, 15.0, DIM);
-            ui.text_r("+20% marks", x + w - 14.0, y + 20.0, 15.0, if on { col } else { DIM });
+            ui.text_r(&format!("+{:.0}% marks", cu.reward() * 100.0), x + w - 14.0, y + 20.0, 15.0, if on { col } else { DIM });
             y += 29.0;
         }
         y += 10.0;

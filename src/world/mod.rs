@@ -53,10 +53,25 @@ pub const LORD_ADDS_OVER: usize = 80;
 /// Boss health grows by this factor every minute past 5:00.
 pub const BOSS_GROWTH: f32 = 1.17;
 /// How much tougher ordinary foes get every minute after the fifth, on top of the old ramp.
-pub const ENEMY_GROWTH: f32 = 1.09;
-/// The most of a lord's health that can go in one second: every lord fight lasts at least
-/// twenty seconds, however strong the heroes.
-pub const BOSS_SECOND_CAP: f32 = 0.05;
+pub const ENEMY_GROWTH: f32 = 1.13;
+/// What each whole step of a difficulty's foe health adds to that growth.
+pub const DIFF_GROWTH: f32 = 0.02;
+/// How much more of their damage foes gain each minute past the tenth, on top of the ramp.
+pub const LATE_DMG_SLOPE: f32 = 0.10;
+/// The share of its damage a vigil's first lord deals, and what each lord after it adds.
+pub const LORD_FIRST_DMG: f32 = 0.75;
+pub const LORD_DMG_STEP: f32 = 0.12;
+/// How much of a difficulty's foe damage a lord's attacks take on, as a power of it.
+pub const LORD_DIFF_DMG: f32 = 0.6;
+/// Souls pay best early and less as the night's kills pile up: this share at the start,
+/// half of it once `SOUL_TAPER_KILLS` foes have fallen (for each hero), a third after twice
+/// that. A night of a few hundred kills pays a little more than it did; one of a hundred
+/// thousand no longer pays for the whole Reliquary at once.
+pub const SOUL_START: f32 = 1.3;
+pub const SOUL_TAPER_KILLS: f32 = 5000.0;
+/// The most of a lord's health that can go in one second: every lord fight lasts close to
+/// half a minute at least, however strong the heroes.
+pub const BOSS_SECOND_CAP: f32 = 0.035;
 /// The chance that a lord (from the second on) comes with a twin, the share of health each
 /// of the two has, and what of a blow reaches one while the other still stands.
 pub const TWIN_CHANCE: f32 = 0.2;
@@ -113,6 +128,9 @@ pub const RUSH_LEVELS_PER_LORD: u32 = 3;
 /// more each following lord has.
 pub const RUSH_LORD_HP: f32 = 900.0;
 pub const RUSH_LORD_GROWTH: f32 = 1.6;
+/// The share of its damage a rush's first lord deals, and what each after it adds.
+pub const RUSH_FIRST_DMG: f32 = 0.85;
+pub const RUSH_DMG_STEP: f32 = 0.09;
 pub const RESUME_DELAY: f32 = 2.5;
 /// The countdown never gets shorter than this...
 pub const MIN_RESUME_DELAY: f32 = 0.7;
@@ -1430,6 +1448,9 @@ pub struct World {
     pub grave_found: bool,
     pub bell_found: bool,
     pub heart_found: bool,
+    /// For the elite report: every elite takes this trait.
+    #[cfg(test)]
+    pub force_affix: Option<Affix>,
     pub sapling_found: bool,
     pub abbot_found: bool,
     /// Seconds a hero has stood by the frozen abbot.
@@ -1614,6 +1635,8 @@ impl World {
             grave_found: false,
             bell_found: false,
             heart_found: false,
+            #[cfg(test)]
+            force_affix: None,
             sapling_found: false,
             abbot_found: false,
             abbot_thaw: 0.0,

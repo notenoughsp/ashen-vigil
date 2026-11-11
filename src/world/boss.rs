@@ -156,7 +156,24 @@ impl World {
             1.0
         };
         let to = (pp - pos).normalize_or_zero();
-        let lap = 1.0 + (self.bosses_spawned.saturating_sub(1) / 5) as f32 * 0.4;
+        // What every attack of this lord is scaled by: the lap of the endless night, its place
+        // in the vigil (the first lord is a lesson, the last a reckoning), the difficulty
+        // (softened: a ring of thirty bullets at four times the damage leaves no way through),
+        // and a weight that levels the lords with one another, measured by what each cost a
+        // hero in `fields_report`.
+        let nth = self.bosses_spawned.saturating_sub(1);
+        // In a boss rush the lords are the fight: each hits harder than the one before, so
+        // the first can be learned on any difficulty and the twelfth is feared on all.
+        let order = if self.boss_rush { RUSH_FIRST_DMG + RUSH_DMG_STEP * nth.min(RUSH_LORDS) as f32 } else { LORD_FIRST_DMG + LORD_DMG_STEP * nth.min(12) as f32 };
+        let weight = match ai.kind {
+            BossKind::Matriarch => 1.6,
+            BossKind::Bride => 1.3,
+            BossKind::BogMother | BossKind::Penitent => 0.6,
+            BossKind::Gardener | BossKind::SnowAbbess | BossKind::BurntOak => 0.8,
+            BossKind::Sovereign => 0.9,
+            _ => 1.0,
+        };
+        let lap = (1.0 + (nth / 5) as f32 * 0.4) * order * weight * self.diff.dmg.powf(LORD_DIFF_DMG);
         ai.t -= dt * fast;
         let mut alpha = 1.0;
 

@@ -70,7 +70,10 @@ impl World {
             dmg = dmg.min(e.max_hp * BOSS_HIT_CAP);
         }
         if e.boss {
-            // Nor more than a twentieth of it in any one second.
+            // Nor more than a sliver of it in any one second. In a boss rush that sliver shrinks
+            // with the difficulty's lord health: a hero who fells every lord as fast as this
+            // allows would otherwise never feel the health a harder rush gives its lords.
+            let second_cap = if self.boss_rush { BOSS_SECOND_CAP / self.diff.boss_hp.max(1.0).sqrt() } else { BOSS_SECOND_CAP };
             let id = e.id;
             let now = self.time;
             let slot = match self.boss_second.iter().position(|s| s.0 == id) {
@@ -84,7 +87,7 @@ impl World {
             if now - s.1 >= 1.0 {
                 *s = (id, now, 0.0);
             }
-            let left = (e.max_hp * BOSS_SECOND_CAP - s.2).max(0.0);
+            let left = (e.max_hp * second_cap - s.2).max(0.0);
             dmg = dmg.min(left);
             s.2 += dmg;
         }
@@ -172,10 +175,10 @@ impl World {
             _ => {}
         }
         if affix == Affix::Volatile {
-            let dmg = 10.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
+            let dmg = 8.0 * (1.0 + self.time / 600.0) * self.diff.at(self.time).dmg;
             let off = gen_range(0.0, TAU);
-            for k in 0..10 {
-                self.enemy_bullet(pos, Vec2::from_angle(off + k as f32 * TAU / 10.0) * 150.0, 5.0, dmg, 0.0, 3.0);
+            for k in 0..8 {
+                self.enemy_bullet(pos, Vec2::from_angle(off + k as f32 * TAU / 8.0) * 150.0, 5.0, dmg, 0.0, 3.0);
             }
         }
         self.quest_count(QuestKind::Slay, 1);
@@ -428,10 +431,10 @@ impl World {
         }
         hero.first_hurt = hero.first_hurt.min(now);
         hero.last_hurt = now;
-        let taken = 1.0 - 0.03 * hero.profile.m(M_BULWARK) as f32;
+        let taken = 1.0 - 0.02 * hero.profile.m(M_BULWARK) as f32;
         let d = (dmg * taken - hero.stats.armor).max(1.0);
         hero.p.hp -= d;
-        hero.p.iframes = 0.45 + 0.15 * hero.profile.m(M_WARDING) as f32;
+        hero.p.iframes = 0.45 + 0.08 * hero.profile.m(M_WARDING) as f32;
         if h == self.local {
             self.shake = self.shake.max(6.0);
         }
@@ -911,6 +914,8 @@ impl World {
         let hero_at: Vec<Option<Vec2>> = self.heroes.iter().map(|h| h.alive().then_some(h.p.pos)).collect();
         // In the grave mist everything wades.
         let wade = if self.weather.is_some_and(|(w, _)| matches!(w, Weather::GraveMist | Weather::Blizzard)) { 0.8 } else { 1.0 };
+        #[cfg(test)]
+        let forced_affix = self.force_affix;
         for (i, e) in self.enemies.iter_mut().enumerate() {
             if e.dead {
                 continue;
@@ -968,6 +973,10 @@ impl World {
             }
             if e.elite && e.affix == Affix::None && !e.boss && !matches!(e.kind, EnemyKind::Champion | EnemyKind::Rival) {
                 e.affix = ALL_AFFIXES[gen_range(0, ALL_AFFIXES.len())];
+                #[cfg(test)]
+                if let Some(a) = forced_affix {
+                    e.affix = a;
+                }
             }
             let tick = |every: f32| (t + e.phase * 3.0).rem_euclid(every) < dt;
             match e.affix {
@@ -1264,10 +1273,10 @@ impl World {
             e.pos = clamp_world(e.pos, e.r);
         }
         for at in mends {
-            for e in self.enemies.iter_mut().filter(|e| !e.dead && !e.boss && e.pos.distance(at) < 200.0) {
-                e.hp = (e.hp + e.max_hp * 0.04).min(e.max_hp);
+            for e in self.enemies.iter_mut().filter(|e| !e.dead && !e.boss && e.pos.distance(at) < 170.0) {
+                e.hp = (e.hp + e.max_hp * 0.025).min(e.max_hp);
             }
-            self.fx.push(Fx { pos: at, life: 0.5, max_life: 0.5, kind: FxKind::Ring { r: 200.0, color: Affix::Mender.color() } });
+            self.fx.push(Fx { pos: at, life: 0.5, max_life: 0.5, kind: FxKind::Ring { r: 170.0, color: Affix::Mender.color() } });
         }
         for (from, to) in blinks {
             self.fx.push(Fx { pos: from, life: 0.3, max_life: 0.3, kind: FxKind::Ghost });

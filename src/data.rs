@@ -710,14 +710,74 @@ impl WeaponKind {
     }
 
     /// Numbers for a weapon at a given level, before player stats are applied.
+    /// What the weapon does at `level`: its numbers as designed, with its damage tuned by
+    /// `tune` so the arsenals stand level with one another.
     pub fn stats(self, level: u32, evolved: bool) -> WStat {
+        let mut s = self.stats_raw(level, evolved);
+        s.dmg *= self.tune();
+        s
+    }
+
+    /// The balance pass: how much of its designed damage each weapon keeps. Measured alone
+    /// against the same horde (`weapon_dps_report`), pools, lines through a crowd and falling
+    /// things dealt many times what bolts, orbiters and trails did; this brings them into one
+    /// band. Weapons that also freeze, ward, block or heal stay a little under the others.
+    pub fn tune(self) -> f32 {
+        use WeaponKind::*;
+        match self {
+            // Far above the rest: held back.
+            AshPike => 0.26,
+            HolyWater => 0.35,
+            IceFlask | ThornBloom => 0.38,
+            ThornLash => 0.41,
+            Judgement => 0.45,
+            IceLance => 0.47,
+            IceFall => 0.48,
+            AshRoots | ThornSnare => 0.5,
+            AshBrand => 0.65,
+            IceRunes => 0.69,
+            Spine => 0.84,
+            Spear => 0.85,
+            ThornShears => 0.88,
+            Spikes => 0.9,
+            Orb => 0.85,
+            // Far below: lifted.
+            Tendrils => 1.1,
+            AshSling => 1.15,
+            ThornTrail => 1.2,
+            Lanterns => 1.9,
+            Chime => 1.6,
+            // The Frozen Abbey's arsenal freezes more than it kills; a night there fell far
+            // behind the other fields, so its quieter weapons are lifted further.
+            IceScourge => 1.25,
+            IceBreath | IcePanes => 1.4,
+            IceOwl => 1.8,
+            Crossbow | ThornMirror => 1.5,
+            AshShield => 1.6,
+            AshShards => 2.0,
+            IceNeedles => 3.1,
+            ThornMoths => 2.6,
+            IceHalo => 3.4,
+            Hex => 2.8,
+            Eyes => 3.0,
+            IceRosary => 4.0,
+            Steps => 3.3,
+            Motes | AshFlies => 3.5,
+            AshTrail => 4.0,
+            Bolt => 4.1,
+            Runes => 4.3,
+            _ => 1.0,
+        }
+    }
+
+    fn stats_raw(self, level: u32, evolved: bool) -> WStat {
         use WeaponKind::*;
         if self.field() >= 3 {
-            return self.twin().stats(level, evolved);
+            return self.twin().stats_raw(level, evolved);
         }
         if self.field() > 0 {
             // Built on the graveyard weapon in its place, with a pace of its own.
-            let mut s = self.base().stats(level, evolved);
+            let mut s = self.base().stats_raw(level, evolved);
             let l = level.saturating_sub(1) as f32;
             match self {
                 Nails => s.speed = 820.0,
@@ -1159,11 +1219,11 @@ impl ItemKind {
             Lens => "+10% area",
             Sigil => "+1 projectile amount",
             Censer => "+35% soul pickup range",
-            Shell => "+1 armor",
+            Shell => "+1.5 armor",
             Feather => "+12% luck and crit chance",
-            Moss => "+0.3 health regen per second",
+            Moss => "+0.4 health regen per second",
             Lung => "+20 stamina, +15% stamina regen",
-            LeechFang => "+0.4 health per kill",
+            LeechFang => "+0.5 health per kill",
             CrackedCrown => "+10% experience",
             GraveCandle => "+15% damage to elites and bosses",
         }
@@ -1189,7 +1249,7 @@ impl ItemKind {
 
     pub fn max_level(self) -> u32 {
         match self {
-            ItemKind::Sigil => 3,
+            ItemKind::Sigil => 2,
             _ => 8,
         }
     }
@@ -1268,16 +1328,16 @@ impl Class {
 
     pub fn desc(self) -> &'static str {
         match self {
-            Class::Wanderer => "Rusted Blade. +10 max health.",
+            Class::Wanderer => "Rusted Blade. +25 max health, +8% might.",
             Class::GraveHunter => "Pale Daggers. +10% move speed, +10 max health.",
             Class::CinderAdept => "Kindled Orb. +10% area.",
-            Class::BellAcolyte => "Chime of Warding. +0.4 health regen.",
-            Class::Reaper => "Grave Scythe. +0.5 health per kill, up to 4 per second.",
+            Class::BellAcolyte => "Chime of Warding. +0.8 health regen, +10 max health.",
+            Class::Reaper => "Grave Scythe. +0.5 health per kill, up to 4 per second, +15 max health.",
             Class::Hexblade => "Hex Brand. +25 stamina, +1 armor.",
             Class::BloodKnight => "Blood Lance. +20 max health.",
             Class::Arbalist => "Gloom Crossbow. -10% weapon cooldown, +10 max health.",
             Class::BucketKnight => "Crescent Axe. +2 armor. Cheap rolls. Clang.",
-            Class::LanternWarden => "Wraith Lanterns. One more lantern, a wider light, braziers burn twice as long.",
+            Class::LanternWarden => "Wraith Lanterns. One more lantern, a wider light, braziers burn twice as long, +1 armor, +10 max health.",
             Class::Stormcaller => "Storm Spear. +10% crit; a crit leaps on to a second foe.",
         }
     }
@@ -1357,13 +1417,13 @@ pub struct MetaDef {
 }
 
 pub const META: [MetaDef; META_COUNT] = [
-    MetaDef { key: "vigor", name: "Vigor", desc: "+10% max health", max: 8, base_cost: 300 },
+    MetaDef { key: "vigor", name: "Vigor", desc: "+8% max health", max: 8, base_cost: 300 },
     MetaDef { key: "endurance", name: "Endurance", desc: "+15 stamina, +10% regen", max: 5, base_cost: 300 },
-    MetaDef { key: "strength", name: "Strength", desc: "+6% might", max: 8, base_cost: 400 },
+    MetaDef { key: "strength", name: "Strength", desc: "+5% might", max: 8, base_cost: 350 },
     MetaDef { key: "swiftness", name: "Swiftness", desc: "+4% move speed", max: 5, base_cost: 360 },
     MetaDef { key: "haste", name: "Haste", desc: "-4% weapon cooldown", max: 5, base_cost: 500 },
     MetaDef { key: "fortune", name: "Fortune", desc: "+10% luck", max: 5, base_cost: 320 },
-    MetaDef { key: "greed", name: "Greed", desc: "+12% souls gained", max: 6, base_cost: 400 },
+    MetaDef { key: "greed", name: "Greed", desc: "+12% souls gained", max: 6, base_cost: 900 },
     MetaDef { key: "ember", name: "Ember", desc: "+1 revival per vigil", max: 3, base_cost: 2000 },
     MetaDef { key: "insight", name: "Insight", desc: "+1 reroll per vigil", max: 4, base_cost: 600 },
     MetaDef { key: "toughness", name: "Toughness", desc: "+1 armor", max: 5, base_cost: 800 },
@@ -1372,24 +1432,24 @@ pub const META: [MetaDef; META_COUNT] = [
     MetaDef { key: "precision", name: "Precision", desc: "+2% critical chance", max: 5, base_cost: 600 },
     MetaDef { key: "magnetism", name: "Magnetism", desc: "+12% pickup range", max: 5, base_cost: 400 },
     MetaDef { key: "scholar", name: "Scholar", desc: "+5% experience", max: 5, base_cost: 700 },
-    MetaDef { key: "slayer", name: "Slayer", desc: "+8% damage to elites and bosses", max: 5, base_cost: 800 },
-    MetaDef { key: "volley", name: "Volley", desc: "+1 projectile for every weapon", max: 2, base_cost: 25000 },
-    MetaDef { key: "colossus", name: "Colossus", desc: "+25 max health", max: 6, base_cost: 1500 },
-    MetaDef { key: "warding", name: "Warding", desc: "+0.15 s untouchable after a hit", max: 4, base_cost: 1200 },
+    MetaDef { key: "slayer", name: "Slayer", desc: "+6% damage to elites and bosses", max: 5, base_cost: 650 },
+    MetaDef { key: "volley", name: "Volley", desc: "+1 projectile for every weapon", max: 2, base_cost: 40_000 },
+    MetaDef { key: "colossus", name: "Colossus", desc: "+18 max health", max: 6, base_cost: 1200 },
+    MetaDef { key: "warding", name: "Warding", desc: "+0.08 s untouchable after a hit", max: 4, base_cost: 800 },
     MetaDef { key: "bloodthirst", name: "Bloodthirst", desc: "+0.15 health per kill", max: 4, base_cost: 1500 },
     MetaDef { key: "fleetfoot", name: "Fleetfoot", desc: "Rolls cost 3 less stamina", max: 4, base_cost: 1000 },
     MetaDef { key: "barter", name: "Barter", desc: "Merchant wares cost 8% less", max: 4, base_cost: 1200 },
     MetaDef { key: "foresight", name: "Foresight", desc: "+8% chance of a fourth card", max: 5, base_cost: 1400 },
     MetaDef { key: "second_wind", name: "Second Wind", desc: "Rise again with +10% health", max: 4, base_cost: 1200 },
     MetaDef { key: "kindling", name: "Kindling", desc: "Start with your weapon one level higher", max: 4, base_cost: 2500 },
-    MetaDef { key: "whetstone", name: "Whetstone", desc: "+8% damage for max-level weapons", max: 5, base_cost: 3000 },
-    MetaDef { key: "fusion_lore", name: "Fusion Lore", desc: "+6% damage for fused weapons", max: 5, base_cost: 5000 },
-    MetaDef { key: "evasion", name: "Evasion", desc: "2% chance to avoid a hit", max: 5, base_cost: 4000 },
-    MetaDef { key: "bulwark", name: "Bulwark", desc: "-3% damage taken", max: 5, base_cost: 3500 },
+    MetaDef { key: "whetstone", name: "Whetstone", desc: "+5% damage for max-level weapons", max: 5, base_cost: 2200 },
+    MetaDef { key: "fusion_lore", name: "Fusion Lore", desc: "+4% damage for fused weapons", max: 5, base_cost: 3500 },
+    MetaDef { key: "evasion", name: "Evasion", desc: "2% chance to avoid a hit", max: 5, base_cost: 3000 },
+    MetaDef { key: "bulwark", name: "Bulwark", desc: "-2% damage taken", max: 5, base_cost: 2500 },
     MetaDef { key: "alchemy", name: "Alchemy", desc: "Draughts heal 25% more", max: 4, base_cost: 1000 },
     MetaDef { key: "tithe", name: "Tithe", desc: "Bosses drop 20% more souls", max: 5, base_cost: 2000 },
-    MetaDef { key: "arsenal", name: "Arsenal", desc: "+1 weapon slot", max: 2, base_cost: 150000 },
-    MetaDef { key: "satchel", name: "Satchel", desc: "+1 item slot", max: 2, base_cost: 120000 },
+    MetaDef { key: "arsenal", name: "Arsenal", desc: "+1 weapon slot", max: 2, base_cost: 90_000 },
+    MetaDef { key: "satchel", name: "Satchel", desc: "+1 item slot", max: 2, base_cost: 70_000 },
 ];
 
 pub fn meta_cost(i: usize, level: u32) -> u64 {
@@ -1494,7 +1554,9 @@ pub fn relic_cost(i: usize, level: u32) -> u64 {
 
 /// Ashen Marks earned at the end of a vigil.
 pub fn marks_for_run(minutes: f32, bosses: u32, level: u32, kills: u32, won: bool, diff: &Difficulty) -> u64 {
-    let base = minutes * 1.5 + bosses as f32 * 6.0 + level as f32 * 0.4 + kills as f32 / 150.0 + if won { 25.0 } else { 0.0 };
+    // Kills count by their root: a night of fifty thousand pays for them like one of a
+    // hundred and twelve hundreds, not three hundred times one of a hundred and fifty.
+    let base = minutes * 1.5 + bosses as f32 * 6.0 + level as f32 * 0.4 + (kills as f32).sqrt() * 0.5 + if won { 25.0 } else { 0.0 };
     ((base * diff.soul_mult()).round() as u64).max(1)
 }
 
@@ -1929,11 +1991,11 @@ pub fn boost_pct(i: usize, steps: u8) -> f32 {
 }
 
 /// Seconds over which a harder difficulty ramps up to its full strength.
-const DIFF_RAMP: f32 = 180.0;
+const DIFF_RAMP: f32 = 360.0;
 
 impl Difficulty {
     /// The difficulty in effect at `time`: harder settings start at a third of their extra
-    /// strength and reach all of it after three minutes, so the first wave can be learned.
+    /// strength and reach all of it after six minutes, so the first lord can be learned.
     pub fn at(self, time: f32) -> Difficulty {
         let k = 0.33 + 0.67 * (time / DIFF_RAMP).clamp(0.0, 1.0);
         let ramp = |v: f32| if v > 1.0 { 1.0 + (v - 1.0) * k } else { v };
@@ -1970,9 +2032,9 @@ impl Difficulty {
     }
 }
 
-pub const DIFF_COUNT: [f32; 7] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0];
+pub const DIFF_COUNT: [f32; 9] = [0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
 pub const DIFF_HP: [f32; 8] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0];
-pub const DIFF_DMG: [f32; 7] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0];
+pub const DIFF_DMG: [f32; 9] = [0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
 pub const DIFF_SPEED: [f32; 7] = [0.8, 0.9, 1.0, 1.15, 1.3, 1.5, 1.7];
 pub const DIFF_BOSS: [f32; 8] = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0];
 
@@ -1980,7 +2042,7 @@ pub const PRESETS: [(&str, Difficulty); 6] = [
     ("Pilgrim", Difficulty { count: 0.75, hp: 0.75, dmg: 0.5, speed: 0.9, boss_hp: 0.75, boost: [0; 3] }),
     ("Knight", Difficulty { count: 1.0, hp: 1.0, dmg: 1.0, speed: 1.0, boss_hp: 1.0, boost: [0; 3] }),
     ("Lord", Difficulty { count: 1.5, hp: 1.5, dmg: 1.5, speed: 1.15, boss_hp: 1.5, boost: [0; 3] }),
-    ("Abyss", Difficulty { count: 2.0, hp: 3.0, dmg: 2.0, speed: 1.3, boss_hp: 3.0, boost: [0; 3] }),
+    ("Abyss", Difficulty { count: 2.5, hp: 3.0, dmg: 2.5, speed: 1.3, boss_hp: 3.0, boost: [0; 3] }),
     ("Eclipse", Difficulty { count: 3.0, hp: 4.0, dmg: 3.0, speed: 1.5, boss_hp: 4.0, boost: [0; 3] }),
     ("Oblivion", Difficulty { count: 4.0, hp: 6.0, dmg: 4.0, speed: 1.7, boss_hp: 6.0, boost: [0; 3] }),
 ];
@@ -1995,7 +2057,9 @@ impl Difficulty {
     /// Harder settings pay out more souls and marks.
     pub fn soul_mult(&self) -> f32 {
         let m = 1.0 + (self.count - 1.0) * 0.3 + (self.hp - 1.0) * 0.25 + (self.dmg - 1.0) * 0.3 + (self.speed - 1.0) * 0.8 + (self.boss_hp - 1.0) * 0.1;
-        m.clamp(0.4, 6.0) * self.boost_reward()
+        // Past Knight the extra pays at three fifths: more foes already means more souls.
+        let m = if m > 1.0 { 1.0 + (m - 1.0) * 0.6 } else { m };
+        m.clamp(0.4, 4.0) * self.boost_reward()
     }
 
     pub fn preset_name(&self) -> &'static str {
@@ -2011,7 +2075,7 @@ pub fn step(list: &[f32], cur: f32, dir: i32) -> f32 {
 
 // ---------------------------------------------------------------- challenges
 
-/// Optional handicaps for a single-player vigil; each adds 25% Ashen Marks.
+/// Optional handicaps for a single-player vigil; each adds Ashen Marks (see `reward`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Challenge {
     NoRolls,
@@ -2043,13 +2107,23 @@ impl Challenge {
     }
 }
 
+impl Challenge {
+    /// The share of Ashen Marks it adds: more for the two that cost a hero most.
+    pub fn reward(self) -> f32 {
+        match self {
+            Challenge::NoRolls | Challenge::OneWeapon => 0.35,
+            Challenge::GlassCannon => 0.25,
+        }
+    }
+}
+
 pub fn challenge_mult(bits: u8) -> f32 {
-    1.0 + 0.25 * bits.count_ones() as f32
+    1.0 + ALL_CHALLENGES.iter().filter(|c| bits & c.bit() != 0).map(|c| c.reward()).sum::<f32>()
 }
 
 // ---------------------------------------------------------------- curses
 
-/// Curses laid on a whole vigil, for everyone in it; each adds 20% Ashen Marks.
+/// Curses laid on a whole vigil, for everyone in it; each adds Ashen Marks (see `reward`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Curse {
     Frenzy,
@@ -2090,8 +2164,21 @@ impl Curse {
     }
 }
 
+impl Curse {
+    /// The share of Ashen Marks it adds, by what it costs: the bullets and the dark most, an
+    /// elite tide (which also feeds the hero) and a curse that only bites when one falls least.
+    pub fn reward(self) -> f32 {
+        match self {
+            Curse::Volatile | Curse::DarkHour => 0.3,
+            Curse::Frenzy => 0.2,
+            Curse::Famine => 0.15,
+            Curse::EliteTide | Curse::Brittle => 0.1,
+        }
+    }
+}
+
 pub fn curse_mult(bits: u8) -> f32 {
-    1.0 + 0.2 * (bits & 63).count_ones() as f32
+    1.0 + ALL_CURSES.iter().filter(|c| bits & c.bit() != 0).map(|c| c.reward()).sum::<f32>()
 }
 
 // ---------------------------------------------------------------- achievements

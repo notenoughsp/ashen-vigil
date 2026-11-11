@@ -34,7 +34,7 @@ pub const RIVAL_AFTER: f32 = 100.0;
 const RIVAL_STAY: f32 = 90.0;
 
 /// The wager stone's three bets: seconds to fell the lord in, and what the stake becomes.
-pub const WAGERS: [(f32, f32); 3] = [(30.0, 3.0), (60.0, 2.0), (90.0, 1.5)];
+pub const WAGERS: [(f32, f32); 3] = [(40.0, 3.0), (70.0, 2.0), (100.0, 1.5)];
 /// The most a bet may stake: without a cap, a third of everything at up to three times,
 /// lord after lord, grew a purse twentyfold in one vigil.
 pub fn wager_cap(time: f32) -> u64 {
@@ -293,7 +293,9 @@ impl World {
             // Far tougher than it was, and like the lords and Sven no blow takes more than a
             // sliver of it: it can no longer be felled the moment it steps out of the fog.
             e.hp = 9000.0 * (1.0 + t / 300.0).powf(1.7) * self.diff.at(t).hp * coop;
-            e.dmg *= 1.3 * (1.0 + t / 600.0);
+            // Its first charge, at six minutes, takes about two fifths of a fresh hero's
+            // health rather than four fifths; it grows from there.
+            e.dmg *= 0.75 * (1.0 + t / 600.0);
             e.max_hp = e.hp;
             e.elite = true;
             e.r = EnemyKind::Champion.radius(true);

@@ -53,6 +53,10 @@ pub fn soul_burden(souls: u64) -> u32 {
 
 /// Most health per second that lifesteal can return.
 pub const LEECH_RATE: f32 = 4.0;
+/// The most a hero's weapons can heal them: this much health a second, saved up to three
+/// seconds' worth. A lance through fifty foes used to mend fifty health a throw.
+pub const FEED_RATE: f32 = 5.0;
+pub const FEED_STORE: f32 = 15.0;
 
 /// One firing part of a weapon slot; `slot` indexes its timer and spin.
 #[derive(Clone, Copy)]
@@ -228,6 +232,8 @@ pub struct Hero {
     /// Health that kills can still give back right now; refills over time, so lifesteal
     /// cannot outheal everything once the hordes get thick.
     pub leech: f32,
+    /// What the hero's weapons may still heal them right now (see `FEED_RATE`).
+    pub feed: f32,
     /// Seconds without moving, and whether this hero already rested by a fire this vigil.
     pub idle: f32,
     /// Vigil time of the first hit taken; MAX while untouched.
@@ -313,6 +319,7 @@ impl Hero {
             has_cat: false,
             purchases: 0,
             leech: LEECH_RATE,
+            feed: FEED_STORE,
             idle: 0.0,
             first_hurt: f32::MAX,
             last_hurt: 0.0,
@@ -370,10 +377,10 @@ impl Hero {
     pub fn weapon_bonus(&self, w: &Weapon) -> f32 {
         let mut k = 1.0;
         if w.level >= WEAPON_MAX_LEVEL || w.evolved {
-            k += 0.08 * self.profile.m(M_WHETSTONE) as f32;
+            k += 0.05 * self.profile.m(M_WHETSTONE) as f32;
         }
         if w.is_fused() {
-            k += 0.06 * self.profile.m(M_FUSION_LORE) as f32;
+            k += 0.04 * self.profile.m(M_FUSION_LORE) as f32;
         }
         k
     }
@@ -454,6 +461,13 @@ impl Hero {
         self.ghost = clamp_world(self.ghost, 24.0);
     }
 
+    /// Healing from a weapon's blow: as `heal`, but no more than the hero has saved up.
+    pub fn feed(&mut self, amount: f32) {
+        let a = amount.min(self.feed).max(0.0);
+        self.feed -= a;
+        self.heal(a);
+    }
+
     pub fn heal(&mut self, amount: f32) {
         if !self.downed {
             self.p.hp = (self.p.hp + amount).min(self.stats.max_hp);
@@ -465,7 +479,7 @@ impl Hero {
         let r = self.profile.relics;
         let ml = |i: usize| m[i] as f32;
         let rl = |i: usize| r[i] as f32;
-        let mut might = 1.0 + 0.06 * ml(2) + 0.05 * rl(0);
+        let mut might = 1.0 + 0.05 * ml(2) + 0.05 * rl(0);
         let mut cooldown = 1.0 - 0.04 * ml(4) - 0.03 * rl(7);
         let mut area = 1.0 + 0.06 * ml(11);
         let mut amount = m[16];
@@ -474,23 +488,32 @@ impl Hero {
         let mut luck = 1.0 + 0.1 * ml(5) + 0.15 * rl(11);
         let mut armor = ml(9) + rl(8);
         let mut regen = 0.15 * ml(10);
-        let mut max_hp = 100.0 * (1.0 + 0.1 * ml(0)) + 15.0 * rl(1) + 25.0 * ml(M_COLOSSUS);
+        let mut max_hp = 100.0 * (1.0 + 0.08 * ml(0)) + 15.0 * rl(1) + 18.0 * ml(M_COLOSSUS);
         let mut stamina_max = 100.0 + 15.0 * ml(1);
         let mut stamina_regen_mul = 1.0 + 0.1 * ml(1);
         let greed = 1.0 + 0.12 * ml(6) + 0.05 * rl(6);
         let mut crit = 0.05 + 0.02 * ml(12);
         let mut lifesteal = 0.15 * ml(M_BLOODTHIRST);
         let mut growth = 1.0 + 0.05 * ml(14) + 0.05 * rl(9);
-        let mut elite_dmg = 1.0 + 0.08 * ml(15);
+        let mut elite_dmg = 1.0 + 0.06 * ml(15);
         match self.class {
-            Class::Wanderer => max_hp += 10.0,
+            Class::Wanderer => {
+                max_hp += 25.0;
+                might += 0.08;
+            }
             Class::GraveHunter => {
                 speed_mul += 0.1;
                 max_hp += 10.0;
             }
             Class::CinderAdept => area += 0.1,
-            Class::BellAcolyte => regen += 0.4,
-            Class::Reaper => lifesteal += 0.5,
+            Class::BellAcolyte => {
+                regen += 0.8;
+                max_hp += 10.0;
+            }
+            Class::Reaper => {
+                lifesteal += 0.5;
+                max_hp += 15.0;
+            }
             Class::Hexblade => {
                 stamina_max += 25.0;
                 armor += 1.0;
@@ -501,7 +524,10 @@ impl Hero {
                 max_hp += 10.0;
             }
             Class::BucketKnight => armor += 2.0,
-            Class::LanternWarden => {}
+            Class::LanternWarden => {
+                armor += 1.0;
+                max_hp += 10.0;
+            }
             Class::Stormcaller => crit += 0.1,
         }
         for it in &self.items {
@@ -513,17 +539,17 @@ impl Hero {
                 ItemKind::Lens => area += 0.1 * l,
                 ItemKind::Sigil => amount += it.level,
                 ItemKind::Censer => magnet_mul += 0.35 * l,
-                ItemKind::Shell => armor += l,
+                ItemKind::Shell => armor += 1.5 * l,
                 ItemKind::Feather => {
                     luck += 0.12 * l;
                     crit += 0.03 * l;
                 }
-                ItemKind::Moss => regen += 0.3 * l,
+                ItemKind::Moss => regen += 0.4 * l,
                 ItemKind::Lung => {
                     stamina_max += 20.0 * l;
                     stamina_regen_mul += 0.15 * l;
                 }
-                ItemKind::LeechFang => lifesteal += 0.4 * l,
+                ItemKind::LeechFang => lifesteal += 0.5 * l,
                 ItemKind::CrackedCrown => growth += 0.1 * l,
                 ItemKind::GraveCandle => elite_dmg += 0.15 * l,
             }
@@ -1053,6 +1079,7 @@ impl World {
                 hero.p.hp = (hero.p.hp + hero.stats.regen * dt).min(hero.stats.max_hp);
             }
             hero.leech = (hero.leech + LEECH_RATE * dt).min(LEECH_RATE);
+            hero.feed = (hero.feed + FEED_RATE * dt).min(FEED_STORE);
             if hero.remote {
                 // Position and roll come from the client; keep them inside the fog ring.
                 if let Some((c, r)) = arena {

@@ -538,11 +538,12 @@ impl App {
                     for k in 0..TOGGLES {
                         let (name, desc, on, col, pay) = if k < ALL_CHALLENGES.len() {
                             let c = ALL_CHALLENGES[k];
-                            (c.name(), c.desc(), self.save.challenges & c.bit() != 0, EMBER, "+25% marks")
+                            (c.name(), c.desc(), self.save.challenges & c.bit() != 0, EMBER, format!("+{:.0}% marks", c.reward() * 100.0))
                         } else {
                             let c = ALL_CURSES[k - ALL_CHALLENGES.len()];
-                            (c.name(), c.desc(), self.save.curses & c.bit() != 0, Color::new(0.75, 0.45, 1.0, 1.0), "+20% marks")
+                            (c.name(), c.desc(), self.save.curses & c.bit() != 0, Color::new(0.75, 0.45, 1.0, 1.0), format!("+{:.0}% marks", c.reward() * 100.0))
                         };
+                        let pay = pay.as_str();
                         let (rx, ry) = (x + (k % 3) as f32 * (cw + 4.0), y + (k / 3) as f32 * 33.0);
                         ui.row(rx, ry, cw, 30.0, self.lobby.sel == LOBBY_TOGGLES + k);
                         ui.text(name, rx + 10.0, ry + 20.0, 16.0, if on { col } else { DIM });

@@ -483,7 +483,7 @@ impl World {
                     let hits = self.hit_circle(p, r, dmg, 260.0, src, None);
                     if evo {
                         let reaped = hits as f32 * 0.3 + (self.kills - killed_before) as f32 * 0.5;
-                        self.heroes[h].heal(reaped.min(8.0));
+                        self.heroes[h].feed(reaped.min(8.0));
                     }
                     self.fx.push(Fx { pos: p, life: 0.35, max_life: 0.35, kind: FxKind::Sweep { radius: r, evo, owner: h as u8 } });
                 }
@@ -1682,7 +1682,7 @@ impl World {
                     self.pollen(pos, a, dmg, evo, src);
                     let gain = if evo { 0.8 } else { 0.4 };
                     if let Some(hero) = self.heroes.get_mut(src.hero) {
-                        hero.heal(gain);
+                        hero.feed(gain);
                     }
                     break;
                 }
@@ -1776,14 +1776,14 @@ impl World {
                 if kind == PKind::Mote {
                     let gain = if evo { 0.5 } else { 0.25 };
                     if let Some(hero) = self.heroes.get_mut(src.hero) {
-                        hero.heal(gain);
+                        hero.feed(gain);
                     }
                 }
                 if kind == PKind::Lance {
                     // The blood lance feeds its wielder.
                     let gain = if evo { 1.0 } else { 0.3 };
                     if let Some(hero) = self.heroes.get_mut(src.hero) {
-                        hero.heal(gain);
+                        hero.feed(gain);
                     }
                 }
                 let pr = &mut self.projs[pi];

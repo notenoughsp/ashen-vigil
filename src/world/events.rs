@@ -182,7 +182,9 @@ impl World {
         // The merchant.
         if MERCHANTS.iter().any(|m| passed(t, dt, *m)) {
             let pos = clamp_world(self.center() + rand_dir() * 420.0, 220.0);
-            let scale = 1.0 + self.time / 900.0;
+            // Prices climb with the purse: twice the base at the first merchant (5:00), about
+            // four times at the second, thirteen times at the last (26:00).
+            let scale = 1.0 + (self.time / 300.0).powf(1.5);
             // A draught and a relic always, four of the rest by chance.
             let mut rest: Vec<Ware> = WARES[2..].to_vec();
             let mut wares = [Ware::Draught, Ware::Relic, Ware::Coffer, Ware::Dice, Ware::Rage, Ware::Wings];

@@ -11,15 +11,22 @@ impl World {
         let dark = if self.cursed_by(Curse::DarkHour) { 1.15 } else { 1.0 };
         // Past the first lord foes toughen by `ENEMY_GROWTH` a minute on top, or heroes outgrow
         // them and everything falls to a glance by the tenth minute.
-        let grown = ENEMY_GROWTH.powf((m - 5.0).max(0.0));
-        (1.0 + m * 0.2 + (m / 10.0).powi(2) * 0.6) * grown * self.diff.at(self.time).hp * coop * dark * if cursed { 1.3 } else { 1.0 } * self.mutated(Mutator::Ironhide, 1.3)
+        // The harder the difficulty, the faster they toughen: a hero with everything bought
+        // would otherwise outgrow even the hardest night as easily as the mildest.
+        let grown = (ENEMY_GROWTH + DIFF_GROWTH * (self.diff.hp - 1.0).max(0.0)).powf((m - 5.0).max(0.0));
+        // A boss rush's hordes are only there to be cut through: they take the root of the
+        // difficulty's health, so the hard rushes are lost to their lords, not to the adds.
+        let by_diff = if self.boss_rush { self.diff.at(self.time).hp.max(0.0).sqrt() } else { self.diff.at(self.time).hp };
+        (1.0 + m * 0.2 + (m / 10.0).powi(2) * 0.6) * grown * by_diff * coop * dark * if cursed { 1.3 } else { 1.0 } * self.mutated(Mutator::Ironhide, 1.3)
     }
 
     pub(crate) fn make_enemy(&mut self, kind: EnemyKind, pos: Vec2) -> Enemy {
         let m = self.time / 60.0;
         let hp_scale = self.hp_scale();
-        let dmg_scale =
-            (1.0 + m * 0.06 + (m - 10.0).max(0.0) * 0.03) * self.diff.at(self.time).dmg * if self.blood_moon > 0.0 { 1.25 } else { 1.0 } * self.mutated(Mutator::Sharpened, 1.2);
+        let dmg_scale = (1.0 + m * 0.06 + (m - 10.0).max(0.0) * LATE_DMG_SLOPE)
+            * self.diff.at(self.time).dmg
+            * if self.blood_moon > 0.0 { 1.25 } else { 1.0 }
+            * self.mutated(Mutator::Sharpened, 1.2);
         let hasted = self.mutated(Mutator::Hasted, 1.1);
         let (hp, speed, dmg, xp) = match kind {
             EnemyKind::Hollow => (10.0, 55.0, 8.0, 1.0),
@@ -38,18 +45,18 @@ impl World {
             EnemyKind::Courier => (45.0, 175.0, 0.0, 6.0),
             EnemyKind::Champion => (900.0, 75.0, 30.0, 60.0),
             EnemyKind::Rival => (500.0, 165.0, 22.0, 30.0),
-            EnemyKind::Mimic(_) => (300.0, 150.0, 20.0, 25.0),
+            EnemyKind::Mimic(_) => (300.0, 135.0, 13.0, 25.0),
             EnemyKind::Prop(_) => (30.0, 0.0, 0.0, 0.0),
-            EnemyKind::EmberWolf => (14.0, 150.0, 7.0, 1.5),
-            EnemyKind::BarkHusk => (150.0, 38.0, 16.0, 8.0),
-            EnemyKind::SmokeWraith => (22.0, 115.0, 9.0, 3.0),
-            EnemyKind::IceMonk => (30.0, 60.0, 7.0, 3.0),
-            EnemyKind::FrostCrow => (6.0, 150.0, 4.0, 0.6),
-            EnemyKind::FrozenKnight => (130.0, 42.0, 18.0, 8.0),
+            EnemyKind::EmberWolf => (18.0, 150.0, 8.0, 1.5),
+            EnemyKind::BarkHusk => (185.0, 38.0, 17.0, 8.0),
+            EnemyKind::SmokeWraith => (28.0, 115.0, 10.0, 3.0),
+            EnemyKind::IceMonk => (26.0, 60.0, 5.5, 3.0),
+            EnemyKind::FrostCrow => (5.0, 150.0, 3.0, 0.6),
+            EnemyKind::FrozenKnight => (110.0, 42.0, 14.0, 8.0),
             EnemyKind::ThornVine => (40.0, 28.0, 8.0, 3.0),
             EnemyKind::Puppet => (60.0, 70.0, 14.0, 5.0),
             EnemyKind::MothQueen => (70.0, 50.0, 8.0, 6.0),
-            EnemyKind::Statue => (260.0, 175.0, 24.0, 10.0),
+            EnemyKind::Statue => (260.0, 175.0, 18.0, 10.0),
             EnemyKind::Boss(_) => (1000.0, 80.0, 25.0, 0.0),
         };
         let r = kind.radius(false);
@@ -228,11 +235,13 @@ impl World {
         let coop = 1.0 + 0.5 * (self.heroes.len().max(1) - 1) as f32;
         // A boss rush keeps the hordes thin: the lords are the fight.
         let rush = if self.boss_rush { 0.4 } else { 1.0 };
-        let mut target = (25.0 + m * 18.0).min(750.0) * self.diff.at(self.time).count * coop * self.spawn_pressure() * rush;
+        // And only the root of its numbers.
+        let count = if self.boss_rush { self.diff.at(self.time).count.max(0.0).sqrt() } else { self.diff.at(self.time).count };
+        let mut target = (25.0 + m * 18.0).min(750.0) * count * coop * self.spawn_pressure() * rush;
         if self.boss.is_some() {
             target *= 0.35;
         }
-        let rate = (4.0 + m * 3.0) * self.diff.at(self.time).count * coop * self.spawn_pressure() * rush;
+        let rate = (4.0 + m * 3.0) * count * coop * self.spawn_pressure() * rush;
         self.spawn_acc += rate * dt;
         while self.spawn_acc >= 1.0 {
             self.spawn_acc -= 1.0;
@@ -298,7 +307,9 @@ impl World {
             e.max_hp = e.hp;
             e.r = kind.radius(true);
             e.dmg *= 1.5;
-            e.xp *= 10.0;
+            // Under the elite tide they come three times as often and are worth less each, or
+            // the curse would feed a hero more than it costs them.
+            e.xp *= if self.cursed_by(Curse::EliteTide) { 5.0 } else { 10.0 };
             self.enemies.push(e);
         }
 
@@ -402,10 +413,10 @@ impl World {
         let lap = if finale { 1.5 } else { (n / 5) as f32 };
         let (speed, dmg) = match kind {
             BossKind::Gravewarden => (85.0, 25.0),
-            BossKind::Matriarch => (160.0, 20.0),
+            BossKind::Matriarch => (160.0, 30.0),
             BossKind::Hermit => (0.0, 22.0),
             BossKind::Sovereign => (100.0, 32.0),
-            BossKind::Bride => (70.0, 22.0),
+            BossKind::Bride => (70.0, 30.0),
             BossKind::BogMother => (60.0, 26.0),
             BossKind::Penitent => (75.0, 28.0),
             BossKind::Choir => (0.0, 20.0),
@@ -442,7 +453,10 @@ impl World {
         e.max_hp = e.hp;
         e.r = r;
         e.speed = speed * self.diff.at(self.time).speed;
-        e.dmg = dmg * (1.0 + lap * 0.4) * self.diff.at(self.time).dmg;
+        // A vigil's lords hit harder one after another, as its heroes grow: the first is a
+        // lesson, the last a reckoning. (A boss rush has its own climb.)
+        let order = if self.boss_rush { 1.0 } else { LORD_FIRST_DMG + LORD_DMG_STEP * n.min(12) as f32 };
+        e.dmg = dmg * (1.0 + lap * 0.4) * order * self.diff.at(self.time).dmg;
         let id = e.id;
         self.enemies.push(e);
         let ai = BossAi { id, kind, state: 0, t: 2.0, aim: vec2(1.0, 0.0), spin: 0.0, count: 0, shot: 0.0, phase2: false, phase3: false };

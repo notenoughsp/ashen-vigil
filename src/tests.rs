@@ -336,7 +336,7 @@ fn challenges_change_the_hero() {
     assert_eq!(w.heroes[0].weapons.len(), weapons, "One Blade picked up a new weapon");
     assert_eq!(w.heroes[0].rolls, 0, "Rooted still rolled");
     assert_eq!(challenge_mult(0), 1.0);
-    assert_eq!(challenge_mult(0b111), 1.75);
+    assert!((challenge_mult(0b111) - 1.95).abs() < 1e-4);
 }
 
 #[test]
@@ -484,6 +484,484 @@ fn balance_report() {
     }
 }
 
+/// What a night came to for a hero who plays: see `play`.
+#[derive(Default, Debug, Clone)]
+struct Night {
+    time: f32,
+    level: u32,
+    kills: u32,
+    lords: u32,
+    won: bool,
+    /// Health lost in all, and in each five minutes of the night.
+    hurt: f32,
+    hurt_by: [f32; 7],
+    /// The hero's full health at the end.
+    max_hp: f32,
+    /// Souls carried and banked at the end.
+    souls: u64,
+    /// How long each lord stood, in seconds.
+    fights: Vec<f32>,
+    /// Each lord met: which, how long it stood, the health it cost, and whether the hero fell
+    /// to it.
+    lords_met: Vec<(BossKind, f32, f32, bool)>,
+    /// The level reached by minutes 5, 10, 20 and 30.
+    level_at: [u32; 4],
+}
+
+/// Plays `secs` of a vigil the way a careful player would: each hero backs away from what is
+/// near, sidesteps bullets, leaves pillars, rolls when cornered, drifts to souls when it is
+/// quiet, uses the skill whenever it is ready, and levels weapons before anything else.
+fn play(w: &mut World, secs: f32) -> Night {
+    let dt = 1.0 / 30.0;
+    let mut night = Night::default();
+    let mut started: Option<f32> = None;
+    let mut facing: Option<(BossKind, f32)> = None;
+    let mut last_hp: Vec<f32> = w.heroes.iter().map(|h| h.p.hp).collect();
+    for f in 0..(secs / dt) as u32 {
+        if w.pause == Pause::Choosing {
+            for h in 0..w.heroes.len() {
+                let hero = &w.heroes[h];
+                // Weapons first (the highest first), then new weapons, then the rest.
+                let rank = |c: &Choice| match *c {
+                    Choice::UpWeapon(i) => 100 + hero.weapons.get(i).map_or(0, |wp| wp.level as i32),
+                    Choice::NewWeapon(_) => 80,
+                    Choice::UpItem(_) => 60,
+                    Choice::NewItem(_) => 50,
+                    _ => 0,
+                };
+                let idx = hero.choices.iter().enumerate().max_by_key(|(_, c)| rank(c)).map_or(0, |(i, _)| i);
+                let round = w.level_round;
+                w.pick(h, round, idx);
+            }
+        }
+        for h in 0..w.heroes.len() {
+            let me = w.heroes[h].p.pos;
+            let mut go = Vec2::ZERO;
+            let mut close = false;
+            for e in w.enemies.iter().filter(|e| !e.dead && !matches!(e.kind, EnemyKind::Prop(_))) {
+                let d = me - e.pos;
+                let dist = (d.length() - e.r).max(8.0);
+                if e.boss {
+                    // Round a lord at arm's length: in when far, out when near, always sideways.
+                    let out = d.normalize_or_zero();
+                    let side = vec2(-out.y, out.x);
+                    go += side * 5.0 + out * ((260.0 - dist) / 60.0).clamp(-3.0, 8.0);
+                    close |= dist < 40.0;
+                } else if dist < 170.0 {
+                    go += d.normalize_or_zero() * (170.0 / dist).powi(2);
+                    close |= dist < 30.0;
+                }
+            }
+            // Out of the line or circle a lord has marked.
+            for t in &w.telegraphs {
+                if t.line {
+                    let ab = t.b - t.a;
+                    let k = ((me - t.a).dot(ab) / ab.length_squared().max(1.0)).clamp(0.0, 1.0);
+                    let off = me - (t.a + ab * k);
+                    if off.length() < t.width + 40.0 {
+                        let side = if off.length() > 1.0 { off.normalize() } else { vec2(-ab.y, ab.x).normalize_or_zero() };
+                        go += side * 25.0;
+                    }
+                } else if me.distance(t.a) < t.width + 40.0 {
+                    go += (me - t.a).normalize_or_zero() * 25.0;
+                }
+            }
+            // A shock wave about to pass: roll through it.
+            for wave in &w.waves {
+                let gap = wave.r - me.distance(wave.pos);
+                if gap > -30.0 && gap < 5.0 {
+                    close = true;
+                }
+            }
+            // Off the fog ring's edge, where there is nowhere to go.
+            if let Some((c, r)) = w.arena {
+                if me.distance(c) > r - 110.0 {
+                    go += (c - me).normalize_or_zero() * 14.0;
+                }
+            }
+            for b in &w.ebullets {
+                let d = me - b.pos;
+                let dist = d.length().max(6.0);
+                if dist < 220.0 && b.vel.dot(d) > 0.0 {
+                    // Step out of its way, across its flight.
+                    let across = vec2(-b.vel.y, b.vel.x).normalize_or_zero();
+                    let side = if across.dot(d) >= 0.0 { across } else { -across };
+                    go += side * (220.0 / dist).powi(2) * 2.0;
+                    close |= dist < 46.0;
+                }
+            }
+            for p in w.pillars.iter().filter(|p| p.delay > 0.0) {
+                let d = me - p.pos;
+                if d.length() < p.r + 40.0 {
+                    go += d.normalize_or_zero() * 30.0;
+                }
+            }
+            // Away from the walls, where there is nowhere left to back into.
+            let half = field_half() - 260.0;
+            if me.x.abs() > half || me.y.abs() > half {
+                go += -me.normalize_or_zero() * 12.0;
+            }
+            if go.length() < 0.6 {
+                // Quiet: to the nearest thing worth picking up, or a slow circle.
+                let near = w.pickups.iter().map(|p| p.pos).filter(|p| p.distance(me) < 500.0).min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)));
+                let t = f as f32 * dt * 0.5 + h as f32;
+                go += near.map(|p| (p - me).normalize_or_zero()).unwrap_or(vec2(t.cos(), t.sin()));
+            }
+            w.heroes[h].input = Input { dir: go.normalize_or_zero(), roll: close, skill: true };
+        }
+        w.update(dt);
+        w.sounds.clear();
+        match (w.boss.is_some(), started) {
+            (true, None) => {
+                started = Some(w.time);
+                facing = w.boss_kind.map(|k| (k, 0.0));
+            }
+            (false, Some(t)) => {
+                night.fights.push(w.time - t);
+                if let Some((k, hurt)) = facing.take() {
+                    night.lords_met.push((k, w.time - t, hurt, false));
+                }
+                started = None;
+            }
+            _ => {}
+        }
+        for (mark, at) in [300.0f32, 600.0, 1200.0, 1790.0].iter().enumerate() {
+            if w.time >= *at && night.level_at[mark] == 0 {
+                night.level_at[mark] = w.level;
+            }
+        }
+        for (h, hero) in w.heroes.iter().enumerate() {
+            let lost = (last_hp[h] - hero.p.hp).max(0.0);
+            if let Some(f) = facing.as_mut() {
+                f.1 += lost;
+            }
+            night.hurt += lost;
+            night.hurt_by[((w.time / 300.0) as usize).min(6)] += lost;
+            last_hp[h] = hero.p.hp;
+        }
+        if w.dead || w.won {
+            break;
+        }
+    }
+    if let (Some((k, hurt)), Some(t)) = (facing, started) {
+        night.lords_met.push((k, w.time - t, hurt, w.dead));
+    }
+    night.time = w.time;
+    night.level = w.level;
+    night.kills = w.kills;
+    night.lords = w.bosses_killed;
+    night.won = w.won;
+    night.max_hp = w.heroes[0].stats.max_hp;
+    night.souls = w.heroes.iter().map(|h| h.p.souls + h.banked).sum::<u64>() / w.heroes.len().max(1) as u64;
+    night
+}
+
+/// A night played by the careful bot, for every difficulty and class: how long it lasted,
+/// how far the hero came, what it cost in health and what it paid in souls.
+/// `cargo test --release night_report -- --ignored --nocapture`; NIGHT_UPGRADES=1 plays with a
+/// Reliquary bought out.
+#[test]
+#[ignore]
+fn night_report() {
+    let bought = std::env::var("NIGHT_UPGRADES").is_ok();
+    let only = std::env::var("NIGHT_DIFF").ok();
+    for (name, diff) in PRESETS.iter().filter(|p| only.as_deref().is_none_or(|o| o.split(',').any(|n| n == p.0))) {
+        let mut rows = Vec::new();
+        for (k, class) in ALL_CLASSES.iter().enumerate() {
+            macroquad::rand::srand(300 + k as u64);
+            let mut w = World::new(*diff, None);
+            w.screen = vec2(1920.0, 1080.0);
+            let mut profile = Profile { unlocks: u64::MAX, ..Profile::default() };
+            if bought {
+                profile.meta = std::array::from_fn(|i| META[i].max);
+            }
+            w.add_hero(0, "Bot", *class, profile, false);
+            rows.push((class.name(), play(&mut w, VICTORY_TIME + 60.0)));
+        }
+        let n = rows.len() as f32;
+        let avg = rows.iter().map(|r| r.1.time).sum::<f32>() / n;
+        let wins = rows.iter().filter(|r| r.1.won).count();
+        let souls = rows.iter().map(|r| r.1.souls as f32).sum::<f32>() / n;
+        let per_min = rows.iter().map(|r| r.1.souls as f32 / (r.1.time / 60.0).max(1.0)).sum::<f32>() / n;
+        println!("{:8} avg {:02}:{:02}  wins {}/{}  souls {:.0} ({:.0}/min)  x{:.2}", name, avg as u32 / 60, avg as u32 % 60, wins, rows.len(), souls, per_min, diff.soul_mult());
+        for (class, r) in &rows {
+            let fights: Vec<u32> = r.fights.iter().map(|s| *s as u32).collect();
+            let hurt: Vec<u32> = r.hurt_by.iter().map(|h| *h as u32).collect();
+            println!(
+                "    {:16} {:02}:{:02} lv {:3} hp {:4.0} kills {:6} lords {:2} souls {:6} hurt {:6.0} by 5min {:?} fights {:?}",
+                class,
+                r.time as u32 / 60,
+                r.time as u32 % 60,
+                r.level,
+                r.max_hp,
+                r.kills,
+                r.lords,
+                r.souls,
+                r.hurt,
+                hurt,
+                fights
+            );
+        }
+    }
+}
+
+/// A night on each field for every class, on Knight with nothing bought: how the fields, their
+/// lords and the classes compare, and how fast a hero levels.
+/// `cargo test --release fields_report -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn fields_report() {
+    let mut by_class: Vec<(f32, u32)> = vec![(0.0, 0); ALL_CLASSES.len()];
+    #[allow(clippy::type_complexity)]
+    let mut lords: Vec<(BossKind, Vec<(f32, f32, bool)>)> = Vec::new();
+    let mut levels = [0u32; 4];
+    let mut level_n = [0u32; 4];
+    for biome in ALL_BIOMES {
+        let mut rows = Vec::new();
+        for (k, class) in ALL_CLASSES.iter().enumerate() {
+            macroquad::rand::srand(900 + k as u64 + biome as u64 * 31);
+            let mut w = World::new(PRESETS[1].1, None);
+            w.screen = vec2(1920.0, 1080.0);
+            w.biome = biome;
+            w.add_hero(0, "Bot", *class, Profile { unlocks: u64::MAX, ..Profile::default() }, false);
+            let n = play(&mut w, VICTORY_TIME + 60.0);
+            by_class[k].0 += n.time;
+            by_class[k].1 += n.won as u32;
+            for (kind, secs, hurt, fell) in &n.lords_met {
+                match lords.iter_mut().find(|l| l.0 == *kind) {
+                    Some(l) => l.1.push((*secs, *hurt, *fell)),
+                    None => lords.push((*kind, vec![(*secs, *hurt, *fell)])),
+                }
+            }
+            for i in 0..4 {
+                if n.level_at[i] > 0 {
+                    levels[i] += n.level_at[i];
+                    level_n[i] += 1;
+                }
+            }
+            rows.push(n);
+        }
+        let n = rows.len() as f32;
+        let avg = rows.iter().map(|r| r.time).sum::<f32>() / n;
+        let hurt = rows.iter().map(|r| r.hurt / (r.time / 60.0).max(1.0)).sum::<f32>() / n;
+        let kills = rows.iter().map(|r| r.kills as f32 / (r.time / 60.0).max(1.0)).sum::<f32>() / n;
+        let souls = rows.iter().map(|r| r.souls as f32).sum::<f32>() / n;
+        println!(
+            "{:22} avg {:02}:{:02}  wins {:2}/{}  hurt/min {:5.1}  kills/min {:5.0}  souls {:6.0}",
+            biome.name(),
+            avg as u32 / 60,
+            avg as u32 % 60,
+            rows.iter().filter(|r| r.won).count(),
+            rows.len(),
+            hurt,
+            kills,
+            souls
+        );
+    }
+    println!("-- classes over all fields");
+    for (k, class) in ALL_CLASSES.iter().enumerate() {
+        let avg = by_class[k].0 / ALL_BIOMES.len() as f32;
+        println!("  {:18} avg {:02}:{:02}  wins {}/{}", class.name(), avg as u32 / 60, avg as u32 % 60, by_class[k].1, ALL_BIOMES.len());
+    }
+    println!("-- lords: met, seconds stood, health taken, heroes felled");
+    for (kind, met) in &lords {
+        let n = met.len() as f32;
+        println!(
+            "  {:22} met {:3}  stood {:5.1}s  took {:6.1}  felled {:2}",
+            kind.name(),
+            met.len(),
+            met.iter().map(|m| m.0).sum::<f32>() / n,
+            met.iter().map(|m| m.1).sum::<f32>() / n,
+            met.iter().filter(|m| m.2).count()
+        );
+    }
+    let at = |i: usize| levels[i].checked_div(level_n[i]).unwrap_or(0);
+    println!("-- level by minute 5 / 10 / 20 / 30: {} / {} / {} / {}", at(0), at(1), at(2), at(3));
+}
+
+/// Six nights on Lord (four classes, where a hero with nothing bought falls about halfway) for
+/// a setting, to see what it is worth: how long they lasted, kills and health lost a minute,
+/// and the level reached by minute ten.
+fn six_nights(seed: u64, mut prepare: impl FnMut(&mut World)) -> (f32, f32, f32, f32) {
+    let classes = [Class::Wanderer, Class::Hexblade, Class::Arbalist, Class::BloodKnight, Class::Stormcaller, Class::Reaper];
+    let (mut time, mut kills, mut hurt, mut level) = (0.0, 0.0, 0.0, 0.0);
+    for (k, class) in classes.iter().enumerate() {
+        macroquad::rand::srand(seed + k as u64);
+        let mut w = World::new(PRESETS[2].1, None);
+        w.screen = vec2(1920.0, 1080.0);
+        w.add_hero(0, "Bot", *class, Profile { unlocks: u64::MAX, ..Profile::default() }, false);
+        prepare(&mut w);
+        let n = play(&mut w, VICTORY_TIME + 60.0);
+        let mins = (n.time / 60.0).max(1.0);
+        time += n.time;
+        kills += n.kills as f32 / mins;
+        hurt += n.hurt / mins;
+        level += if n.level_at[1] > 0 { n.level_at[1] } else { n.level } as f32;
+    }
+    let n = classes.len() as f32;
+    (time / n, kills / n, hurt / n, level / n)
+}
+
+/// What each passive is worth: a hero who starts with it at level 4, against one without.
+/// `cargo test --release item_report -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn item_report() {
+    let show = |name: &str, r: (f32, f32, f32, f32)| {
+        println!("  {:16} {:02}:{:02}  kills/min {:5.0}  hurt/min {:5.1}  level@10 {:4.1}", name, r.0 as u32 / 60, r.0 as u32 % 60, r.1, r.2, r.3)
+    };
+    show("(nothing)", six_nights(4000, |_| {}));
+    for item in ALL_ITEMS {
+        let r = six_nights(4000, |w| {
+            let h = &mut w.heroes[0];
+            h.items.push(Item { kind: item, level: 4.min(item.max_level()) });
+            h.recompute_stats();
+            h.p.hp = h.stats.max_hp;
+        });
+        show(item.name(), r);
+    }
+}
+
+/// What each curse and challenge costs a hero, against the marks it pays.
+/// `cargo test --release curse_report -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn curse_report() {
+    let show = |name: &str, r: (f32, f32, f32, f32)| {
+        println!("  {:16} {:02}:{:02}  kills/min {:5.0}  hurt/min {:5.1}  level@10 {:4.1}", name, r.0 as u32 / 60, r.0 as u32 % 60, r.1, r.2, r.3)
+    };
+    show("(none)", six_nights(5000, |_| {}));
+    for c in ALL_CURSES {
+        show(c.name(), six_nights(5000, |w| w.curses = c.bit()));
+    }
+    for c in ALL_CHALLENGES {
+        let r = six_nights(5000, |w| {
+            let h = &mut w.heroes[0];
+            h.challenges = c.bit();
+            h.recompute_stats();
+            h.p.hp = h.stats.max_hp;
+        });
+        show(c.name(), r);
+    }
+}
+
+/// What each elite trait costs a hero when every elite carries it.
+/// `cargo test --release elite_report -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn elite_report() {
+    let show = |name: &str, r: (f32, f32, f32, f32)| {
+        println!("  {:16} {:02}:{:02}  kills/min {:5.0}  hurt/min {:5.1}  level@10 {:4.1}", name, r.0 as u32 / 60, r.0 as u32 % 60, r.1, r.2, r.3)
+    };
+    for a in ALL_AFFIXES {
+        show(a.name(), six_nights(6000, |w| w.force_affix = Some(a)));
+    }
+}
+
+/// A boss rush by the careful bot for every difficulty and class: how many of the twelve lords
+/// fell, how long each stood and what the rush cost in health.
+/// `cargo test --release rush_report -- --ignored --nocapture`; NIGHT_UPGRADES=1 as above.
+#[test]
+#[ignore]
+fn rush_report() {
+    let bought = std::env::var("NIGHT_UPGRADES").is_ok();
+    for (name, diff) in PRESETS.iter() {
+        let mut rows = Vec::new();
+        for (k, class) in ALL_CLASSES.iter().enumerate() {
+            macroquad::rand::srand(700 + k as u64);
+            let mut w = World::new(*diff, None);
+            w.screen = vec2(1920.0, 1080.0);
+            let mut profile = Profile { unlocks: u64::MAX, ..Profile::default() };
+            if bought {
+                profile.meta = std::array::from_fn(|i| META[i].max);
+            }
+            w.add_hero(0, "Bot", *class, profile, false);
+            w.start_boss_rush();
+            rows.push(play(&mut w, 1500.0));
+        }
+        let n = rows.len() as f32;
+        let lords = rows.iter().map(|r| r.lords as f32).sum::<f32>() / n;
+        let stood = rows.iter().flat_map(|r| r.fights.iter()).sum::<f32>() / rows.iter().map(|r| r.fights.len()).sum::<usize>().max(1) as f32;
+        let hurt = rows.iter().map(|r| r.hurt / (r.time / 60.0).max(1.0)).sum::<f32>() / n;
+        let souls = rows.iter().map(|r| r.souls as f32).sum::<f32>() / n;
+        let time = rows.iter().map(|r| r.time).sum::<f32>() / n;
+        let felled: Vec<u32> = rows.iter().map(|r| r.lords).collect();
+        println!(
+            "{:8} wins {:2}/{}  lords {:4.1}/12  time {:02}:{:02}  a lord stood {:4.1}s  hurt/min {:5.1}  souls {:6.0}  by class {:?}",
+            name,
+            rows.iter().filter(|r| r.won).count(),
+            rows.len(),
+            lords,
+            time as u32 / 60,
+            time as u32 % 60,
+            stood,
+            hurt,
+            souls,
+            felled
+        );
+    }
+}
+
+/// The damage one weapon alone deals in `secs` against a horde that keeps walking at the
+/// hero: forty tireless knights that cannot die, the hero walking in a circle.
+fn weapon_dps(k: WeaponKind, level: u32, secs: f32) -> f32 {
+    macroquad::rand::srand(7);
+    let mut w = world_with(1, PRESETS[1].1);
+    w.next_boss = f32::MAX;
+    w.heroes[0].arm_for(k.field());
+    w.heroes[0].weapons = vec![Weapon { level, ..Weapon::new(k) }];
+    w.heroes[0].recompute_stats();
+    w.enemies.clear();
+    let home = w.heroes[0].p.pos;
+    for i in 0..40 {
+        let at = home + Vec2::from_angle(i as f32 * 0.61) * (140.0 + (i % 5) as f32 * 70.0);
+        let mut e = w.make_enemy(EnemyKind::Knight, at);
+        e.hp = 1e9;
+        e.max_hp = 1e9;
+        w.enemies.push(e);
+    }
+    let frames = (secs * 60.0) as u32;
+    for f in 0..frames {
+        let t = f as f32 / 60.0;
+        w.heroes[0].input = Input { dir: vec2((t * 0.8).cos(), (t * 0.8).sin()), roll: false, skill: false };
+        w.heroes[0].p.hp = w.heroes[0].stats.max_hp;
+        w.heroes[0].p.iframes = 1.0;
+        // Only the forty (newcomers are swept away below), and nothing levels up.
+        w.xp = 0.0;
+        w.pending_levels = 0;
+        w.pause = Pause::Running;
+        w.update(1.0 / 60.0);
+        w.enemies.retain(|e| e.max_hp >= 1e8);
+        for e in w.enemies.iter_mut() {
+            e.hp = 1e9;
+        }
+    }
+    w.heroes[0].dmg_weapon[k.idx()] as f32 / secs
+}
+
+/// Every weapon's damage per second alone, at levels 1, 5 and 10, place by place in the
+/// arsenals so the six weapons that share a place stand side by side.
+/// `cargo test --release weapon_dps_report -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn weapon_dps_report() {
+    let mut all: Vec<(String, [f32; 3])> = Vec::new();
+    for slot in 0..ARSENAL {
+        println!("-- place {}", slot);
+        for field in 0..ALL_WEAPONS.len() / ARSENAL {
+            let k = ALL_WEAPONS[field * ARSENAL + slot];
+            let d = [1, 5, WEAPON_MAX_LEVEL].map(|l| weapon_dps(k, l, 30.0));
+            println!("  {:18} {:7.1} {:7.1} {:7.1}", k.name(false), d[0], d[1], d[2]);
+            all.push((k.name(false).to_string(), d));
+        }
+    }
+    for (i, l) in [1, 5, WEAPON_MAX_LEVEL].iter().enumerate() {
+        let mut v: Vec<f32> = all.iter().map(|a| a.1[i]).collect();
+        v.sort_by(|a, b| a.total_cmp(b));
+        println!("level {:2}: min {:.1}  median {:.1}  max {:.1}", l, v[0], v[v.len() / 2], v[v.len() - 1]);
+    }
+}
+
 #[test]
 fn saves_survive_a_crash_mid_write() {
     let dir = std::env::temp_dir().join(format!("ashen_vigil_test_{}", std::process::id()));
@@ -545,9 +1023,9 @@ fn endless_night_goes_on_past_dawn() {
     // A lord must come; whether these walking-in-circles test heroes fell it depends on
     // which lord it is.
     assert!(w.bosses_spawned > bosses, "no boss came after dawn");
-    // Difficulty ramp: full strength only after three minutes.
+    // Difficulty ramp: full strength only after six minutes.
     let d = PRESETS[3].1;
-    assert!(d.at(0.0).hp < d.at(200.0).hp && d.at(200.0).hp == d.hp);
+    assert!(d.at(0.0).hp < d.at(200.0).hp && d.at(200.0).hp < d.hp && d.at(400.0).hp == d.hp);
     assert_eq!(PRESETS[0].1.at(0.0).hp, PRESETS[0].1.hp, "easy settings are not ramped");
 }
 
@@ -1076,7 +1554,7 @@ fn the_new_shrine_upgrades_take_effect() {
     assert!(full.rise_health(0.4) > base.rise_health(0.4));
     let mut wp = Weapon::new(WeaponKind::Blade);
     wp.level = WEAPON_MAX_LEVEL;
-    assert!(full.weapon_bonus(&wp) > 1.3 && base.weapon_bonus(&wp) == 1.0);
+    assert!(full.weapon_bonus(&wp) > 1.2 && base.weapon_bonus(&wp) == 1.0);
 }
 
 #[test]
@@ -1538,7 +2016,7 @@ fn curses_take_hold() {
     cursed.enemies.clear();
     simulate(&mut cursed, 2.0, false, |w, _| w.enemies.clear());
     assert!(cursed.heroes[0].p.hp <= 10.0 + 0.01, "Famine still let the hero regenerate");
-    assert!(curse_mult(cursed.curses) > 1.79);
+    assert!(curse_mult(cursed.curses) > 1.5);
 }
 
 #[test]
@@ -2496,7 +2974,7 @@ fn every_elite_gets_a_trait_that_works_and_travels() {
     w.enemies[i].affix = Affix::Volatile;
     w.enemies[i].hp = 1.0;
     w.hit(i, 50.0, Vec2::ZERO, Src { hero: 0, weapon: WeaponKind::Blade }, false);
-    assert!(w.ebullets.len() >= 10, "a volatile elite fell quietly");
+    assert!(w.ebullets.len() >= 8, "a volatile elite fell quietly");
     // Clients learn each elite's trait.
     let mut host = world_with(2, PRESETS[1].1);
     let mut e = host.make_enemy(EnemyKind::Wraith, host.heroes[1].p.pos + vec2(120.0, 0.0));
